@@ -1,5 +1,15 @@
 import { type BattleEvent, type BattleResult, runBattle } from './battle.js';
 import { type IrSet, makeFoes, makeIrSets, makeRushVariant } from './scenarios.js';
+import { understandingCard } from './cards.js';
+import {
+  chooseInScriptorium,
+  currentNode,
+  heroNames,
+  heroSpecs,
+  playFight,
+  scriptoriumOffer,
+  startRun,
+} from './run.js';
 
 const SEEDS = Array.from({ length: 50 }, (_, i) => i + 1);
 
@@ -123,6 +133,45 @@ function verboseRun(setName: string, seed: number): void {
   }
 }
 
+/** Демо мини-забега: дефолтные принципы, в скриптории берём первый концепт. */
+function demoRun(runSeed: number): void {
+  const state = startRun(runSeed);
+  console.log(`Мини-забег, seed=${runSeed}\n`);
+
+  console.log('Карточки «как понял» перед стартом:');
+  const names = heroNames(state);
+  for (const spec of heroSpecs(state)) {
+    const card = understandingCard({ name: spec.name, character: spec.character }, spec.rules, names);
+    console.log(`  ${card.heroName} [${card.character}]`);
+    for (const line of card.lines) console.log(`    · ${line}`);
+  }
+  console.log('');
+
+  while (state.status === 'ongoing') {
+    const node = currentNode(state)!;
+    if (node.kind === 'fight') {
+      const alive = state.heroes.filter((h) => h.alive).map((h) => h.name);
+      const r = playFight(state);
+      console.log(
+        `Бой ${node.index + 1}: [${alive.join(', ')}] → ${
+          r.winner === 'party' ? 'победа' : r.winner === 'foe' ? 'поражение' : 'ничья'
+        } за ${r.rounds} раундов`,
+      );
+    } else {
+      const offer = scriptoriumOffer(state);
+      const choice = offer.concepts[0]
+        ? ({ kind: 'concept', id: offer.concepts[0] } as const)
+        : offer.slotHero
+          ? ({ kind: 'slot', heroId: offer.slotHero } as const)
+          : ({ kind: 'skip' } as const);
+      chooseInScriptorium(state, choice);
+      console.log(`Скрипторий: ${state.log.at(-1)}`);
+    }
+  }
+  console.log(`\nИтог забега: ${state.status === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}`);
+  console.log(state.log.map((l) => `  ${l}`).join('\n'));
+}
+
 const [cmd = 'gateA', ...rest] = process.argv.slice(2);
 if (cmd === 'gateA') {
   gateA();
@@ -130,6 +179,8 @@ if (cmd === 'gateA') {
   const setName = rest[0] ?? 'rush';
   const seed = Number(rest[1] ?? 1);
   verboseRun(setName, seed);
+} else if (cmd === 'demo-run') {
+  demoRun(Number(rest[0] ?? 1));
 } else {
-  console.log('Использование: pnpm sim [gateA | run <набор> <seed>]');
+  console.log('Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed>]');
 }

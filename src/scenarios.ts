@@ -1,5 +1,6 @@
 import type { Rule } from './ir.js';
 import type { UnitSpec } from './battle.js';
+import { grunt, packLeader } from './foes.js';
 
 /**
  * Сценарий Ворот A: одни и те же 3 героя и 4 врага, 5 наборов принципов партии.
@@ -18,41 +19,18 @@ function hero(
   return { id, name, side: 'party', character, rules, ...stats };
 }
 
-const GROM = { maxHp: 40, atk: 8, range: 1, speed: 5, move: 3, spawn: { x: 2, y: 3 } } as const;
-const DART = { maxHp: 24, atk: 6, range: 5, speed: 6, move: 3, spawn: { x: 1, y: 2 } } as const;
-const LIA = { maxHp: 20, atk: 8, range: 4, speed: 4, move: 2, spawn: { x: 1, y: 5 } } as const;
+export const HERO_STATS = {
+  grom: { maxHp: 40, atk: 8, range: 1, speed: 5, move: 3, spawn: { x: 2, y: 3 } },
+  dart: { maxHp: 24, atk: 6, range: 5, speed: 6, move: 3, spawn: { x: 1, y: 2 } },
+  lia: { maxHp: 20, atk: 8, range: 4, speed: 4, move: 2, spawn: { x: 1, y: 5 } },
+} as const;
+
+const GROM = HERO_STATS.grom;
+const DART = HERO_STATS.dart;
+const LIA = HERO_STATS.lia;
 
 export function makeFoes(): UnitSpec[] {
-  const grunt = (n: number): UnitSpec => ({
-    id: `grunt${n}`,
-    name: `Рубака ${n}`,
-    side: 'foe',
-    maxHp: 18,
-    atk: 5,
-    range: 1,
-    speed: 4,
-    move: 3,
-    character: 'plain',
-    rules: [
-      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, source: 'рубить ближайшего' }),
-    ],
-  });
-  const leader: UnitSpec = {
-    id: 'boss',
-    name: 'Вожак',
-    side: 'foe',
-    maxHp: 28,
-    atk: 7,
-    range: 1,
-    speed: 5,
-    move: 3,
-    tags: ['leader'],
-    character: 'plain',
-    rules: [
-      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'вожак: добивать раненых' }),
-    ],
-  };
-  return [leader, grunt(1), grunt(2), grunt(3)];
+  return [packLeader(), grunt(1), grunt(2), grunt(3)];
 }
 
 export interface IrSet {
