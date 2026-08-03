@@ -4,9 +4,9 @@ import type { CompilerOutput } from './schema.js';
 import { PROMPT_VERSION } from './prompt.js';
 
 /**
- * Кэш компиляций. Ключ — полный (текст + словарь + характер + союзники +
- * версия промпта): без хэша нет и коллизий. TTL не нужен — компиляция
- * детерминированно зависит только от ключа.
+ * Кэш компиляций. Ключ — полный (модель + текст + словарь + характер +
+ * союзники + версия промпта): без хэша нет и коллизий. TTL не нужен —
+ * компиляция детерминированно зависит только от ключа.
  */
 
 export interface CompilerCache {
@@ -20,9 +20,12 @@ export function cacheKey(args: {
   character: CharacterId;
   allyIds: readonly string[];
   maxPhrases: number;
+  /** Идентификатор модели: смена провайдера не должна отдавать чужой кэш. */
+  model: string;
 }): string {
   return JSON.stringify([
     PROMPT_VERSION,
+    args.model,
     args.text.trim(),
     [...args.vocab].sort(),
     args.character,

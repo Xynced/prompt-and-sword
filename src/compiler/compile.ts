@@ -26,7 +26,11 @@ export interface CompileRequest {
 }
 
 /** Один вызов модели: system + текст игрока + строгая схема → сырой JSON. */
-export type ModelCall = (system: string, userText: string, schema: object) => Promise<unknown>;
+export interface ModelCall {
+  (system: string, userText: string, schema: object): Promise<unknown>;
+  /** Идентификатор модели — входит в ключ кэша (смена модели ≠ старый кэш). */
+  model: string;
+}
 
 export type FreeCompileResult =
   | { ok: true; phrases: PhraseDraft[]; rules: Rule[]; uncertainty: string[]; cached: boolean }
@@ -46,6 +50,7 @@ export async function compileFreeText(
     character: req.character,
     allyIds,
     maxPhrases: req.maxPhrases,
+    model: call.model,
   });
 
   const cachedOutput = cache?.get(key);
@@ -88,13 +93,26 @@ export async function compileFreeText(
   };
 }
 
-/** Живой ModelCall через Anthropic API (strict tool use, claude-sonnet-5). */
-export function anthropicModelCall(client: import('@anthropic-ai/sdk').default): ModelCall {
-  return async (system, userText, schema) => {
+/** Финальная модель по умолчанию; на время отладки заменяется через env. */
+export const DEFAULT_MODEL = 'claude-sonnet-5';
+
+/**
+ * Живой ModelCall через @anthropic-ai/sdk (strict tool use). Универсален:
+ * baseURL клиента может указывать на любой Anthropic-совместимый эндпоинт
+ * (DeepSeek, LiteLLM и т.п.), model — его имя модели. Если провайдер не
+ * поддержал принудительный вызов инструмента, JSON вынимается из текста;
+ * валидация выхода в любом случае наша (validateOutput + compilePhrase).
+ */
+export function anthropicModelCall(
+  client: import('@anthropic-ai/sdk').default,
+  model: string = DEFAULT_MODEL,
+): ModelCall {
+  const call = async (system: string, userText: string, schema: object): Promise<unknown> => {
     const resp = await client.messages.create({
-      model: 'claude-sonnet-5',
+      model,
       max_tokens: 2048,
-      thinking: { type: 'disabled' },
+      // thinking — параметр Claude; чужим моделям его не шлём.
+      ...(model.startsWith('claude') ? { thinking: { type: 'disabled' as const } } : {}),
       system,
       messages: [{ role: 'user', content: userText }],
       tools: [
@@ -108,7 +126,11 @@ export function anthropicModelCall(client: import('@anthropic-ai/sdk').default):
       tool_choice: { type: 'tool', name: 'compile_principle' },
     });
     const block = resp.content.find((b) => b.type === 'tool_use');
-    if (!block) throw new Error('модель не вызвала инструмент compile_principle');
-    return block.input;
+    if (block) return block.input;
+    const text = resp.content.find((b) => b.type === 'text')?.text;
+    const json = text?.match(/\{[\s\S]*\}/)?.[0];
+    if (!json) throw new Error('модель не вызвала инструмент и не вернула JSON');
+    return JSON.parse(json);
   };
+  return Object.assign(call, { model });
 }

@@ -197,23 +197,36 @@ function compileRequest(text: string, heroId: string): CompileRequest {
   };
 }
 
+/**
+ * Провайдер настраивается через env (по умолчанию — Anthropic / claude-sonnet-5):
+ *   COMPILER_MODEL     — имя модели (напр. deepseek-chat)
+ *   COMPILER_BASE_URL  — Anthropic-совместимый эндпоинт (напр. https://api.deepseek.com/anthropic)
+ *   COMPILER_API_KEY   — ключ провайдера (иначе ANTHROPIC_API_KEY)
+ */
 async function liveCall(): Promise<ModelCall> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  return anthropicModelCall(new Anthropic());
+  const client = new Anthropic({
+    ...(process.env.COMPILER_API_KEY ? { apiKey: process.env.COMPILER_API_KEY } : {}),
+    ...(process.env.COMPILER_BASE_URL ? { baseURL: process.env.COMPILER_BASE_URL } : {}),
+  });
+  return anthropicModelCall(client, process.env.COMPILER_MODEL);
 }
 
 async function compileCmd(text: string, heroId: string): Promise<void> {
   const req = compileRequest(text, heroId);
-  const r = await compileFreeText(req, await liveCall(), fileCache());
+  const call = await liveCall();
+  const r = await compileFreeText(req, call, fileCache());
   if (!r.ok) {
     console.error(`✗ ${r.error}`);
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.error('  (нет ANTHROPIC_API_KEY — оффлайн-режим работает через конструктор)');
+    if (!process.env.COMPILER_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+      console.error('  (нет COMPILER_API_KEY/ANTHROPIC_API_KEY — оффлайн-режим работает через конструктор)');
     }
     process.exitCode = 1;
     return;
   }
-  console.log(`«${text}» → ${req.heroName} [${req.character}]${r.cached ? ' (из кэша)' : ''}\n`);
+  console.log(
+    `«${text}» → ${req.heroName} [${req.character}] · ${call.model}${r.cached ? ' (из кэша)' : ''}\n`,
+  );
   const names = { ...req.allies, [req.heroId]: req.heroName };
   console.log('Фразы (до линзы):');
   for (const ph of r.phrases) console.log(`  · ${describeDraft(ph, names)}`);

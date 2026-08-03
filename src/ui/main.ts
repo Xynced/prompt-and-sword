@@ -33,9 +33,14 @@ let timer: number | null = null;
 let editError: Record<string, string> = {};
 
 // ---------- LLM-компилятор свободного текста (опционален: без ключа — конструктор) ----------
+// Провайдер настраивается в .env: VITE_COMPILER_API_KEY (или VITE_ANTHROPIC_API_KEY),
+// VITE_COMPILER_MODEL и VITE_COMPILER_BASE_URL — любой Anthropic-совместимый эндпоинт
+// (напр. DeepSeek для отладки, claude-sonnet-5 по умолчанию для финала).
 
-const API_KEY: string | undefined = (import.meta as unknown as { env?: Record<string, string> }).env
-  ?.VITE_ANTHROPIC_API_KEY;
+const ENV = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
+const API_KEY: string | undefined = ENV.VITE_COMPILER_API_KEY ?? ENV.VITE_ANTHROPIC_API_KEY;
+const COMPILER_MODEL: string | undefined = ENV.VITE_COMPILER_MODEL;
+const COMPILER_BASE_URL: string | undefined = ENV.VITE_COMPILER_BASE_URL;
 const textMode: Record<string, boolean> = {};
 const heroText: Record<string, string> = {};
 const heroUncertainty: Record<string, string[]> = {};
@@ -66,7 +71,12 @@ let modelCall: ModelCall | null = null;
 async function getModelCall(): Promise<ModelCall> {
   if (!modelCall) {
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    modelCall = anthropicModelCall(new Anthropic({ apiKey: API_KEY, dangerouslyAllowBrowser: true }));
+    const client = new Anthropic({
+      apiKey: API_KEY,
+      dangerouslyAllowBrowser: true,
+      ...(COMPILER_BASE_URL ? { baseURL: COMPILER_BASE_URL } : {}),
+    });
+    modelCall = anthropicModelCall(client, COMPILER_MODEL);
   }
   return modelCall;
 }
@@ -253,7 +263,7 @@ function heroesHtml(): string {
       const err = editError[h.id] ? `<div class="error">${esc(editError[h.id]!)}</div>` : '';
       const toggle = API_KEY
         ? `<button class="mode-toggle" data-action="toggle-text" data-hero="${h.id}">${inTextMode ? '⬒ чипсы' : '✎ текстом'}</button>`
-        : `<span class="dim" title="Задай VITE_ANTHROPIC_API_KEY в .env, чтобы писать принципы текстом">✎ —</span>`;
+        : `<span class="dim" title="Задай VITE_COMPILER_API_KEY в .env, чтобы писать принципы текстом">✎ —</span>`;
       const editor = inTextMode
         ? `<textarea class="principle-text" data-hero="${h.id}" rows="3"
              placeholder="Опиши принципы словами — ${h.name} поймёт по-своему">${esc(heroText[h.id] ?? '')}</textarea>

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type CompileRequest, type ModelCall, compileFreeText } from '../src/compiler/compile.js';
+import {
+  type CompileRequest,
+  type ModelCall,
+  anthropicModelCall,
+  compileFreeText,
+} from '../src/compiler/compile.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import { memoryCache } from '../src/compiler/cache.js';
 import { compilePhrase } from '../src/constructor.js';
@@ -26,7 +31,11 @@ const goodOutput = {
   uncertainty: [],
 };
 
-const mock = (raw: unknown): ModelCall => vi.fn(async () => raw);
+const mock = (raw: unknown, model = 'mock-model'): ModelCall =>
+  Object.assign(
+    vi.fn(async () => raw),
+    { model },
+  );
 
 describe('buildCompileSchema', () => {
   it('закрытые концепты не попадают в схему', () => {
@@ -155,10 +164,37 @@ describe('compileFreeText', () => {
     expect(call).toHaveBeenCalledTimes(2);
   });
 
+  it('другая модель — другой ключ кэша (смена провайдера не отдаёт чужой кэш)', async () => {
+    const cache = memoryCache();
+    const deepseek = mock(goodOutput, 'deepseek-chat');
+    const sonnet = mock(goodOutput, 'claude-sonnet-5');
+    await compileFreeText(req, deepseek, cache);
+    await compileFreeText(req, sonnet, cache);
+    expect(deepseek).toHaveBeenCalledTimes(1);
+    expect(sonnet).toHaveBeenCalledTimes(1); // кэш deepseek не подошёл
+  });
+
+  it('универсальный провайдер: без tool_use JSON вынимается из текста, thinking чужим моделям не шлётся', async () => {
+    const create = vi.fn(async (_params: unknown) => ({
+      content: [{ type: 'text', text: 'Вот результат:\n```json\n' + JSON.stringify(goodOutput) + '\n```' }],
+    }));
+    const fakeClient = { messages: { create } } as unknown as Parameters<typeof anthropicModelCall>[0];
+    const call = anthropicModelCall(fakeClient, 'deepseek-chat');
+    expect(call.model).toBe('deepseek-chat');
+    const r = await compileFreeText(req, call);
+    expect(r.ok).toBe(true);
+    const params = create.mock.calls[0]![0] as unknown as Record<string, unknown>;
+    expect(params.model).toBe('deepseek-chat');
+    expect('thinking' in params).toBe(false); // параметр Claude — чужой провайдер может на нём упасть
+  });
+
   it('ошибка вызова модели — ok:false, не исключение', async () => {
-    const failing: ModelCall = async () => {
-      throw new Error('нет сети');
-    };
+    const failing: ModelCall = Object.assign(
+      async () => {
+        throw new Error('нет сети');
+      },
+      { model: 'mock-model' },
+    );
     const r = await compileFreeText(req, failing);
     expect(r.ok).toBe(false);
     if (r.ok) return;
