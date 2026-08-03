@@ -40,6 +40,12 @@ select {
 .hero.dead { opacity: 0.45; }
 .hero-name { font-weight: bold; }
 .phrase-row { display: flex; gap: 4px; margin: 4px 0; flex-wrap: wrap; align-items: center; }
+.mode-toggle { font-size: 11px; padding: 2px 8px; margin-left: 6px; }
+textarea.principle-text {
+  display: block; width: 100%; margin: 4px 0; padding: 6px;
+  background: var(--panel); color: var(--ink); border: 1px solid #3a362f;
+  font-family: inherit; font-size: 13px; resize: vertical;
+}
 .error { color: var(--foe); font-size: 12px; }
 .card-line { font-size: 13px; padding-left: 12px; }
 

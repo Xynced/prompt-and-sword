@@ -1,6 +1,9 @@
 import { type BattleResult, runBattle } from '../battle.js';
 import { understandingCard } from '../cards.js';
 import { type ConditionDraft, type PhraseDraft, type PreferenceDraft, compilePhrase } from '../constructor.js';
+import { type ModelCall, anthropicModelCall, compileFreeText } from '../compiler/compile.js';
+import type { CompilerCache } from '../compiler/cache.js';
+import type { CompilerOutput } from '../compiler/schema.js';
 import type { Rule } from '../ir.js';
 import { CONCEPTS, type ConceptId } from '../vocab.js';
 import {
@@ -28,6 +31,77 @@ let battle: BattleResult | null = null;
 let playIdx = 0;
 let timer: number | null = null;
 let editError: Record<string, string> = {};
+
+// ---------- LLM-компилятор свободного текста (опционален: без ключа — конструктор) ----------
+
+const API_KEY: string | undefined = (import.meta as unknown as { env?: Record<string, string> }).env
+  ?.VITE_ANTHROPIC_API_KEY;
+const textMode: Record<string, boolean> = {};
+const heroText: Record<string, string> = {};
+const heroUncertainty: Record<string, string[]> = {};
+const compiling: Record<string, boolean> = {};
+
+/** Кэш компиляций в localStorage (аналог .cache/ для браузера, без TTL). */
+function localStorageCache(): CompilerCache {
+  const LS_KEY = 'ps.compilerCache';
+  const load = (): Record<string, CompilerOutput> => {
+    try {
+      return JSON.parse(localStorage.getItem(LS_KEY) ?? '{}') as Record<string, CompilerOutput>;
+    } catch {
+      return {};
+    }
+  };
+  return {
+    get: (k) => load()[k],
+    set: (k, v) => {
+      const data = load();
+      data[k] = v;
+      localStorage.setItem(LS_KEY, JSON.stringify(data));
+    },
+  };
+}
+const compilerCache = localStorageCache();
+
+let modelCall: ModelCall | null = null;
+async function getModelCall(): Promise<ModelCall> {
+  if (!modelCall) {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    modelCall = anthropicModelCall(new Anthropic({ apiKey: API_KEY, dangerouslyAllowBrowser: true }));
+  }
+  return modelCall;
+}
+
+async function compileHeroText(heroId: string): Promise<void> {
+  const hero = run.heroes.find((h) => h.id === heroId);
+  if (!hero || compiling[heroId]) return;
+  compiling[heroId] = true;
+  editError[heroId] = '';
+  renderNodeScreen();
+  const r = await compileFreeText(
+    {
+      text: heroText[heroId] ?? '',
+      heroId,
+      heroName: hero.name,
+      character: hero.character,
+      vocab: run.vocab,
+      allies: Object.fromEntries(
+        run.heroes.filter((h) => h.alive && h.id !== heroId).map((h) => [h.id, h.name]),
+      ),
+      maxPhrases: hero.slots,
+    },
+    await getModelCall(),
+    compilerCache,
+  );
+  compiling[heroId] = false;
+  if (r.ok) {
+    const res = setPhrases(run, heroId, r.phrases);
+    editError[heroId] = res.ok ? '' : res.error;
+    heroUncertainty[heroId] = r.uncertainty;
+  } else {
+    editError[heroId] = r.error;
+  }
+  renderNodeScreen();
+}
 
 // ---------- утилиты ----------
 
@@ -166,14 +240,29 @@ function heroesHtml(): string {
           return r;
         })
         .filter((r): r is NonNullable<typeof r> => r !== null);
-      const card = understandingCard({ name: h.name, character: h.character }, rules, names);
+      const inTextMode = !!textMode[h.id];
+      const card = understandingCard(
+        { name: h.name, character: h.character },
+        rules,
+        names,
+        inTextMode ? (heroUncertainty[h.id] ?? []) : [],
+      );
       const cardHtml = card.lines
         .map((l) => `<div class="card-line ${l.includes('⚠') ? 'warn' : 'dim'}">· ${esc(l)}</div>`)
         .join('');
       const err = editError[h.id] ? `<div class="error">${esc(editError[h.id]!)}</div>` : '';
+      const toggle = API_KEY
+        ? `<button class="mode-toggle" data-action="toggle-text" data-hero="${h.id}">${inTextMode ? '⬒ чипсы' : '✎ текстом'}</button>`
+        : `<span class="dim" title="Задай VITE_ANTHROPIC_API_KEY в .env, чтобы писать принципы текстом">✎ —</span>`;
+      const editor = inTextMode
+        ? `<textarea class="principle-text" data-hero="${h.id}" rows="3"
+             placeholder="Опиши принципы словами — ${h.name} поймёт по-своему">${esc(heroText[h.id] ?? '')}</textarea>
+           <button data-action="compile-text" data-hero="${h.id}" ${compiling[h.id] ? 'disabled' : ''}>
+             ${compiling[h.id] ? '…понимает' : 'Понять'}</button>`
+        : `${rows}${addBtn}`;
       return `<div class="hero">
-        <div class="hero-name">${h.name} <span class="dim">[${h.character}]</span></div>
-        ${rows}${err}${addBtn}
+        <div class="hero-name">${h.name} <span class="dim">[${h.character}]</span> ${toggle}</div>
+        ${editor}${err}
         <div class="dim" style="margin-top:6px">Как понял:</div>${cardHtml}
       </div>`;
     })
@@ -259,7 +348,13 @@ function bindNodeScreen(): void {
       const heroId = sel.dataset.hero!;
       const r = setPhrases(run, heroId, draftsFromDom(heroId));
       editError[heroId] = r.ok ? '' : r.error;
+      delete heroUncertainty[heroId]; // правка чипсами — заметки компилятора устарели
       renderNodeScreen();
+    });
+  }
+  for (const ta of app.querySelectorAll<HTMLTextAreaElement>('textarea.principle-text')) {
+    ta.addEventListener('input', () => {
+      heroText[ta.dataset.hero!] = ta.value;
     });
   }
   for (const btn of app.querySelectorAll<HTMLButtonElement>('button[data-action]')) {
@@ -284,6 +379,7 @@ function bindNodeScreen(): void {
         const drafts = [...draftsFromDom(heroId), { condition: { id: 'always' } as const, preference: { id: 'act.retreat' } as const }];
         const r = setPhrases(run, heroId, drafts);
         editError[heroId] = r.ok ? '' : r.error;
+        delete heroUncertainty[heroId];
         renderNodeScreen();
       } else if (a === 'del-phrase') {
         const heroId = btn.dataset.hero!;
@@ -291,7 +387,15 @@ function bindNodeScreen(): void {
         drafts.splice(Number(btn.dataset.idx), 1);
         const r = setPhrases(run, heroId, drafts);
         editError[heroId] = r.ok ? '' : r.error;
+        delete heroUncertainty[heroId];
         renderNodeScreen();
+      } else if (a === 'toggle-text') {
+        const heroId = btn.dataset.hero!;
+        textMode[heroId] = !textMode[heroId];
+        editError[heroId] = '';
+        renderNodeScreen();
+      } else if (a === 'compile-text') {
+        void compileHeroText(btn.dataset.hero!);
       }
     });
   }
