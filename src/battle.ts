@@ -22,6 +22,7 @@ export interface UnitSpec {
 }
 
 export type BattleEvent =
+  | { t: 'spawn'; unit: string; name: string; side: Side; pos: Pos; maxHp: number }
   | { t: 'round'; n: number }
   | ({ t: 'decision'; unit: string; round: number } & Pick<Decision, 'factors'> & {
       to: Pos;
@@ -92,6 +93,9 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
   const rng = mulberry32(seed);
   const units = placeUnits(specs, rng);
   const events: BattleEvent[] = [];
+  for (const u of units) {
+    events.push({ t: 'spawn', unit: u.id, name: u.name, side: u.side, pos: { ...u.pos }, maxHp: u.maxHp });
+  }
   let rounds = 0;
 
   for (let round = 1; round <= MAX_ROUNDS; round++) {
