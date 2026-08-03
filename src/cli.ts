@@ -1,6 +1,10 @@
+import { readFileSync, readdirSync } from 'node:fs';
 import { type BattleEvent, type BattleResult, runBattle } from './battle.js';
 import { type IrSet, makeFoes, makeIrSets, makeRushVariant } from './scenarios.js';
 import { understandingCard } from './cards.js';
+import { describeDraft } from './constructor.js';
+import { type CompileRequest, anthropicModelCall, compileFreeText, type ModelCall } from './compiler/compile.js';
+import { fileCache } from './compiler/cache-node.js';
 import {
   chooseInScriptorium,
   currentNode,
@@ -172,6 +176,120 @@ function demoRun(runSeed: number): void {
   console.log(state.log.map((l) => `  ${l}`).join('\n'));
 }
 
+// ---------- LLM-компилятор (живые вызовы; кэш в .cache/) ----------
+
+/** Контекст компиляции из стартового состояния забега (STARTING_VOCAB). */
+function compileRequest(text: string, heroId: string): CompileRequest {
+  const state = startRun(1);
+  const hero = state.heroes.find((h) => h.id === heroId);
+  if (!hero) throw new Error(`Нет героя ${heroId} (есть: ${state.heroes.map((h) => h.id).join(', ')})`);
+  const allies = Object.fromEntries(
+    state.heroes.filter((h) => h.id !== heroId).map((h) => [h.id, h.name]),
+  );
+  return {
+    text,
+    heroId: hero.id,
+    heroName: hero.name,
+    character: hero.character,
+    vocab: state.vocab,
+    allies,
+    maxPhrases: hero.slots,
+  };
+}
+
+async function liveCall(): Promise<ModelCall> {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  return anthropicModelCall(new Anthropic());
+}
+
+async function compileCmd(text: string, heroId: string): Promise<void> {
+  const req = compileRequest(text, heroId);
+  const r = await compileFreeText(req, await liveCall(), fileCache());
+  if (!r.ok) {
+    console.error(`✗ ${r.error}`);
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.error('  (нет ANTHROPIC_API_KEY — оффлайн-режим работает через конструктор)');
+    }
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`«${text}» → ${req.heroName} [${req.character}]${r.cached ? ' (из кэша)' : ''}\n`);
+  const names = { ...req.allies, [req.heroId]: req.heroName };
+  console.log('Фразы (до линзы):');
+  for (const ph of r.phrases) console.log(`  · ${describeDraft(ph, names)}`);
+  const card = understandingCard({ name: req.heroName, character: req.character }, r.rules, names, r.uncertainty);
+  console.log('\nКак понял (после линзы):');
+  for (const line of card.lines) console.log(`  · ${line}`);
+}
+
+/**
+ * Прогон корпуса формулировок (подготовка к Воротам C).
+ * Формат строки: `текст` или `текст => ожидаемое понимание` (формат describeDraft,
+ * фразы через ' | '). Пустые строки и # — пропускаются.
+ */
+async function corpusCmd(files: string[], heroId: string): Promise<void> {
+  if (files.length === 0) {
+    try {
+      files = readdirSync('corpus')
+        .filter((f) => f.endsWith('.txt'))
+        .map((f) => `corpus/${f}`);
+    } catch {
+      files = [];
+    }
+    if (files.length === 0) {
+      console.error('Нет файлов корпуса (corpus/*.txt)');
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const call = await liveCall();
+  const cache = fileCache();
+  let total = 0;
+  let compiled = 0;
+  let uncertain = 0;
+  let withIntent = 0;
+  let intentMatch = 0;
+  for (const file of files) {
+    console.log(`— ${file} —`);
+    const lines = readFileSync(file, 'utf8')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith('#'));
+    for (const line of lines) {
+      const [text = '', expected] = line.split('=>').map((s) => s.trim());
+      total++;
+      const req = compileRequest(text, heroId);
+      const r = await compileFreeText(req, call, cache);
+      if (!r.ok) {
+        console.log(`  ✗ «${text}» — ${r.error}`);
+        continue;
+      }
+      compiled++;
+      if (r.uncertainty.length > 0) uncertain++;
+      const names = { ...req.allies, [req.heroId]: req.heroName };
+      const actual = r.phrases.map((ph) => describeDraft(ph, names)).join(' | ');
+      let mark = '✓';
+      if (expected) {
+        withIntent++;
+        if (actual === expected) {
+          intentMatch++;
+        } else {
+          mark = '≠';
+        }
+      }
+      console.log(`  ${mark} «${text}»`);
+      console.log(`      → ${actual}`);
+      if (mark === '≠') console.log(`      ожидалось: ${expected}`);
+      for (const u of r.uncertainty) console.log(`      ⚠ ${u}`);
+    }
+  }
+  const pct = (n: number, d: number): string => (d === 0 ? '—' : `${((n / d) * 100).toFixed(0)}%`);
+  console.log(`\nИтог: ${total} формулировок`);
+  console.log(`  скомпилировано: ${compiled} (${pct(compiled, total)}, цель Ворот C ≥85% с совпадением намерения)`);
+  console.log(`  с неуверенностью: ${uncertain} (${pct(uncertain, compiled)})`);
+  console.log(`  совпало с намерением: ${intentMatch}/${withIntent} (${pct(intentMatch, withIntent)} из строк с «=>»)`);
+}
+
 const [cmd = 'gateA', ...rest] = process.argv.slice(2);
 if (cmd === 'gateA') {
   gateA();
@@ -181,6 +299,18 @@ if (cmd === 'gateA') {
   verboseRun(setName, seed);
 } else if (cmd === 'demo-run') {
   demoRun(Number(rest[0] ?? 1));
+} else if (cmd === 'compile') {
+  const text = rest[0];
+  if (!text) {
+    console.error('Использование: pnpm sim compile "<текст принципа>" [heroId=grom]');
+    process.exitCode = 1;
+  } else {
+    await compileCmd(text, rest[1] ?? 'grom');
+  }
+} else if (cmd === 'corpus') {
+  await corpusCmd(rest.filter((a) => a.endsWith('.txt')), 'grom');
 } else {
-  console.log('Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed>]');
+  console.log(
+    'Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed> | compile "<текст>" [герой] | corpus [файлы…]]',
+  );
 }
