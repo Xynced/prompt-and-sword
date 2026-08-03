@@ -62,17 +62,20 @@ function lensMark(rule: Rule): string {
 /**
  * Строит карточку понимания: сырые правила героя → линза → текст.
  * Та же applyLens, что и в бою — карточка не может разойтись с поведением.
+ * uncertainty — заметки LLM-компилятора («не знает слова X»), тоже видны до боя.
  */
 export function understandingCard(
   hero: { name: string; character: CharacterId },
   rawRules: Rule[],
   names: Record<string, string> = {},
+  uncertainty: readonly string[] = [],
 ): UnderstandingCard {
   const nm = (id: string): string => names[id] ?? id;
   const compiled = applyLens(hero.character, rawRules);
   const lines = compiled.rules.map(
     (r) => `${condRu(r.when, nm)}${prefRu(r.then, nm)}${lensMark(r)}`,
   );
+  for (const u of uncertainty) lines.push(`⚠ ${u}`);
   if (hero.character === 'literalist') {
     lines.push('нет правила на ситуацию — стою и защищаюсь ⚠ буквалист');
   }
