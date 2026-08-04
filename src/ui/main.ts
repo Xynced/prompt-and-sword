@@ -34,6 +34,7 @@ import {
 } from '../run.js';
 import { foeIntel } from '../foes.js';
 import { heroArchetype } from '../heroes.js';
+import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../playtest.js';
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU } from '../lens.js';
 import type { LensId, Side } from '../types.js';
@@ -81,6 +82,30 @@ const visited = new Set<number>([run.at]);
 /** Онбординг: после поражения в уроке предлагаем переписать приказ. */
 let lessonNudge = false;
 let fitScale = 1;
+
+// ---------- журнал плейтеста (Ворота B/C) ----------
+// Копит замыслы словами (корпус Ворот C) и поведение тестера (спарринг,
+// переписывание приказов — критерии Ворот B). Экспорт — кнопка «журнал плейтеста».
+
+const JOURNAL_KEY = 'ps.journal';
+let journal: JournalEvent[] = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(JOURNAL_KEY) ?? '[]') as JournalEvent[];
+  } catch {
+    return [];
+  }
+})();
+function recordEvent(e: JournalEvent): void {
+  journal = appendEvent(journal, e);
+  localStorage.setItem(JOURNAL_KEY, JSON.stringify(journal));
+}
+/** Боёв на текущем узле: повторный бой того же узла = спарринг. */
+let fightsAtNode = 0;
+/** Приказы переписаны между попытками текущего узла. */
+let rewroteSinceBattle = false;
+/** Замысел словами, введённый в редакторе (по герою). */
+const heroIntent: Record<string, string> = {};
+recordEvent({ t: 'run', seed: run.runSeed, ...(importedBuild?.ok === true ? { imported: true as const } : {}) });
 
 // ---------- LLM-компилятор свободного текста (опционален: без ключа — конструктор) ----------
 // Провайдер настраивается в .env: VITE_COMPILER_API_KEY (или VITE_ANTHROPIC_API_KEY),
@@ -153,6 +178,18 @@ async function compileHeroText(heroId: string): Promise<void> {
     compilerCache,
   );
   compiling[heroId] = false;
+  if ((heroText[heroId] ?? '').trim()) {
+    recordEvent({
+      t: 'freeText',
+      hero: hero.name,
+      lenses: hero.lenses,
+      vocab: run.vocab.length,
+      seed: run.runSeed,
+      text: heroText[heroId]!,
+      ok: r.ok,
+      uncertain: r.ok ? r.uncertainty.length : 0,
+    });
+  }
   if (r.ok) {
     const res = applyPhrases(heroId, r.phrases);
     editError[heroId] = res.ok ? '' : res.error;
@@ -190,6 +227,7 @@ function stopTimer(): void {
 function applyPhrases(heroId: string, drafts: PhraseDraft[]): ReturnType<typeof setPhrases> {
   const r = setPhrases(run, heroId, drafts);
   if (r.ok && battle) ordersDirty = true;
+  if (r.ok && fightsAtNode > 0) rewroteSinceBattle = true;
   return r;
 }
 
@@ -541,6 +579,16 @@ function startBattle(): void {
   const foes = foesForNode(node);
   const leaderIds = new Set(foes.filter((f) => f.tags?.includes('leader')).map((f) => f.id));
   battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foes]);
+  recordEvent({
+    t: 'battle',
+    node: node.kind,
+    sparring: fightsAtNode > 0,
+    rewritten: rewroteSinceBattle,
+    won: battle.winner === 'party',
+    rounds: battle.rounds,
+  });
+  fightsAtNode++;
+  rewroteSinceBattle = false;
   frames = buildFrames(battle, leaderIds);
   frameIdx = 0;
   playing = true;
@@ -575,6 +623,7 @@ function acceptOutcome(): void {
   const node = currentNode(run);
   const lost = battle.winner !== 'party';
   playFight(run);
+  if (run.status !== 'ongoing') recordEvent({ t: 'end', won: run.status === 'won' });
   lessonNudge = node.kind === 'lesson' && lost;
   battle = null;
   frames = [];
@@ -765,6 +814,7 @@ function mapScreenHtml(): string {
         <span>словарь: <b>${run.vocab.length}</b> слов</span><span>·</span>
         <span>узел ${run.at + 1} из ${run.map.length}</span>
         <span class="spacer"></span>
+        <button class="linkish" data-action="export-journal">журнал плейтеста</button>
         <span>${run.resolved && run.status === 'ongoing' ? 'кликни следующий узел, чтобы идти' : ''}</span>
       </div>
     </div>
@@ -1008,6 +1058,17 @@ function editorHtml(): string {
     .join('');
 
   const inTextMode = !!textMode[eh.id];
+  // Ворота C: замысел словами до конструктора — уходит в журнал плейтеста.
+  // В текстовом режиме сам свободный текст и есть формулировка — блок не нужен.
+  const intentBlock = inTextMode
+    ? ''
+    : `<div class="intent-block">
+        <span class="kicker">сначала — замысел словами, в полевой журнал</span>
+        <textarea class="intent-text" data-hero="${eh.id}" rows="2"
+          placeholder="Чего ты хочешь от ${esc(eh.name)}? Напиши как думаешь — потом собери из чипсов.">${esc(
+            heroIntent[eh.id] ?? lastIntent(journal, eh.name),
+          )}</textarea>
+      </div>`;
   const slotRows = inTextMode
     ? `<textarea class="principle-text" data-hero="${eh.id}" rows="4"
         placeholder="Опиши принципы словами — ${esc(eh.name)} поймёт по-своему">${esc(heroText[eh.id] ?? '')}</textarea>
@@ -1058,6 +1119,7 @@ function editorHtml(): string {
           <div class="lens-hint">${eh.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>
         </div>
         <div class="slots-col">
+          ${intentBlock}
           <div style="display:flex;align-items:center;gap:8px">
             <span class="kicker">слоты — занято ${eh.phrases.length} из ${eh.slots}</span>
             <span class="spacer"></span>${toggle}
@@ -1234,6 +1296,7 @@ function runEndHtml(): string {
       <div class="a-lines">${lines}</div>
       <div class="btn-row" style="margin-top:4px">
         <button data-action="export-build">${won ? 'вот мой билд, побей мой сид' : 'экспорт билда'}</button>
+        <button data-action="export-journal">журнал плейтеста</button>
         <span class="spacer"></span>
         <button class="primary" data-action="new-run">новый забег (seed ${run.runSeed + 1})</button>
       </div>
@@ -1308,10 +1371,29 @@ function bind(): void {
       heroText[ta.dataset.hero!] = ta.value;
     });
   }
+  for (const ta of app.querySelectorAll<HTMLTextAreaElement>('textarea.intent-text')) {
+    ta.addEventListener('change', () => {
+      const hero = run.heroes.find((h) => h.id === ta.dataset.hero);
+      if (!hero) return;
+      heroIntent[hero.id] = ta.value;
+      recordEvent({
+        t: 'intent',
+        hero: hero.name,
+        lenses: hero.lenses,
+        vocab: run.vocab.length,
+        seed: run.runSeed,
+        text: ta.value,
+      });
+    });
+  }
   for (const g of app.querySelectorAll<SVGGElement>('.mnode.selectable')) {
     g.addEventListener('click', () => {
       const to = Number(g.dataset.node);
-      if (advance(run, to).ok) visited.add(to);
+      if (advance(run, to).ok) {
+        visited.add(to);
+        fightsAtNode = 0;
+        rewroteSinceBattle = false;
+      }
       lessonNudge = false;
       render();
     });
@@ -1486,6 +1568,28 @@ function bind(): void {
         case 'new-run':
           location.search = `?seed=${run.runSeed + 1}`;
           break;
+        case 'export-journal': {
+          const report = journalReport(journal);
+          const label = el.textContent;
+          const download = (): void => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([report], { type: 'text/plain' }));
+            a.download = 'playtest-journal.txt';
+            a.click();
+            URL.revokeObjectURL(a.href);
+          };
+          if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(report).then(() => {
+              el.textContent = 'журнал скопирован ✓';
+              setTimeout(() => {
+                el.textContent = label;
+              }, 1500);
+            }, download);
+          } else {
+            download();
+          }
+          break;
+        }
         case 'export-build': {
           const url = `${location.origin}${location.pathname}?build=${exportBuild(run)}`;
           const label = el.textContent;
