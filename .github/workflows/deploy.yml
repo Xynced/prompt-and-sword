@@ -1,0 +1,55 @@
+# Деплой демо на GitHub Pages: пуш в main → тесты → сборка → публикация.
+#
+# Ключ компилятора берётся из GitHub Secrets (Settings → Secrets and variables →
+# Actions → New repository secret, имя COMPILER_API_KEY). ВАЖНО: это статическая
+# сборка — ключ вшивается в публичный JS-бандл и извлекаем любым посетителем
+# страницы. Держи на ключе маленький баланс и лимиты.
+#
+# Без секрета COMPILER_API_KEY сборка тоже работает — демо в оффлайн-режиме
+# (только конструктор), как для itch.io.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+        env:
+          VITE_COMPILER_API_KEY: ${{ secrets.COMPILER_API_KEY }}
+          # DeepSeek (Anthropic-совместимый эндпоинт). Для Anthropic напрямую —
+          # убери обе строки ниже: вернётся дефолт claude-sonnet-5.
+          VITE_COMPILER_BASE_URL: https://api.deepseek.com/anthropic
+          VITE_COMPILER_MODEL: deepseek-chat
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - uses: actions/deploy-pages@v4
+        id: deployment
