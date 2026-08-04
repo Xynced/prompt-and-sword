@@ -9,8 +9,19 @@ import {
   resolveSelector,
 } from './ir.js';
 import type { CompiledBehavior } from './lens.js';
-import { dist, hasLoS, isFlanking, posEq, reachableTiles } from './grid.js';
+import {
+  GRID_H,
+  GRID_W,
+  dist,
+  distanceField,
+  hasLoS,
+  isFlanking,
+  posEq,
+  posKey,
+  reachableTiles,
+} from './grid.js';
 import type { CombatUnit, Pos } from './types.js';
+import { expectedDamage } from './tuning.js';
 
 export interface Fighter extends CombatUnit {
   compiled: CompiledBehavior;
@@ -35,9 +46,43 @@ export interface Decision {
   /** Топ-3 фактора решения — основа посмертного разбора. */
   factors: Factor[];
   candidateCount: number;
+  /** Сколько сработавших правил были условными (when ≠ always) — для метрик. */
+  condRules: number;
 }
 
-const MAX_DIST = 7;
+const MAX_DIST = Math.max(GRID_W, GRID_H) - 1;
+
+/** Клетка отрезана террейном от цели — считаем её сколь угодно далёкой. */
+const UNREACHABLE = GRID_W * GRID_H;
+
+const NO_TERRAIN = (): boolean => false;
+
+/**
+ * Контекст решения: террейн боя + кэш BFS-полей дистанций (на одно решение).
+ * Тяга к цели ходит по полю, а не по прямой — юниты огибают стены и
+ * стягиваются в проходы вместо залипания в локальном минимуме у препятствия.
+ */
+export interface ScoreCtx {
+  blocked: (p: Pos) => boolean;
+  /** Путевая дистанция p → target по проходимым клеткам (кэш по цели). */
+  distTo: (target: Pos, p: Pos) => number;
+}
+
+export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN): ScoreCtx {
+  const fields = new Map<string, Map<string, number>>();
+  return {
+    blocked,
+    distTo(target, p) {
+      const key = posKey(target);
+      let field = fields.get(key);
+      if (!field) {
+        field = distanceField(target, blocked);
+        fields.set(key, field);
+      }
+      return field.get(posKey(p)) ?? UNREACHABLE;
+    },
+  };
+}
 
 function isBlockedBy(units: readonly Fighter[], except: Fighter): (p: Pos) => boolean {
   return (p) => units.some((u) => u.alive && u !== except && posEq(u.pos, p));
@@ -49,24 +94,37 @@ function zocOf(self: Fighter, units: readonly Fighter[]): (p: Pos) => boolean {
   return (p) => melee.some((e) => dist((e as Fighter).pos, p) === 1);
 }
 
-function canAttackFrom(from: Pos, attacker: Fighter, target: Fighter, units: readonly Fighter[]): boolean {
+function canAttackFrom(
+  from: Pos,
+  attacker: Fighter,
+  target: Fighter,
+  units: readonly Fighter[],
+  blocked: (p: Pos) => boolean,
+): boolean {
   const d = dist(from, target.pos);
   if (d > attacker.range) return false;
   if (attacker.range === 1) return d === 1;
-  return hasLoS(from, target.pos, (p) =>
-    units.some((u) => u.alive && u !== attacker && u !== target && posEq(u.pos, p)),
+  return hasLoS(
+    from,
+    target.pos,
+    (p) => blocked(p) || units.some((u) => u.alive && u !== attacker && u !== target && posEq(u.pos, p)),
   );
 }
 
-export function generateCandidates(self: Fighter, units: readonly Fighter[]): Candidate[] {
-  const occupied = isBlockedBy(units, self);
+export function generateCandidates(
+  self: Fighter,
+  units: readonly Fighter[],
+  blocked: (p: Pos) => boolean = NO_TERRAIN,
+): Candidate[] {
+  const byUnit = isBlockedBy(units, self);
+  const occupied = (p: Pos): boolean => byUnit(p) || blocked(p);
   const zoc = zocOf(self, units);
   const tiles = reachableTiles(self.pos, self.move, occupied, zoc);
   const enemies = enemiesOf(self, units) as Fighter[];
   const out: Candidate[] = [];
   for (const to of tiles) {
     for (const e of enemies) {
-      if (canAttackFrom(to, self, e, units)) out.push({ to, action: 'attack', targetId: e.id });
+      if (canAttackFrom(to, self, e, units, blocked)) out.push({ to, action: 'attack', targetId: e.id });
     }
     out.push({ to, action: 'defend' });
   }
@@ -87,14 +145,16 @@ function scorePreference(
   cand: Candidate,
   self: Fighter,
   units: readonly Fighter[],
+  ctx: ScoreCtx,
 ): number {
   switch (pref.kind) {
     case 'attack': {
       const target = resolveSelector(pref.target, self, units);
       if (!target) return 0;
       // тяга к цели — но только до своей дальности: стрелок не лезет в рукопашную.
+      // Дистанция путевая (BFS): у стены не залипаем, а идём к проходу.
       // Линейная и достаточно крутая, чтобы правило рулило поверх инстинктов.
-      const gap = Math.max(dist(cand.to, target.pos) - self.range, 0);
+      const gap = Math.max(ctx.distTo(target.pos, cand.to) - self.range, 0);
       let s = -0.6 * gap * w;
       if (cand.action === 'attack' && cand.targetId === target.id) s += 3 * w;
       return s;
@@ -146,7 +206,7 @@ function scorePreference(
       // размен: жать атаку, если она добивает или снимает много — угрозу перевешивает вес
       if (cand.action !== 'attack' || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
-      const expDmg = Math.min(self.atk * (target.defending ? 0.5 : 1), target.hp);
+      const expDmg = Math.min(expectedDamage(self.atk) * (target.defending ? 0.5 : 1), target.hp);
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
     }
     case 'coverRetreat': {
@@ -192,7 +252,7 @@ function scorePreference(
         (e) =>
           dist(e.pos, cand.to) <= e.range &&
           hasLoS(e.pos, cand.to, (p) =>
-            units.some((u) => u.alive && u !== self && u !== e && posEq(u.pos, p)),
+            ctx.blocked(p) || units.some((u) => u.alive && u !== self && u !== e && posEq(u.pos, p)),
           ),
       ).length;
       return -1.2 * exposed * w;
@@ -203,7 +263,7 @@ function scorePreference(
 function threatAt(p: Pos, self: Fighter, units: readonly Fighter[]): number {
   return (enemiesOf(self, units) as Fighter[])
     .filter((e) => dist(e.pos, p) <= e.move + e.range)
-    .reduce((sum, e) => sum + e.atk, 0);
+    .reduce((sum, e) => sum + expectedDamage(e.atk), 0);
 }
 
 export function scoreCandidate(
@@ -211,13 +271,14 @@ export function scoreCandidate(
   self: Fighter,
   units: readonly Fighter[],
   firedRules: readonly Rule[],
+  ctx: ScoreCtx = makeCtx(),
 ): Factor[] {
   const { instincts } = self.compiled;
   const factors: Factor[] = [];
 
   if (cand.action === 'attack' && cand.targetId) {
     const target = units.find((u) => u.id === cand.targetId)!;
-    const expDmg = Math.min(self.atk * (target.defending ? 0.5 : 1), target.hp);
+    const expDmg = Math.min(expectedDamage(self.atk) * (target.defending ? 0.5 : 1), target.hp);
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
@@ -237,15 +298,21 @@ export function scoreCandidate(
   }
 
   for (const rule of firedRules) {
-    const v = scorePreference(rule.then, rule.weight, cand, self, units);
+    const v = scorePreference(rule.then, rule.weight, cand, self, units, ctx);
     if (v !== 0) factors.push({ label: `правило:${rule.source}`, value: v });
   }
   return factors;
 }
 
 /** Детерминированный выбор действия: max score, тайбрейк — меньше двигаться, потом по порядку. */
-export function decide(self: Fighter, units: readonly Fighter[], round = 1): Decision {
+export function decide(
+  self: Fighter,
+  units: readonly Fighter[],
+  round = 1,
+  blocked: (p: Pos) => boolean = NO_TERRAIN,
+): Decision {
   const fired = self.compiled.rules.filter((r) => evalCondition(r.when, self, units, round));
+  const condRules = fired.filter((r) => r.when.kind !== 'always').length;
 
   if (!self.compiled.instincts.gapFill && fired.length === 0) {
     return {
@@ -253,13 +320,15 @@ export function decide(self: Fighter, units: readonly Fighter[], round = 1): Dec
       score: 0,
       factors: [{ label: 'буквалист: нет правила на ситуацию — защищаюсь', value: 0 }],
       candidateCount: 1,
+      condRules,
     };
   }
 
-  const candidates = generateCandidates(self, units);
+  const ctx = makeCtx(blocked);
+  const candidates = generateCandidates(self, units, blocked);
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
-    const factors = scoreCandidate(cand, self, units, fired);
+    const factors = scoreCandidate(cand, self, units, fired, ctx);
     const score = factors.reduce((s, f) => s + f.value, 0);
     if (
       !best ||
@@ -274,7 +343,7 @@ export function decide(self: Fighter, units: readonly Fighter[], round = 1): Dec
     .slice()
     .sort((f1, f2) => Math.abs(f2.value) - Math.abs(f1.value))
     .slice(0, 3);
-  return { chosen: b.cand, score: b.score, factors: top, candidateCount: candidates.length };
+  return { chosen: b.cand, score: b.score, factors: top, candidateCount: candidates.length, condRules };
 }
 
 export { describePreference };

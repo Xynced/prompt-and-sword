@@ -248,24 +248,41 @@ button.primary:disabled:hover { background: var(--ink); }
   background-image:
     linear-gradient(to right, rgba(31, 27, 22, 0.11) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(31, 27, 22, 0.11) 1px, transparent 1px);
-  background-size: 12.5% 12.5%;
+  background-size: var(--cell, 12.5%) var(--cell, 12.5%);
   outline: 1.5px solid rgba(31, 27, 22, 0.4);
+}
+.rock {
+  position: absolute;
+  width: var(--cell, 12.5%);
+  height: var(--cell, 12.5%);
+  display: grid;
+  place-items: center;
+}
+.rock::before {
+  content: '';
+  width: 74%;
+  height: 74%;
+  border-radius: 4px 10px 6px 9px;
+  background:
+    repeating-linear-gradient(45deg, rgba(31, 27, 22, 0.35) 0 2px, transparent 2px 5px),
+    rgba(31, 27, 22, 0.14);
+  border: 1.5px solid rgba(31, 27, 22, 0.5);
 }
 .btoken {
   position: absolute;
-  width: 12.5%;
-  height: 12.5%;
+  width: var(--cell, 12.5%);
+  height: var(--cell, 12.5%);
   display: grid;
   place-items: center;
   transition: left 0.3s ease, top 0.3s ease, opacity 0.3s ease;
 }
 .btoken.dead { opacity: 0.22; }
 .btoken .dm {
-  width: 34px;
-  height: 34px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
-  font: 600 15px/1 var(--serif);
+  font: 600 12px/1 var(--serif);
   border-radius: 3px;
   transform: rotate(45deg);
   background: var(--modal);

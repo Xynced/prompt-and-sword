@@ -1,4 +1,5 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle } from '../battle.js';
+import { GRID_H, GRID_W } from '../grid.js';
 import { understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
@@ -457,7 +458,10 @@ interface Frame {
   callout?: string;
 }
 
-const cellName = (x: number, y: number): string => String.fromCharCode(97 + x) + (8 - y);
+/** Размер клетки поля в процентах — позиции фишек и камней. */
+const CELL = 100 / GRID_W;
+
+const cellName = (x: number, y: number): string => String.fromCharCode(97 + x) + (GRID_H - y);
 
 function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
   const units = new Map<string, FrameUnit>();
@@ -938,11 +942,18 @@ function tokensHtml(): string {
         u.alive ? '' : 'dead',
       ].join(' ');
       const hpw = Math.round((100 * Math.max(0, u.hp)) / u.maxHp);
-      return `<div class="${cls}" data-unit="${u.id}" style="left:${u.x * 12.5}%;top:${u.y * 12.5}%">
+      return `<div class="${cls}" data-unit="${u.id}" style="left:${u.x * CELL}%;top:${u.y * CELL}%">
         <span class="dm"><span>${esc(glyphOf(u.name))}</span></span>
         <span class="hp-sliver"><span style="width:${hpw}%"></span></span>
       </div>`;
     })
+    .join('');
+}
+
+function terrainHtml(): string {
+  if (!battle) return '';
+  return battle.terrain.tiles
+    .map((t) => `<div class="rock" style="left:${t.x * CELL}%;top:${t.y * CELL}%"></div>`)
     .join('');
 }
 
@@ -961,7 +972,8 @@ function battleScreenHtml(): string {
         <span class="title">${esc(nodeTitle(node))}</span>
         <span class="meta"><span id="turnlabel">ход ${f.round}</span> · seed ${run.runSeed}</span>
       </div>
-      <div class="bfield" id="bfield">
+      <div class="bfield" id="bfield" style="--cell:${CELL}%">
+        ${terrainHtml()}
         ${tokensHtml()}
         <span class="callout" id="callout" style="left:24%;top:90%">${esc(f.callout ?? '')}</span>
       </div>
@@ -1005,8 +1017,8 @@ function syncBattleFrame(): void {
   for (const u of f.units) {
     const el = app.querySelector<HTMLElement>(`.btoken[data-unit="${u.id}"]`);
     if (!el) continue;
-    el.style.left = `${u.x * 12.5}%`;
-    el.style.top = `${u.y * 12.5}%`;
+    el.style.left = `${u.x * CELL}%`;
+    el.style.top = `${u.y * CELL}%`;
     el.classList.toggle('dead', !u.alive);
     el.classList.toggle('active', u.alive && u.id === f.actorId);
     const hp = el.querySelector<HTMLElement>('.hp-sliver span');
