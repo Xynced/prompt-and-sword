@@ -417,7 +417,8 @@ select {
   max-width: 100%;
 }
 select:hover { border-color: var(--red); }
-textarea.principle-text {
+textarea.principle-text,
+textarea.intent-text {
   display: block;
   width: 100%;
   padding: 7px 9px;
@@ -427,7 +428,10 @@ textarea.principle-text {
   font: 400 13.5px/1.4 var(--serif);
   resize: vertical;
 }
-textarea.principle-text:focus { outline: none; border-color: var(--red); }
+textarea.principle-text:focus,
+textarea.intent-text:focus { outline: none; border-color: var(--red); }
+.intent-block { display: flex; flex-direction: column; gap: 4px; }
+.intent-block textarea { border-style: dashed; font-size: 12.5px; }
 .readings {
   margin-top: auto;
   border-top: 1.5px solid rgba(31, 27, 22, 0.5);
