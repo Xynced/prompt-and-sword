@@ -209,6 +209,14 @@ function scorePreference(
       const expDmg = Math.min(expectedDamage(self.atk) * (target.defending ? 0.5 : 1), target.hp);
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
     }
+    case 'standoff': {
+      // держать дистанцию: премия клеткам ровно на своей дальности от ближайшего
+      // врага, штраф за ближе (растёт с приближением); дальше — нейтрально, поэтому
+      // безопасная клетка вне досягаемости врагов не штрафуется (в отличие от attack)
+      const d = nearestEnemyDist(cand.to, self, units);
+      if (d < self.range) return -0.8 * (self.range - d) * w;
+      return d === self.range ? 1.2 * w : 0;
+    }
     case 'coverRetreat': {
       // прикрывать отход: встать между врагами и самым раненым союзником
       const wounded = (alliesOf(self, units) as Fighter[])
@@ -256,6 +264,15 @@ function scorePreference(
           ),
       ).length;
       return -1.2 * exposed * w;
+    }
+    case 'chokepoint': {
+      // узкое место: премия проходу — клетка проходима, а пара соседей
+      // поперёк (по вертикали или горизонтали) — камни
+      const { x, y } = cand.to;
+      const choke =
+        (ctx.blocked({ x, y: y - 1 }) && ctx.blocked({ x, y: y + 1 })) ||
+        (ctx.blocked({ x: x - 1, y }) && ctx.blocked({ x: x + 1, y }));
+      return choke ? 1.5 * w : 0;
     }
     case 'brace': {
       // глухая оборона: ценна, когда враги реально достают до клетки

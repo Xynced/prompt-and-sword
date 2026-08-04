@@ -111,6 +111,10 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
           // рискованные правила получают штраф веса
           return { ...r, weight: r.weight * 0.7, source: `${r.source} (трус: неохотно)` };
         }
+        if (r.then.kind === 'standoff') {
+          // держать дистанцию — трусу по сердцу: исполняет рьяно
+          return { ...r, weight: r.weight * 1.3, source: `${r.source} (трус: дистанция — это святое)` };
+        }
         return r;
       });
       // бежит при hp<30% несмотря ни на что
@@ -145,13 +149,19 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
                   then: { kind: 'attack', target: 'nearest' },
                   source: `${r.source} (фанатик: под огонь — так под огонь, вперёд)`,
                 }
-              : r.then.kind === 'brace'
+              : r.then.kind === 'standoff'
                 ? {
                     ...r,
                     then: { kind: 'attack', target: 'nearest' },
-                    source: `${r.source} (фанатик: щиты — для трусов)`,
+                    source: `${r.source} (фанатик: моя дистанция — длина клинка)`,
                   }
-                : r,
+                : r.then.kind === 'brace'
+                  ? {
+                      ...r,
+                      then: { kind: 'attack', target: 'nearest' },
+                      source: `${r.source} (фанатик: щиты — для трусов)`,
+                    }
+                  : r,
       );
       return { rules: out, mods: { aggression: 1.6, survival: 0.4, ignoreZoC: true } };
     }

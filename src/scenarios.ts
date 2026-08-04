@@ -108,18 +108,19 @@ export function makeIrSets(): IrSet[] {
     },
     {
       name: 'kite',
-      desc: 'Кайт: стрелки держат дистанцию, Гром — заслон',
+      desc: 'Кайт: стрелки держат дистанцию, Гром — заслон у строя',
       party: [
         hero('grom', 'Гром', ['fanatic'], GROM, [
-          rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'держи их на себе' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 1.5, source: 'держи строй' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'бей кто подойдёт' }),
         ]),
         hero('dart', 'Дарт', ['literalist'], DART, [
-          rule({ when: { kind: 'always' }, then: { kind: 'retreat' }, weight: 1.2, source: 'держи дистанцию' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'standoff' }, weight: 1.5, source: 'держи дистанцию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'стреляй в ближайшего' }),
         ]),
         hero('lia', 'Лия', ['coward'], LIA, [
-          rule({ when: { kind: 'always' }, then: { kind: 'retreat' }, weight: 1.2, source: 'держи дистанцию' }),
-          rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'жги раненых' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'standoff' }, weight: 1.5, source: 'держи дистанцию' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'жги, кто ближе' }),
         ]),
       ],
     },

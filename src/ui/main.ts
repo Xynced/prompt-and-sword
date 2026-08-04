@@ -24,6 +24,7 @@ import {
   claimReward,
   currentNode,
   eventOffer,
+  foeSpecs,
   foesForNode,
   heroNames,
   heroSpecs,
@@ -31,6 +32,7 @@ import {
   playFight,
   rest,
   scriptoriumOffer,
+  setMark,
   setPhrases,
   startRun,
 } from '../run.js';
@@ -402,6 +404,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
       'sel.leader',
       'sel.mostDangerous',
       'sel.attacker',
+      'sel.marked',
       'sel.shooter',
       'sel.farthest',
     ] as const
@@ -412,6 +415,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
     'sel.leader': 'вожака',
     'sel.mostDangerous': 'самого опасного',
     'sel.attacker': 'того, кто атаковал меня',
+    'sel.marked': 'помеченного',
     'sel.shooter': 'стрелка',
     'sel.farthest': 'самого дальнего',
   };
@@ -428,8 +432,10 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('act.bait')) out.push({ value: { id: 'act.bait' }, label: 'изображать приманку' });
   if (has('act.trade')) out.push({ value: { id: 'act.trade' }, label: 'идти на размен' });
   if (has('act.coverRetreat')) out.push({ value: { id: 'act.coverRetreat' }, label: 'прикрывать отход' });
+  if (has('act.standoff')) out.push({ value: { id: 'act.standoff' }, label: 'держать дистанцию' });
   if (has('space.flank')) out.push({ value: { id: 'space.flank' }, label: 'заходить во фланг' });
   if (has('space.lineOfFire')) out.push({ value: { id: 'space.lineOfFire' }, label: 'держаться вне линии огня' });
+  if (has('space.chokepoint')) out.push({ value: { id: 'space.chokepoint' }, label: 'вставать в узком месте' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   for (const space of ['space.nearTo', 'space.behind', 'space.awayFrom'] as const) {
     if (!has(space)) continue;
@@ -606,7 +612,8 @@ const FIGHT_KINDS: NodeKind[] = ['lesson', 'fight', 'elite', 'boss'];
 function startBattle(): void {
   const node = currentNode(run);
   if (!FIGHT_KINDS.includes(node.kind) || run.resolved || run.status !== 'ongoing') return;
-  const foes = foesForNode(node);
+  // foeSpecs — с применённой меткой: бой на экране и бой в забеге (playFight) — один бой
+  const foes = foeSpecs(run);
   const leaderIds = new Set(foes.filter((f) => f.tags?.includes('leader')).map((f) => f.id));
   battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foes]);
   recordEvent({
@@ -795,11 +802,20 @@ function nodePanelHtml(): string {
     </div>`;
   }
   if (FIGHT_KINDS.includes(node.kind)) {
+    const canMark = run.vocab.includes('sel.marked');
     const foeRows = foesForNode(node)
-      .map((f) => `<div class="foe-row"><b>${esc(f.name)}</b> — ${statLine(f)}</div>`)
+      .map((f) => {
+        const marked = run.marked === f.id;
+        const markBtn = canMark
+          ? `<button class="mini mark-btn ${marked ? 'on' : ''}" data-action="mark-foe" data-foe="${f.id}"
+               title="метка: правила «атаковать помеченного» целятся в него">${marked ? '◎ помечен' : '◎ пометить'}</button>`
+          : '';
+        return `<div class="foe-row"><b>${marked ? '◎ ' : ''}${esc(f.name)}</b> — ${statLine(f)}${markBtn}</div>`;
+      })
       .join('');
     const nudge = lessonNudge
       ? `<div class="onboarding">Первый приказ почти никогда не выигрывает этот бой — так задумано.
+         В дневник вписано новое слово: «держать дистанцию».
          Перепиши принципы под то, что видно в разведке, и переиграй: <b>кости те же</b>.</div>`
       : node.kind === 'lesson'
         ? `<div class="flavor">учебный бой: поражение ничего не стоит — экспериментируй.</div>`
@@ -987,8 +1003,9 @@ function tokensHtml(): string {
         u.alive ? '' : 'dead',
       ].join(' ');
       const hpw = Math.round((100 * Math.max(0, u.hp)) / u.maxHp);
+      const mark = u.side === 'foe' && u.id === run.marked ? '<span class="mark-badge">◎</span>' : '';
       return `<div class="${cls}" data-unit="${u.id}" style="left:${u.x * CELL}%;top:${u.y * CELL}%">
-        <span class="dm"><span>${esc(glyphOf(u.name))}</span></span>
+        ${mark}<span class="dm"><span>${esc(glyphOf(u.name))}</span></span>
         <span class="hp-sliver"><span style="width:${hpw}%"></span></span>
       </div>`;
     })
@@ -1480,6 +1497,12 @@ function bind(): void {
         case 'fight':
           startBattle();
           break;
+        case 'mark-foe': {
+          const foe = el.dataset.foe!;
+          setMark(run, run.marked === foe ? null : foe);
+          render();
+          break;
+        }
         case 'unit-card':
           unitCardId = el.dataset.unit!;
           playing = false;

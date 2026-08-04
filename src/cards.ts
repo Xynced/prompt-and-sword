@@ -19,6 +19,7 @@ const SEL_RU: Record<string, string> = {
   leader: 'вожака',
   mostDangerous: 'самого опасного',
   attacker: 'того, кто меня атаковал',
+  marked: 'помеченного',
   shooter: 'стрелка',
   farthest: 'самого дальнего',
 };
@@ -66,10 +67,14 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'иду на размен: бью, когда удар того стоит, даже под ответ';
     case 'coverRetreat':
       return 'прикрываю отход: встаю между врагами и самым раненым из наших';
+    case 'standoff':
+      return 'держу дистанцию: бью с края своей дальности, ближе не подпускаю';
     case 'flank':
       return 'захожу во фланг и бью с двух сторон';
     case 'avoidLineOfFire':
       return 'держусь вне линии огня вражеских стрелков';
+    case 'chokepoint':
+      return 'встаю в узком месте: держу проход между камнями';
     case 'brace':
       return 'встаю в глухую оборону, когда до меня могут достать';
     case 'awayFrom':

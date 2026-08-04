@@ -53,6 +53,12 @@ export interface RunState {
   resolved: boolean;
   vocab: ConceptId[];
   heroes: HeroState[];
+  /**
+   * Метка фокус-огня: id врага текущего боевого узла, выбранный игроком до боя.
+   * Правила «атаковать: помеченный» целятся в него. Живёт до ухода с узла —
+   * спарринг «те же кости» играет с той же меткой.
+   */
+  marked: string | null;
   /** Трофей за победу в бою: выбор из закрытых концептов; null — забран/нет. */
   pendingReward: ConceptId[] | null;
   status: 'ongoing' | 'won' | 'lost';
@@ -62,8 +68,12 @@ export interface RunState {
 export const START_SLOTS = 2;
 export const MAX_SLOTS = 4;
 
-/** Перевязка после победы: доля maxHp. */
-const PATCH_UP = 0.25;
+/**
+ * Перевязка после победы: доля maxHp. Поднята с 0.25, когда ранние бои
+ * перестали быть бесплатными: без этого истощение слоёв 1–3 копится в лавину
+ * (партия входит в слой 3 на ~55% hp и кривая проваливается).
+ */
+const PATCH_UP = 0.5;
 /** Привал: доля недостающего hp. */
 const REST_HEAL = 0.6;
 /** Наёмник приходит потрёпанным. */
@@ -124,25 +134,30 @@ export function generateMap(runSeed: number): MapNode[] {
 export function foesForNode(node: MapNode): UnitSpec[] {
   switch (node.kind) {
     case 'lesson':
-      // первый бой нарочно простой: три врага на трёх героев. По симу (200
-      // сидов) дефолт «все бьют ближайшего» выигрывает ~92%; на неудачных
-      // костях кайт-переформулировка переворачивает ~75% — урок остаётся
-      // уроком (переигрывается бесплатно), но перестаёт быть стеной
-      return [packLeader(), grunt(1), archer(1)];
+      // урок учит петле «перепиши и переиграй»: дефолт «все бьют ближайшего»
+      // должен проигрывать примерно каждый второй бой, а кайт-переформулировка
+      // (онбординг даёт слово «держать дистанцию») — переворачивать большинство
+      // поражений; переигрывается бесплатно, стеной быть не должен
+      return [packLeader(), grunt(1), grunt(2), archer(1)];
     case 'fight':
-      if (node.layer <= 1) return node.slot === 0 ? [grunt(1), grunt(2)] : [grunt(1), archer(1)];
+      if (node.layer <= 1)
+        return node.slot === 0
+          ? [berserker(1), grunt(1), grunt(2), archer(1)]
+          : [packLeader(), berserker(1), archer(1)];
       if (node.layer <= 3)
-        return node.slot === 0 ? [grunt(1), grunt(2), archer(1)] : [grunt(1), grunt(2), grunt(3)];
-      return [berserker(1), grunt(1), archer(1)];
+        return node.slot === 0
+          ? [grunt(1), grunt(2), archer(1)]
+          : [grunt(1), grunt(2), grunt(3)];
+      return [berserker(1), grunt(1), grunt(2), archer(1)];
     case 'elite':
       return node.layer <= 3
-        ? [packLeader(), grunt(1), shaman('boss')]
+        ? [grunt(1), grunt(2), shaman('grunt1')]
         : [warChief(), shaman('chief'), archer(1)];
     case 'boss':
       // подобрано симом: 4-й враг делает бой нерешаемым (экономика действий);
-      // на полном hp (канун битвы) наивный «фокусь вожака» ~22%, контр-билды
-      // со снятием свиты под заслоном ~60%
-      return [warlord(), shaman('warlord'), berserker(1)];
+      // охотник вместо берсерка — свита достаёт и кайтящих стрелков (после
+      // появления «держать дистанцию» чисто ближняя свита проседала до ~46%)
+      return [warlord(), shaman('warlord'), hunter(1)];
     default:
       throw new Error(`Узел ${node.kind} — не бой`);
   }
@@ -151,6 +166,29 @@ export function foesForNode(node: MapNode): UnitSpec[] {
 /** Узлы, где перед боем видны принципы врагов (разведка). */
 export function intelVisible(node: MapNode): boolean {
   return node.kind === 'elite' || node.kind === 'boss' || node.kind === 'lesson';
+}
+
+/**
+ * Боевые спеки врагов текущего узла с применённой меткой. Единая точка для
+ * playFight и UI: бой на экране и бой в забеге обязаны быть одним боем.
+ */
+export function foeSpecs(state: RunState): UnitSpec[] {
+  return foesForNode(currentNode(state)).map((f) =>
+    f.id === state.marked ? { ...f, tags: [...(f.tags ?? []), 'marked'] } : f,
+  );
+}
+
+/** Пометить врага текущего боевого узла (null — снять метку). */
+export function setMark(state: RunState, foeId: string | null): SetPhrasesResult {
+  const node = currentNode(state);
+  if (!FIGHT_KINDS.includes(node.kind) || state.resolved) {
+    return { ok: false, error: 'Метка ставится перед боем' };
+  }
+  if (foeId !== null && !foesForNode(node).some((f) => f.id === foeId)) {
+    return { ok: false, error: `На этом поле нет врага ${foeId}` };
+  }
+  state.marked = foeId;
+  return { ok: true };
 }
 
 // ---- Старт и доступ ----
@@ -177,6 +215,7 @@ export function startRun(runSeed: number): RunState {
     resolved: false,
     vocab: STARTING_VOCAB.slice(),
     heroes,
+    marked: null,
     pendingReward: null,
     status: 'ongoing',
     log: [],
@@ -279,10 +318,16 @@ export function playFight(state: RunState): BattleResult {
     }
     state.log.push('Канун битвы: лагерь и перевязка — в бой со свежими силами');
   }
-  const result = runBattle(battleSeed(state), [...heroSpecs(state), ...foesForNode(node)]);
+  const result = runBattle(battleSeed(state), [...heroSpecs(state), ...foeSpecs(state)]);
 
   if (result.winner !== 'party') {
     if (node.kind === 'lesson') {
+      // онбординг даёт слово для контр-формулировки: кайт-переписывание
+      // (kiteRewrite) выражается только концептом «держать дистанцию»
+      if (!state.vocab.includes('act.standoff')) {
+        state.vocab.push('act.standoff');
+        state.log.push('Урок: поражение. В дневник вписано новое слово — «держать дистанцию».');
+      }
       state.log.push('Урок: поражение. Перепиши приказ и переиграй с теми же костями.');
     } else {
       state.status = 'lost';
@@ -357,6 +402,7 @@ export function advance(state: RunState, toId: number): AdvanceResult {
   if (!currentNode(state).next.includes(toId)) return { ok: false, error: 'Туда дороги нет' };
   state.at = toId;
   state.resolved = false;
+  state.marked = null; // новый узел — новые враги, метка не переносится
   return { ok: true };
 }
 

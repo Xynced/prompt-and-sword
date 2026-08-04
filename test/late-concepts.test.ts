@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { type Rule, evalCondition, resolveSelector } from '../src/ir.js';
 import { applyLens } from '../src/lens.js';
-import { type Candidate, type Fighter, scoreCandidate } from '../src/scoring.js';
+import { type Candidate, type Fighter, makeCtx, scoreCandidate } from '../src/scoring.js';
 import { type PhraseDraft, compilePhrase } from '../src/constructor.js';
 import { CONCEPTS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { understandingCard } from '../src/cards.js';
@@ -108,6 +108,26 @@ describe('линзы и поздний словарь', () => {
     expect(c.rules[1]!.then).toEqual({ kind: 'attack', target: 'nearest' });
     for (const r of c.rules) expect(r.source).toContain('фанатик');
   });
+
+  it('трус: «держать дистанцию» исполняет рьяно (буст веса)', () => {
+    const c = applyLens(['coward'], [rule({ kind: 'standoff' }, 2)]);
+    expect(c.rules[0]!.then).toEqual({ kind: 'standoff' });
+    expect(c.rules[0]!.weight).toBeCloseTo(2.6);
+    expect(c.rules[0]!.source).toContain('трус');
+  });
+
+  it('фанатик: «держать дистанцию» превращается в атаку ближайшего', () => {
+    const c = applyLens(['fanatic'], [rule({ kind: 'standoff' })]);
+    expect(c.rules[0]!.then).toEqual({ kind: 'attack', target: 'nearest' });
+    expect(c.rules[0]!.source).toContain('фанатик');
+  });
+
+  it('буквалист: «держать дистанцию» не искажает', () => {
+    const c = applyLens(['literalist'], [rule({ kind: 'standoff' }, 2)]);
+    expect(c.rules[0]!.then).toEqual({ kind: 'standoff' });
+    expect(c.rules[0]!.weight).toBe(2);
+    expect(c.rules[0]!.source).toBe('тест');
+  });
 });
 
 describe('конструктор: поздние концепты', () => {
@@ -116,8 +136,10 @@ describe('конструктор: поздние концепты', () => {
       [{ condition: { id: 'cond.battleDrags' }, preference: { id: 'act.bait' } }, 'bait'],
       [{ condition: { id: 'cond.initiativeEdge' }, preference: { id: 'act.trade' } }, 'trade'],
       [{ condition: { id: 'always' }, preference: { id: 'act.coverRetreat' } }, 'coverRetreat'],
+      [{ condition: { id: 'always' }, preference: { id: 'act.standoff' } }, 'standoff'],
       [{ condition: { id: 'always' }, preference: { id: 'space.flank' } }, 'flank'],
       [{ condition: { id: 'always' }, preference: { id: 'space.lineOfFire' } }, 'avoidLineOfFire'],
+      [{ condition: { id: 'always' }, preference: { id: 'space.chokepoint' } }, 'chokepoint'],
       [
         { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.mostDangerous' } },
         'attack',
@@ -195,6 +217,37 @@ describe('скоринг поздних предпочтений', () => {
     expect(ruleFactor({ to: { x: 3, y: 3 }, action: 'wait' }, self, units, r)).toBe(0);
   });
 
+  it('standoff: премия ровно на своей дальности, штраф за ближе, дальше — нейтрально', () => {
+    const self = fighter('a', 'party', { x: 0, y: 3 }, { range: 4 });
+    const foe = fighter('e1', 'foe', { x: 6, y: 3 });
+    const units = [self, foe];
+    const r = rule({ kind: 'standoff' });
+    const atRange = ruleFactor({ to: { x: 2, y: 3 }, action: 'wait' }, self, units, r); // дист 4
+    const close = ruleFactor({ to: { x: 4, y: 3 }, action: 'wait' }, self, units, r); // дист 2
+    const closer = ruleFactor({ to: { x: 5, y: 3 }, action: 'wait' }, self, units, r); // дист 1
+    const far = ruleFactor({ to: { x: 0, y: 3 }, action: 'wait' }, self, units, r); // дист 6
+    expect(atRange).toBeGreaterThan(0);
+    expect(close).toBeLessThan(0);
+    expect(closer).toBeLessThan(close); // штраф растёт с приближением
+    expect(far).toBe(0); // вне досягаемости — не штрафуется
+  });
+
+  it('chokepoint: премия проходу между камнями, обычной клетке — нет', () => {
+    const self = fighter('a', 'party', { x: 3, y: 3 });
+    const foe = fighter('e1', 'foe', { x: 9, y: 3 });
+    const units = [self, foe];
+    // камни (5,2) и (5,4) — клетка (5,3) — проход
+    const rocks = new Set(['5,2', '5,4']);
+    const ctx = makeCtx((p) => rocks.has(`${p.x},${p.y}`));
+    const r = rule({ kind: 'chokepoint' });
+    const inChoke = scoreCandidate({ to: { x: 5, y: 3 }, action: 'wait' }, self, units, [r], ctx)
+      .find((f) => f.label.startsWith('правило:'))?.value ?? 0;
+    const open = scoreCandidate({ to: { x: 3, y: 3 }, action: 'wait' }, self, units, [r], ctx)
+      .find((f) => f.label.startsWith('правило:'))?.value ?? 0;
+    expect(inChoke).toBeGreaterThan(0);
+    expect(open).toBe(0);
+  });
+
   it('avoidLineOfFire: штраф только под прицелом стрелка', () => {
     const self = fighter('a', 'party', { x: 0, y: 3 });
     const archer = fighter('e1', 'foe', { x: 6, y: 3 }, { range: 4 });
@@ -217,6 +270,15 @@ describe('карточки: поздние концепты читаются', (
     expect(card.lines[0]).toContain('⚠');
     expect(card.lines[1]).toContain('фланг');
   });
+
+  it('standoff читается по-русски, буст труса помечен', () => {
+    const plain = understandingCard({ name: 'Дарт', lenses: ['plain'] }, [rule({ kind: 'standoff' })]);
+    expect(plain.lines[0]).toContain('держу дистанцию');
+    expect(plain.lines[0]).not.toContain('⚠');
+    const coward = understandingCard({ name: 'Лия', lenses: ['coward'] }, [rule({ kind: 'standoff' })]);
+    expect(coward.lines[0]).toContain('держу дистанцию');
+    expect(coward.lines[0]).toContain('⚠');
+  });
 });
 
 describe('LLM-схема: поздние концепты', () => {
@@ -224,9 +286,11 @@ describe('LLM-схема: поздние концепты', () => {
     const s = JSON.stringify(buildCompileSchema(FULL_VOCAB, ['lia']));
     expect(s).toContain('act.bait');
     expect(s).toContain('sel.mostDangerous');
+    expect(s).toContain('act.standoff');
     const start = JSON.stringify(buildCompileSchema(STARTING_VOCAB, ['lia']));
     expect(start).not.toContain('act.bait');
     expect(start).not.toContain('cond.battleDrags');
+    expect(start).not.toContain('act.standoff');
   });
 
   it('validateOutput пропускает поздние концепты только при открытом словаре', () => {

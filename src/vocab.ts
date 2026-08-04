@@ -21,11 +21,14 @@ export type ConceptId =
   | 'cond.initiativeEdge'
   | 'sel.mostDangerous'
   | 'sel.attacker'
+  | 'sel.marked'
   | 'act.bait'
   | 'act.trade'
   | 'act.coverRetreat'
+  | 'act.standoff'
   | 'space.flank'
   | 'space.lineOfFire'
+  | 'space.chokepoint'
   // глубокий словарь (фаза 6) — ещё один слой тактики
   | 'cond.allyFallen'
   | 'cond.surrounded'
@@ -59,11 +62,14 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'cond.initiativeEdge': { id: 'cond.initiativeEdge', label: 'мы быстрее', category: 'condition' },
   'sel.mostDangerous': { id: 'sel.mostDangerous', label: 'самый опасный', category: 'selector' },
   'sel.attacker': { id: 'sel.attacker', label: 'кто атаковал меня', category: 'selector' },
+  'sel.marked': { id: 'sel.marked', label: 'помеченный', category: 'selector' },
   'act.bait': { id: 'act.bait', label: 'приманка', category: 'action' },
   'act.trade': { id: 'act.trade', label: 'размен', category: 'action' },
   'act.coverRetreat': { id: 'act.coverRetreat', label: 'прикрывать отход', category: 'action' },
+  'act.standoff': { id: 'act.standoff', label: 'держать дистанцию', category: 'action' },
   'space.flank': { id: 'space.flank', label: 'заходить во фланг', category: 'space' },
   'space.lineOfFire': { id: 'space.lineOfFire', label: 'вне линии огня', category: 'space' },
+  'space.chokepoint': { id: 'space.chokepoint', label: 'узкое место', category: 'space' },
   'cond.allyFallen': { id: 'cond.allyFallen', label: 'кто-то из наших пал', category: 'condition' },
   'cond.surrounded': { id: 'cond.surrounded', label: 'меня окружили', category: 'condition' },
   'sel.shooter': { id: 'sel.shooter', label: 'стрелок', category: 'selector' },
@@ -107,14 +113,17 @@ export const DEEP_WORDS: ConceptId[] = [
   'cond.surrounded',
   'sel.mostDangerous',
   'sel.attacker',
+  'sel.marked',
   'sel.shooter',
   'sel.farthest',
   'act.bait',
   'act.trade',
   'act.coverRetreat',
+  'act.standoff',
   'act.brace',
   'space.flank',
   'space.lineOfFire',
+  'space.chokepoint',
   'space.awayFrom',
 ];
 

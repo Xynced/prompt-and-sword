@@ -23,6 +23,7 @@ export type SelectorDraft =
   | 'sel.leader'
   | 'sel.mostDangerous'
   | 'sel.attacker'
+  | 'sel.marked'
   | 'sel.shooter'
   | 'sel.farthest';
 
@@ -36,8 +37,10 @@ export type PreferenceDraft =
   | { id: 'act.bait' }
   | { id: 'act.trade' }
   | { id: 'act.coverRetreat' }
+  | { id: 'act.standoff' }
   | { id: 'space.flank' }
   | { id: 'space.lineOfFire' }
+  | { id: 'space.chokepoint' }
   | { id: 'act.brace' }
   | { id: 'space.awayFrom'; ref: { ally: string } | { enemy: SelectorDraft } };
 
@@ -58,6 +61,7 @@ const SELECTOR_MAP: Record<SelectorDraft, Selector> = {
   'sel.leader': 'leader',
   'sel.mostDangerous': 'mostDangerous',
   'sel.attacker': 'attacker',
+  'sel.marked': 'marked',
   'sel.shooter': 'shooter',
   'sel.farthest': 'farthest',
 };
@@ -116,11 +120,15 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
                 ? 'идти на размен'
                 : p.id === 'act.coverRetreat'
                   ? 'прикрывать отход'
-                  : p.id === 'space.flank'
+                  : p.id === 'act.standoff'
+                    ? 'держать дистанцию'
+                    : p.id === 'space.flank'
                     ? 'заходить во фланг'
                     : p.id === 'space.lineOfFire'
                       ? 'держаться вне линии огня'
-                      : p.id === 'act.brace'
+                      : p.id === 'space.chokepoint'
+                        ? 'вставать в узком месте'
+                        : p.id === 'act.brace'
                         ? 'вставать в глухую оборону'
                         : p.id === 'space.awayFrom'
                           ? `держаться подальше от ${refText(p.ref)}`
@@ -176,11 +184,15 @@ export function compilePhrase(
                 ? { kind: 'trade' }
                 : p.id === 'act.coverRetreat'
                   ? { kind: 'coverRetreat' }
-                  : p.id === 'space.flank'
+                  : p.id === 'act.standoff'
+                    ? { kind: 'standoff' }
+                    : p.id === 'space.flank'
                     ? { kind: 'flank' }
                     : p.id === 'space.lineOfFire'
                       ? { kind: 'avoidLineOfFire' }
-                      : p.id === 'act.brace'
+                      : p.id === 'space.chokepoint'
+                        ? { kind: 'chokepoint' }
+                        : p.id === 'act.brace'
                         ? { kind: 'brace' }
                         : p.id === 'space.awayFrom'
                           ? { kind: 'awayFrom', ref: toPosRef(p.ref) }

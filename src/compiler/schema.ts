@@ -20,6 +20,7 @@ const SELECTORS: SelectorDraft[] = [
   'sel.leader',
   'sel.mostDangerous',
   'sel.attacker',
+  'sel.marked',
   'sel.shooter',
   'sel.farthest',
 ];
@@ -38,9 +39,11 @@ const PARAMLESS_PREFERENCES = [
   'act.bait',
   'act.trade',
   'act.coverRetreat',
+  'act.standoff',
   'act.brace',
   'space.flank',
   'space.lineOfFire',
+  'space.chokepoint',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -169,10 +172,14 @@ function validatePreference(
       return vocab.includes('act.trade') ? { id: 'act.trade' } : null;
     case 'act.coverRetreat':
       return vocab.includes('act.coverRetreat') ? { id: 'act.coverRetreat' } : null;
+    case 'act.standoff':
+      return vocab.includes('act.standoff') ? { id: 'act.standoff' } : null;
     case 'space.flank':
       return vocab.includes('space.flank') ? { id: 'space.flank' } : null;
     case 'space.lineOfFire':
       return vocab.includes('space.lineOfFire') ? { id: 'space.lineOfFire' } : null;
+    case 'space.chokepoint':
+      return vocab.includes('space.chokepoint') ? { id: 'space.chokepoint' } : null;
     case 'act.brace':
       return vocab.includes('act.brace') ? { id: 'act.brace' } : null;
     case 'space.nearTo':
