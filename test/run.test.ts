@@ -23,14 +23,18 @@ import { runBattle } from '../src/battle.js';
 
 /** Кайт-переформулировка, выигрывающая урок на большинстве костей. */
 function lessonRewrite(state: RunState): void {
-  setPhrases(state, 'grom', [
-    { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 },
-  ]);
-  for (const id of ['dart', 'lia']) {
-    setPhrases(state, id, [
-      { condition: { id: 'always' }, preference: { id: 'act.retreat' } },
-      { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.weakest' }, weight: 2 },
-    ]);
+  for (const h of state.heroes) {
+    if (!h.alive) continue;
+    setPhrases(
+      state,
+      h.id,
+      h.stats.range === 1
+        ? [{ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 }]
+        : [
+            { condition: { id: 'always' }, preference: { id: 'act.retreat' } },
+            { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.weakest' }, weight: 2 },
+          ],
+    );
   }
 }
 
@@ -174,9 +178,9 @@ describe('забег', () => {
 
   it('hp переносится в спеки следующего боя и в сам бой', () => {
     const state = startRun(1);
-    const lia = state.heroes.find((h) => h.id === 'lia')!;
-    lia.hp = 12;
-    const spec = heroSpecs(state).find((s) => s.id === 'lia')!;
+    const wounded = state.heroes[1]!;
+    wounded.hp = 12;
+    const spec = heroSpecs(state).find((s) => s.id === wounded.id)!;
     expect(spec.hp).toBe(12);
     // бой честно стартует с перенесённым hp: юниты вне досягаемости — hp не меняется
     const idle = { ...spec, rules: [], move: 0, range: 1, spawn: { x: 0, y: 0 } };
@@ -191,7 +195,7 @@ describe('забег', () => {
       spawn: { x: 7, y: 7 },
     };
     const r = runBattle(1, [idle, dummy]);
-    expect(r.units.find((u) => u.id === 'lia')!.hp).toBe(12);
+    expect(r.units.find((u) => u.id === wounded.id)!.hp).toBe(12);
     expect(r.units.find((u) => u.id === 'dummy')!.hp).toBe(spec.maxHp);
   });
 
@@ -250,18 +254,18 @@ describe('забег', () => {
 describe('скрипторий и события', () => {
   it('слоты ограничивают число фраз', () => {
     const state = startRun(1);
-    const grom = state.heroes[0]!;
-    expect(grom.slots).toBe(2);
+    const lead = state.heroes[0]!;
+    expect(lead.slots).toBe(2);
     const threePhrases = Array.from({ length: 3 }, () => ({
       condition: { id: 'always' } as const,
       preference: { id: 'act.retreat' } as const,
     }));
-    expect(setPhrases(state, 'grom', threePhrases).ok).toBe(false);
+    expect(setPhrases(state, lead.id, threePhrases).ok).toBe(false);
   });
 
   it('закрытый концепт нельзя вписать в принципы', () => {
     const state = startRun(1);
-    const r = setPhrases(state, 'dart', [
+    const r = setPhrases(state, state.heroes[1]!.id, [
       { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.leader' } },
     ]);
     expect(r.ok).toBe(false);
@@ -284,21 +288,21 @@ describe('скрипторий и события', () => {
 
   it('событие: наёмник встаёт на место погибшего с чужим характером и теми же фразами', () => {
     const state = startRun(3);
-    const lia = state.heroes.find((h) => h.id === 'lia')!;
-    lia.alive = false;
-    lia.hp = 0;
-    const phrasesBefore = JSON.stringify(lia.phrases);
-    const lensesBefore = [...lia.lenses].sort();
+    const fallen = state.heroes[2]!;
+    fallen.alive = false;
+    fallen.hp = 0;
+    const phrasesBefore = JSON.stringify(fallen.phrases);
+    const lensesBefore = [...fallen.lenses].sort();
     state.at = state.map.find((n) => n.kind === 'event')!.id;
     const offer = eventOffer(state);
-    expect(offer.mercenary?.heroId).toBe('lia');
+    expect(offer.mercenary?.heroId).toBe(fallen.id);
     expect([...offer.mercenary!.lenses].sort()).not.toEqual(lensesBefore);
     chooseInEvent(state, { kind: 'hire' });
-    expect(lia.alive).toBe(true);
-    expect(lia.lenses).toEqual(offer.mercenary!.lenses);
-    expect(lia.name).toBe(offer.mercenary!.name);
-    expect(JSON.stringify(lia.phrases)).toBe(phrasesBefore); // принципы те же — читаются иначе
-    expect(lia.hp).toBeGreaterThan(0);
+    expect(fallen.alive).toBe(true);
+    expect(fallen.lenses).toEqual(offer.mercenary!.lenses);
+    expect(fallen.name).toBe(offer.mercenary!.name);
+    expect(JSON.stringify(fallen.phrases)).toBe(phrasesBefore); // принципы те же — читаются иначе
+    expect(fallen.hp).toBeGreaterThan(0);
   });
 
   it('герои получают 1–3 случайные линзы, детерминировано сидом забега', () => {

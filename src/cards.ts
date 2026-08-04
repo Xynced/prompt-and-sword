@@ -73,6 +73,7 @@ const LENS_MARK_RE = new RegExp(`\\((?:${Object.values(LENS_RU).join('|')}):`);
 function lensMark(rule: Rule): string {
   if (LENS_MARK_RE.test(rule.source)) return ' ⚠ понял по-своему';
   if (rule.source.startsWith('инстинкт')) return ' ⚠ инстинкт';
+  if (rule.source.startsWith('способность')) return ' · способность';
   return '';
 }
 

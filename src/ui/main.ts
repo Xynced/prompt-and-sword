@@ -33,6 +33,7 @@ import {
   startRun,
 } from '../run.js';
 import { foeIntel } from '../foes.js';
+import { heroArchetype } from '../heroes.js';
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU } from '../lens.js';
 import type { LensId, Side } from '../types.js';
@@ -68,6 +69,10 @@ let tactician = false;
 let editorOpen = false;
 let editHero = run.heroes[0]!.id;
 let aftermathOpen = false;
+/** Оверлей «свиток боя» — полный лог решений. */
+let logOpen = false;
+/** Карточка юнита (герой или враг) — по клику на фишку или имя в реестре. */
+let unitCardId: string | null = null;
 /** Приказы переписаны после показанного боя — «продолжить» требует переигровки. */
 let ordersDirty = false;
 let editError: Record<string, string> = {};
@@ -233,6 +238,21 @@ function lensTag(lenses: readonly LensId[]): string {
   return lenses.map((l) => LENS_RU[l]).join('+');
 }
 
+/** Строка параметров юнита: hp текущее/макс, удар, дальность, инициатива, шаг. */
+function statLine(
+  s: { maxHp: number; atk: number; range: number; speed: number; move: number },
+  hp?: number,
+): string {
+  const hpTxt = hp === undefined ? `${s.maxHp}` : `${hp}/${s.maxHp}`;
+  return `hp ${hpTxt} · удар ${s.atk} · даль ${s.range} · иниц ${s.speed} · шаг ${s.move}`;
+}
+
+/** Строка способности архетипа героя. */
+function abilityLine(archetypeId: string): string {
+  const a = heroArchetype(archetypeId).ability;
+  return `${a.name} — ${a.desc}`;
+}
+
 const LENS_HINT: Record<LensId, string> = {
   plain: 'обычный читает как написано — без вдохновения, без фантазий.',
   coward: 'трус превращает «прикрывать» в «стоять позади», а при трети hp бежит. Используй это нарочно.',
@@ -256,8 +276,14 @@ function ordersSentence(h: { phrases: PhraseDraft[] }): string {
     .join('. ') + '.';
 }
 
-/** Строки «как понял» — после линзы, тем же applyLens, что и бой. */
-function readingLines(h: { id: string; name: string; lenses: LensId[]; phrases: PhraseDraft[] }): string[] {
+/** Строки «как понял» — приказы + способность, после линзы, тем же applyLens, что и бой. */
+function readingLines(h: {
+  id: string;
+  archetypeId: string;
+  name: string;
+  lenses: LensId[];
+  phrases: PhraseDraft[];
+}): string[] {
   const names = heroNames(run);
   const rules = h.phrases
     .map((d) => compilePhrase(d, run.vocab, names))
@@ -265,7 +291,7 @@ function readingLines(h: { id: string; name: string; lenses: LensId[]; phrases: 
     .map((r) => r.rule);
   return understandingCard(
     { name: h.name, lenses: h.lenses },
-    rules,
+    [...rules, ...heroArchetype(h.archetypeId).innate],
     names,
     heroUncertainty[h.id] ?? [],
   ).lines;
@@ -520,6 +546,8 @@ function startBattle(): void {
   playing = true;
   aftermathOpen = false;
   editorOpen = false;
+  logOpen = false;
+  unitCardId = null;
   ordersDirty = false;
   render();
   runTimer();
@@ -551,6 +579,8 @@ function acceptOutcome(): void {
   battle = null;
   frames = [];
   aftermathOpen = false;
+  logOpen = false;
+  unitCardId = null;
   render();
 }
 
@@ -588,7 +618,7 @@ function rosterHtml(compact: boolean): string {
         <div class="numerals">${numerals}</div>
         <div class="r-body">
           <div class="r-head">
-            <span class="r-name">${esc(h.name)}</span>
+            <span class="r-name clickable" data-action="unit-card" data-unit="${h.id}" title="карточка юнита">${esc(h.name)}</span>
             <span class="r-tag ${h.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(h.lenses)}</span>
             <span class="r-hp ${low ? 'low' : ''}" data-hp="${h.id}">${hpTxt}</span>
           </div>
@@ -667,7 +697,9 @@ function nodePanelHtml(): string {
     </div>`;
   }
   if (FIGHT_KINDS.includes(node.kind)) {
-    const foes = foesForNode(node).map((f) => f.name).join(', ');
+    const foeRows = foesForNode(node)
+      .map((f) => `<div class="foe-row"><b>${esc(f.name)}</b> — ${statLine(f)}</div>`)
+      .join('');
     const nudge = lessonNudge
       ? `<div class="onboarding">Первый приказ почти никогда не выигрывает этот бой — так задумано.
          Перепиши принципы под то, что видно в разведке, и переиграй: <b>кости те же</b>.</div>`
@@ -676,7 +708,7 @@ function nodePanelHtml(): string {
         : '';
     return `<div class="node-panel">
       <h2>${esc(nodeTitle(node))}</h2>
-      <div class="desc" style="font-family:var(--mono);font-size:11px;color:rgba(31,27,22,.6)">противник: ${esc(foes)}</div>
+      <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
       ${intelHtml(node)}
       ${nudge}
       <div class="btn-row"><button class="primary" data-action="fight">⚔ выступить</button>
@@ -890,6 +922,7 @@ function battleScreenHtml(): string {
         <button data-action="cycle-speed" id="speedbtn">×${speed}</button>
         <span class="progress"><span id="progressbar" style="width:${Math.round((100 * frameIdx) / Math.max(1, frames.length - 1))}%"></span></span>
         <span id="framelabel">${frameIdx}/${frames.length - 1}</span>
+        <button data-action="open-log" title="полный лог боя">свиток</button>
       </div>
       <div class="enemy-strip">
         <span class="kicker">${intel ? 'они тоже читают — принципы врага видны' : 'противник'}</span>
@@ -968,7 +1001,8 @@ function editorHtml(): string {
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
         <div class="nm"><span>${esc(h.name)}</span><span class="ch">${lensTag(h.lenses)}</span></div>
-        <div class="sub">${h.phrases.length}/${h.slots} приказов · hp ${h.hp}/${h.stats.maxHp}</div>
+        <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine(h.stats, h.hp)}</div>
+        <div class="sub ability">${esc(abilityLine(h.archetypeId))}</div>
       </div>`;
     })
     .join('');
@@ -1083,11 +1117,105 @@ function aftermathHtml(): string {
       <div class="btn-row" style="margin-top:4px">
         <button data-action="open-editor">переписать приказы</button>
         <button data-action="sparring">↻ те же кости</button>
+        <button data-action="open-log">полный лог</button>
         <span class="spacer"></span>
         <button class="primary" data-action="accept" ${ordersDirty ? 'disabled' : ''} ${contHint}>${contLabel}</button>
       </div>
     </div>
   </div>`;
+}
+
+// ---------- оверлей: карточка юнита ----------
+
+/** hp юнита в текущем кадре боя; undefined — кадра нет или юнит вне боя. */
+function unitHpInBattle(id: string): { hp: number; alive: boolean } | undefined {
+  const u = battle && frames[frameIdx] ? frames[frameIdx]!.units.find((u) => u.id === id) : undefined;
+  return u ? { hp: Math.max(0, u.hp), alive: u.alive } : undefined;
+}
+
+function unitCardHtml(id: string): string {
+  const node = currentNode(run);
+  const hero = run.heroes.find((h) => h.id === id);
+  if (hero) {
+    const live = unitHpInBattle(id) ?? (hero.alive ? { hp: hero.hp, alive: true } : undefined);
+    const hints = hero.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('');
+    return `<div class="overlay"><div class="modal unit-card">
+      <div class="head">
+        <span class="title">${esc(hero.name)}</span>
+        <span class="r-tag ${hero.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(hero.lenses)}</span>
+        <span class="meta">${live?.alive === false || !hero.alive ? 'пал(а)' : 'наш отряд'}</span>
+      </div>
+      <div class="stat-line">${statLine(hero.stats, live?.hp)}</div>
+      <div class="ability-note">способность · ${esc(abilityLine(hero.archetypeId))}</div>
+      <div class="card-block">
+        <span class="kicker">приказы</span>
+        <div class="orders-text">${
+          ordersSentence(hero) ? esc(ordersSentence(hero)) : '<span class="empty">— приказов нет —</span>'
+        }</div>
+      </div>
+      <div class="card-block">
+        <span class="kicker">как прочёл</span>
+        ${readNoteHtml(readingLines(hero), false)}
+      </div>
+      <div class="lens-hint">${hints}</div>
+      <div class="foot-row"><span class="spacer"></span><button class="primary" data-action="close-card">закрыть</button></div>
+    </div></div>`;
+  }
+  if (!FIGHT_KINDS.includes(node.kind)) return '';
+  const spec = foesForNode(node).find((f) => f.id === id);
+  if (!spec) return '';
+  const live = unitHpInBattle(id);
+  const principles = intelVisible(node)
+    ? foeIntel([spec])[0]!.lines.map((l) => `<div class="read-note">«${esc(l)}»</div>`).join('')
+    : `<div class="orders-text"><span class="empty">принципы скрыты — прочтёшь по ходу боя</span></div>`;
+  return `<div class="overlay"><div class="modal unit-card">
+    <div class="head">
+      <span class="title">${esc(spec.name)}</span>
+      <span class="r-tag ${spec.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(spec.lenses)}</span>
+      <span class="meta">${live?.alive === false ? 'пал' : 'противник'}</span>
+    </div>
+    <div class="stat-line">${statLine(spec, live?.hp)}</div>
+    <div class="card-block">
+      <span class="kicker">${intelVisible(node) ? 'принципы — они тоже читают' : 'принципы'}</span>
+      ${principles}
+    </div>
+    <div class="foot-row"><span class="spacer"></span><button class="primary" data-action="close-card">закрыть</button></div>
+  </div></div>`;
+}
+
+// ---------- оверлей: свиток боя (полный лог) ----------
+
+function battleLogHtml(): string {
+  if (!battle) return '';
+  const rows: string[] = [];
+  let round = 0;
+  frames.forEach((f, i) => {
+    if (i === 0) return;
+    if (f.round !== round) {
+      round = f.round;
+      rows.push(`<div class="log-round">— ход ${round} —</div>`);
+    }
+    rows.push(`<div class="log-row ${i === frameIdx ? 'cur' : ''}" data-frame="${i}">
+      <span class="t">${f.round}.</span>
+      <span><b>${esc(f.actorName)}</b> ${esc(f.text)} <span class="why">${esc(fmtFactors(f.factors))}</span></span>
+    </div>`);
+  });
+  const outcome =
+    battle.winner === 'party' ? 'поле за тобой' : battle.winner === 'draw' ? 'ничья' : 'отряд разбит';
+  return `<div class="overlay"><div class="modal battle-log">
+    <div class="head">
+      <span class="title">Свиток боя</span>
+      <span class="meta">${frames.length - 1} решений · seed ${run.runSeed} · клик по строке — к кадру</span>
+    </div>
+    <div class="log-scroll">${rows.join('')}
+      <div class="log-end">исход: ${outcome} · раундов: ${battle.rounds}</div>
+    </div>
+    <div class="foot-row">
+      <button class="tact-btn ${tactician ? 'on' : ''}" data-action="toggle-tact">режим тактика</button>
+      <span class="spacer"></span>
+      <button class="primary" data-action="close-log">закрыть</button>
+    </div>
+  </div></div>`;
 }
 
 // ---------- оверлей: конец забега ----------
@@ -1130,17 +1258,25 @@ function render(): void {
     : run.status === 'ongoing' && node.kind === 'scriptorium' && !run.resolved
       ? scriptoriumHtml()
       : mapScreenHtml();
+  const cardHtml = unitCardId ? unitCardHtml(unitCardId) : '';
   const overlay = editorOpen
     ? editorHtml()
-    : battle && aftermathOpen
-      ? aftermathHtml()
-      : !battle && run.status !== 'ongoing'
-        ? runEndHtml()
-        : '';
+    : battle && logOpen
+      ? battleLogHtml()
+      : cardHtml
+        ? cardHtml
+        : battle && aftermathOpen
+          ? aftermathHtml()
+          : !battle && run.status !== 'ongoing'
+            ? runEndHtml()
+            : '';
   app.innerHTML = `<div class="stage">
     <div class="book" style="transform:${bookTransform()}">${screen}${overlay}</div>
   </div>`;
   bind();
+  if (battle && logOpen) {
+    app.querySelector('.log-row.cur')?.scrollIntoView({ block: 'center' });
+  }
 }
 
 function draftsFromEditor(heroId: string): PhraseDraft[] {
@@ -1180,12 +1316,50 @@ function bind(): void {
       render();
     });
   }
+  for (const tok of app.querySelectorAll<HTMLElement>('.btoken[data-unit]')) {
+    tok.addEventListener('click', () => {
+      unitCardId = tok.dataset.unit!;
+      playing = false;
+      stopTimer();
+      render();
+    });
+  }
+  for (const row of app.querySelectorAll<HTMLElement>('.log-row[data-frame]')) {
+    row.addEventListener('click', () => {
+      frameIdx = Number(row.dataset.frame);
+      logOpen = false;
+      aftermathOpen = false;
+      playing = false;
+      stopTimer();
+      render();
+    });
+  }
   for (const el of app.querySelectorAll<HTMLElement>('[data-action]')) {
     el.addEventListener('click', () => {
       const a = el.dataset.action!;
       switch (a) {
         case 'fight':
           startBattle();
+          break;
+        case 'unit-card':
+          unitCardId = el.dataset.unit!;
+          playing = false;
+          stopTimer();
+          render();
+          break;
+        case 'close-card':
+          unitCardId = null;
+          render();
+          break;
+        case 'open-log':
+          logOpen = true;
+          playing = false;
+          stopTimer();
+          render();
+          break;
+        case 'close-log':
+          logOpen = false;
+          render();
           break;
         case 'open-editor': {
           const firstAlive = run.heroes.find((h) => h.alive);

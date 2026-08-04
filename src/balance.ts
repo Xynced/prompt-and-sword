@@ -25,20 +25,28 @@ import { mulberry32 } from './rng.js';
  * а не абсолютные проценты.
  */
 
-/** Кайт: Гром держит их, стрелки отходят и жгут слабейших (онбординг урока). */
+/** Кайт: ближники держат врагов на себе, стрелки отходят и жгут слабейших (онбординг урока). */
 export function kiteRewrite(state: RunState): void {
-  const results = [
-    setPhrases(state, 'grom', [
-      { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 },
-    ]),
-    ...['dart', 'lia'].map((id) =>
-      setPhrases(state, id, [
-        { condition: { id: 'always' }, preference: { id: 'act.retreat' } },
-        { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.weakest' }, weight: 2 },
-      ]),
-    ),
-  ];
-  for (const r of results) {
+  for (const h of state.heroes) {
+    if (!h.alive) continue;
+    const phrases =
+      h.stats.range === 1
+        ? [
+            {
+              condition: { id: 'always' } as const,
+              preference: { id: 'act.attack', target: 'sel.nearest' } as const,
+              weight: 2,
+            },
+          ]
+        : [
+            { condition: { id: 'always' } as const, preference: { id: 'act.retreat' } as const },
+            {
+              condition: { id: 'always' } as const,
+              preference: { id: 'act.attack', target: 'sel.weakest' } as const,
+              weight: 2,
+            },
+          ];
+    const r = setPhrases(state, h.id, phrases);
     if (!r.ok) throw new Error(`kiteRewrite: ${r.error}`);
   }
 }

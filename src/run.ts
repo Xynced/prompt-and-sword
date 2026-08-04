@@ -2,7 +2,7 @@ import { type BattleResult, type UnitSpec, runBattle } from './battle.js';
 import { type PhraseDraft, compilePhrase } from './constructor.js';
 import { type ConceptId, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
-import { HERO_STATS } from './scenarios.js';
+import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
 import { archer, berserker, grunt, hunter, packLeader, shaman, warChief, warlord } from './foes.js';
 import { mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
@@ -19,6 +19,8 @@ import type { LensId, Pos } from './types.js';
 
 export interface HeroState {
   id: string;
+  /** id архетипа из HERO_POOL — статы и способность; равен id героя. */
+  archetypeId: string;
   name: string;
   /** 1–3 случайные линзы характера — выпадают при генерации забега. */
   lenses: LensId[];
@@ -151,46 +153,20 @@ export function intelVisible(node: MapNode): boolean {
 
 // ---- Старт и доступ ----
 
-const p = (draft: PhraseDraft): PhraseDraft => draft;
-
-/** Стартовые принципы — осмысленный, но не оптимальный дефолт. */
-function defaultPhrases(heroId: string): PhraseDraft[] {
-  switch (heroId) {
-    case 'grom':
-      return [
-        p({ condition: { id: 'always' }, preference: { id: 'act.protect', ally: 'lia' } }),
-        p({ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' } }),
-      ];
-    case 'dart':
-      return [p({ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.weakest' } })];
-    default:
-      return [
-        p({
-          condition: { id: 'cond.hpBelow', who: 'self', frac: 0.5 },
-          preference: { id: 'act.retreat' },
-        }),
-        p({ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' } }),
-      ];
-  }
-}
-
 export function startRun(runSeed: number): RunState {
+  const partyRng = mulberry32(runSeed * 577 + 11);
   const lensRng = mulberry32(runSeed * 353 + 29);
-  const heroes: HeroState[] = (
-    [
-      ['grom', 'Гром'],
-      ['dart', 'Дарт'],
-      ['lia', 'Лия'],
-    ] as const
-  ).map(([id, name]) => ({
-    id,
-    name,
+  const party = pickParty(partyRng);
+  const heroes: HeroState[] = party.map((arch, slot) => ({
+    id: arch.id,
+    archetypeId: arch.id,
+    name: arch.name,
     lenses: rollLenses(lensRng),
-    stats: { ...HERO_STATS[id], spawn: { ...HERO_STATS[id].spawn } },
+    stats: { ...arch.stats, spawn: { ...PARTY_SPAWNS[slot]! } },
     alive: true,
-    hp: HERO_STATS[id].maxHp,
+    hp: arch.stats.maxHp,
     slots: START_SLOTS,
-    phrases: defaultPhrases(id),
+    phrases: defaultPhrasesFor(arch, party),
   }));
   return {
     runSeed,
@@ -230,7 +206,8 @@ export function heroSpecs(state: RunState): UnitSpec[] {
       name: h.name,
       side: 'party' as const,
       lenses: h.lenses,
-      rules: compileHero(state, h),
+      // приказы + врождённая способность архетипа; линзы искажают и её
+      rules: [...compileHero(state, h), ...heroArchetype(h.archetypeId).innate],
       hp: h.hp,
       ...h.stats,
     }));

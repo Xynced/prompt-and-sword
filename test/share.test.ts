@@ -5,9 +5,9 @@ import { generateMap, heroSpecs, setPhrases, startRun } from '../src/run.js';
 function customState() {
   const state = startRun(5);
   state.vocab.push('sel.leader', 'space.flank');
-  const grom = state.heroes.find((h) => h.id === 'grom')!;
-  grom.slots = 3;
-  const r = setPhrases(state, 'grom', [
+  const lead = state.heroes[0]!;
+  lead.slots = 3;
+  const r = setPhrases(state, lead.id, [
     { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.leader' }, weight: 2 },
     { condition: { id: 'cond.outnumbered' }, preference: { id: 'act.retreat' } },
     { condition: { id: 'always' }, preference: { id: 'space.flank' } },
@@ -50,7 +50,14 @@ describe('экспорт билда строкой (фаза 5)', () => {
       `ps1.${btoa(JSON.stringify({ v: 1, seed: 'x', vocab: [], heroes: [] }))}`,
       `ps1.${btoa(JSON.stringify({ v: 1, seed: 1, vocab: ['act.hackTheGibson'], heroes: [] }))}`,
       `ps1.${btoa(JSON.stringify({ v: 1, seed: 1, vocab: [], heroes: [{ id: 'evil', slots: 2, phrases: [] }] }))}`,
-      `ps1.${btoa(JSON.stringify({ v: 1, seed: 1, vocab: [], heroes: [{ id: 'grom', slots: 99, phrases: [] }] }))}`,
+      `ps1.${btoa(
+        JSON.stringify({
+          v: 1,
+          seed: 1,
+          vocab: [],
+          heroes: [{ id: startRun(1).heroes[0]!.id, slots: 99, phrases: [] }],
+        }),
+      )}`,
     ]) {
       const r = importBuild(bad);
       expect(r.ok).toBe(false);
@@ -64,6 +71,6 @@ describe('экспорт билда строкой (фаза 5)', () => {
     build.vocab = build.vocab.filter((c: string) => c !== 'space.flank');
     const r = importBuild(`ps1.${btoa(JSON.stringify(build))}`);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('Гром');
+    if (!r.ok) expect(r.error).toContain(src.heroes[0]!.name);
   });
 });
