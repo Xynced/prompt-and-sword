@@ -1,9 +1,22 @@
 import type { Rule } from './ir.js';
 import type { UnitSpec } from './battle.js';
+import { applyLens } from './lens.js';
 
 /** Фабрики врагов. Новый враг = новый набор правил, не новый арт. */
 
 const rule = (r: Omit<Rule, 'scope'>): Rule => ({ ...r, scope: 'self' });
+
+/**
+ * Разведка: видимые принципы врагов (после линзы характера — то, как враг
+ * БУДЕТ себя вести). Показывается перед боем у элиток и босса: бой становится
+ * задачей на контр-формулировку.
+ */
+export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: string[] }[] {
+  return specs.map((s) => ({
+    name: s.name,
+    lines: applyLens(s.character, s.rules).rules.map((r) => r.source),
+  }));
+}
 
 export function grunt(n: number): UnitSpec {
   return {
@@ -72,6 +85,98 @@ export function warChief(): UnitSpec {
     character: 'fanatic',
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'вождь: добивать раненых' }),
+    ],
+  };
+}
+
+// ---- Поздние враги (фаза 4): играют новыми концептами того же IR ----
+
+/** Шаман держится за спиной вожака (behindId — id юнита-щита в том же бою). */
+export function shaman(behindId: string): UnitSpec {
+  return {
+    id: 'shaman',
+    name: 'Шаман',
+    side: 'foe',
+    maxHp: 16,
+    atk: 4,
+    range: 4,
+    speed: 5,
+    move: 2,
+    character: 'plain',
+    rules: [
+      rule({
+        when: { kind: 'always' },
+        then: { kind: 'behind', ref: { type: 'ally', id: behindId } },
+        weight: 1.5,
+        source: 'шаман: держаться за спинами',
+      }),
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 1.5, source: 'шаман: жечь раненых' }),
+    ],
+  };
+}
+
+export function berserker(n: number): UnitSpec {
+  return {
+    id: `berserk${n}`,
+    name: `Берсерк ${n}`,
+    side: 'foe',
+    maxHp: 22,
+    atk: 8,
+    range: 1,
+    speed: 6,
+    move: 4,
+    character: 'fanatic',
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 2, source: 'берсерк: размен всегда выгоден' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, source: 'берсерк: рвать ближайшего' }),
+    ],
+  };
+}
+
+export function hunter(n: number): UnitSpec {
+  return {
+    id: `hunter${n}`,
+    name: `Охотник ${n}`,
+    side: 'foe',
+    maxHp: 15,
+    atk: 6,
+    range: 5,
+    speed: 6,
+    move: 3,
+    character: 'plain',
+    rules: [
+      rule({
+        when: { kind: 'always' },
+        then: { kind: 'attack', target: 'mostDangerous' },
+        weight: 2,
+        source: 'охотник: снимать самых опасных',
+      }),
+      rule({ when: { kind: 'always' }, then: { kind: 'avoidLineOfFire' }, weight: 1.2, source: 'охотник: не лезть под выстрел' }),
+    ],
+  };
+}
+
+/** Финальный босс забега. Ходит со свитой (шаман за спиной, берсерки по бокам). */
+export function warlord(): UnitSpec {
+  return {
+    id: 'warlord',
+    name: 'Вождь орды',
+    side: 'foe',
+    maxHp: 46,
+    atk: 9,
+    range: 1,
+    speed: 6,
+    move: 3,
+    tags: ['leader'],
+    character: 'fanatic',
+    rules: [
+      rule({
+        when: { kind: 'always' },
+        then: { kind: 'attack', target: 'mostDangerous' },
+        weight: 2,
+        source: 'вождь орды: ломать самых опасных',
+      }),
+      rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 1.5, source: 'вождь орды: крови не жалеть' }),
     ],
   };
 }
