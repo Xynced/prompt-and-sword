@@ -5,6 +5,7 @@ import { understandingCard } from './cards.js';
 import { describeDraft } from './constructor.js';
 import { type CompileRequest, anthropicModelCall, compileFreeText, type ModelCall } from './compiler/compile.js';
 import { fileCache } from './compiler/cache-node.js';
+import { balanceSweep, kiteRewrite } from './balance.js';
 import {
   advance,
   chooseInEvent,
@@ -16,7 +17,6 @@ import {
   playFight,
   rest,
   scriptoriumOffer,
-  setPhrases,
   startRun,
 } from './run.js';
 
@@ -142,19 +142,6 @@ function verboseRun(setName: string, seed: number): void {
   }
 }
 
-/** Переформулировка для урока (кайт): чему онбординг должен научить игрока. */
-function lessonRewrite(state: ReturnType<typeof startRun>): void {
-  setPhrases(state, 'grom', [
-    { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 },
-  ]);
-  for (const id of ['dart', 'lia']) {
-    setPhrases(state, id, [
-      { condition: { id: 'always' }, preference: { id: 'act.retreat' } },
-      { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.weakest' }, weight: 2 },
-    ]);
-  }
-}
-
 /** Демо забега: дефолтные принципы, урок при поражении переигрывается с фокусом. */
 function demoRun(runSeed: number): void {
   const state = startRun(runSeed);
@@ -190,7 +177,7 @@ function demoRun(runSeed: number): void {
             return;
           }
           console.log('  переписываем приказ (кайт): Гром держит их, стрелки отходят и жгут слабейших — те же кости');
-          lessonRewrite(state);
+          kiteRewrite(state);
         }
         break;
       }
@@ -227,6 +214,32 @@ function demoRun(runSeed: number): void {
   }
   console.log(`\nИтог забега: ${state.status === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}`);
   console.log(state.log.map((l) => `  ${l}`).join('\n'));
+}
+
+/** Автобаланс: бот играет N забегов, печатаем кривую сложности. */
+function balanceCmd(n: number): void {
+  const report = balanceSweep(Array.from({ length: n }, (_, i) => i + 1));
+  const pct = (x: number, d: number): string => (d === 0 ? '  —' : `${((x / d) * 100).toFixed(0).padStart(3)}%`);
+  console.log(`Автобаланс: ${report.seeds} забегов. Бот: дефолт → кайт после поражения в уроке,`);
+  console.log('путь случайный от сида, принципы дальше не переписываются (нижняя граница игрока).\n');
+  console.log(`Забег выигран: ${pct(report.runsWon, report.seeds)}   босс достигнут: ${pct(report.bossReached, report.seeds)}, hp на подходе к боссу (до кануна): ${(report.avgBossEntryHpFrac * 100).toFixed(0)}%`);
+  console.log(`Урок: с 1-й попытки ${pct(report.lessonFirstTry, report.seeds)}, кайт не спас (забег брошен): ${pct(report.lessonStuck, report.seeds)}\n`);
+  console.log('Кривая (боевые узлы):');
+  console.log('слой  узел    сыграно  winrate  hp после победы');
+  for (const p of report.curve) {
+    console.log(
+      `  ${String(p.layer).padStart(2)}  ${p.kind.padEnd(7)} ${String(p.played).padStart(6)}  ${pct(p.won, p.played).padStart(6)}  ${(p.avgHpAfterWin * 100).toFixed(0).padStart(4)}%`,
+    );
+  }
+  const deaths = [...report.deathsByLayer.entries()].sort((a, b) => a[0] - b[0]);
+  const lost = deaths.reduce((s, [, n2]) => s + n2, 0);
+  console.log(`\nРоковые бои по слоям (${lost} проигранных забегов, без брошенных на уроке):`);
+  for (const [layer, count] of deaths) console.log(`  слой ${layer}: ${count} (${pct(count, lost)})`);
+  console.log('\nСмерти героев (наёмник может заменить):');
+  for (const [id, count] of [...report.heroDeaths.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${id}: ${count}`);
+  }
+  console.log(`Наёмник нанят: ${report.mercHired} раз`);
 }
 
 // ---------- LLM-компилятор (живые вызовы; кэш в .cache/) ----------
@@ -365,6 +378,8 @@ if (cmd === 'gateA') {
   verboseRun(setName, seed);
 } else if (cmd === 'demo-run') {
   demoRun(Number(args[0] ?? 1));
+} else if (cmd === 'balance') {
+  balanceCmd(Number(args[0] ?? 500));
 } else if (cmd === 'compile') {
   const text = args[0];
   if (!text) {
@@ -377,6 +392,6 @@ if (cmd === 'gateA') {
   await corpusCmd(args.filter((a) => a.endsWith('.txt')), 'grom');
 } else {
   console.log(
-    'Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed> | compile "<текст>" [герой] | corpus [файлы…]]',
+    'Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed> | balance [N] | compile "<текст>" [герой] | corpus [файлы…]]',
   );
 }

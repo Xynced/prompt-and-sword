@@ -73,9 +73,12 @@ const LAYER_KINDS: NodeKind[][] = [
   ['fight', 'fight'],
   ['scriptorium', 'event'],
   ['fight', 'elite', 'fight'],
-  ['event', 'scriptorium'],
-  ['elite', 'fight'],
+  // привал в середине (по симу фазы 5 бóльшая часть смертей — слой 5),
+  // событие перед боссом — шанс нанять наёмника на финал; привал там был бы
+  // мёртвым выбором: в бой с боссом партия и так входит отдохнувшей
   ['rest', 'scriptorium'],
+  ['elite', 'fight'],
+  ['event', 'scriptorium'],
   ['boss'],
 ];
 
@@ -133,7 +136,8 @@ export function foesForNode(node: MapNode): UnitSpec[] {
         : [warChief(), shaman('chief'), hunter(1)];
     case 'boss':
       // подобрано симом: 4-й враг делает бой нерешаемым (экономика действий);
-      // наивный «фокусь вожака» проигрывает, снятие свиты под заслоном — выигрывает
+      // на полном hp (канун битвы) наивный «фокусь вожака» ~22%, контр-билды
+      // со снятием свиты под заслоном ~60%
       return [warlord(), shaman('warlord'), berserker(1)];
     default:
       throw new Error(`Узел ${node.kind} — не бой`);
@@ -267,6 +271,15 @@ export function playFight(state: RunState): BattleResult {
   const node = currentNode(state);
   if (state.status !== 'ongoing' || state.resolved || !FIGHT_KINDS.includes(node.kind)) {
     throw new Error('Сейчас не боевой узел');
+  }
+  if (node.kind === 'boss' && state.heroes.some((h) => h.alive && h.hp < h.stats.maxHp)) {
+    // канун битвы: босс — задача на контр-формулировку, а не проверка запаса hp
+    // (по симу фазы 5 недолеченная партия проигрывает любым билдом);
+    // истощение забега остаётся в потерях — погибших канун не воскрешает
+    for (const h of state.heroes) {
+      if (h.alive) h.hp = h.stats.maxHp;
+    }
+    state.log.push('Канун битвы: лагерь и перевязка — в бой со свежими силами');
   }
   const result = runBattle(battleSeed(state), [...heroSpecs(state), ...foesForNode(node)]);
 
