@@ -73,23 +73,28 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
 };
 
 /**
- * Стартовый словарь — нарочно нищий: атаковать, ближайший, отступать.
- * Всё остальное добывается в бою (трофеи) и в скриптории.
+ * Стартовый словарь — скромный, но уже выразительный: есть условие,
+ * два селектора и три действия. Остальное добывается в бою (трофеи)
+ * и в скриптории.
  */
-export const STARTING_VOCAB: ConceptId[] = ['act.attack', 'sel.nearest', 'act.retreat'];
+export const STARTING_VOCAB: ConceptId[] = [
+  'act.attack',
+  'sel.nearest',
+  'act.retreat',
+  'cond.hpBelow',
+  'sel.weakest',
+  'act.holdPosition',
+];
 
 /**
  * Простые слова — база выразительности; в предложениях трофея/скриптория
  * идут первой колонкой (простое против глубокого).
  */
 export const CORE_WORDS: ConceptId[] = [
-  'cond.hpBelow',
   'cond.outnumbered',
   'cond.allyInDanger',
-  'sel.weakest',
   'sel.leader',
   'act.protect',
-  'act.holdPosition',
   'space.nearTo',
   'space.behind',
 ];
