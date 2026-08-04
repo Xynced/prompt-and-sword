@@ -26,27 +26,23 @@ import { mulberry32 } from './rng.js';
  * а не абсолютные проценты.
  */
 
-/** Кайт: ближники держат врагов на себе, стрелки отходят и бьют издали (онбординг урока, стартовый словарь). */
+/**
+ * Кайт: вся партия держит дистанцию и бьёт ближайшего (онбординг урока; слово
+ * «держать дистанцию» открывается поражением в уроке). Ближникам standoff —
+ * дистанция удара, стрелкам — их дальность; по симу это спасает больше костей,
+ * чем вариант «ближники просто атакуют».
+ */
 export function kiteRewrite(state: RunState): void {
   for (const h of state.heroes) {
     if (!h.alive) continue;
-    const phrases =
-      h.stats.range === 1
-        ? [
-            {
-              condition: { id: 'always' } as const,
-              preference: { id: 'act.attack', target: 'sel.nearest' } as const,
-              weight: 2,
-            },
-          ]
-        : [
-            { condition: { id: 'always' } as const, preference: { id: 'act.retreat' } as const },
-            {
-              condition: { id: 'always' } as const,
-              preference: { id: 'act.attack', target: 'sel.nearest' } as const,
-              weight: 2,
-            },
-          ];
+    const phrases = [
+      { condition: { id: 'always' } as const, preference: { id: 'act.standoff' } as const, weight: 2 },
+      {
+        condition: { id: 'always' } as const,
+        preference: { id: 'act.attack', target: 'sel.nearest' } as const,
+        weight: 2,
+      },
+    ];
     const r = setPhrases(state, h.id, phrases);
     if (!r.ok) throw new Error(`kiteRewrite: ${r.error}`);
   }

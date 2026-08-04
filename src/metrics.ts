@@ -18,6 +18,8 @@ export interface Fingerprint {
   condPct: number;
   /** Средняя по решениям партии дистанция выбранной клетки до ближайшего врага. */
   avgNearestEnemyDist: number;
+  /** Доля урона партии, пришедшаяся в главную (самую обстрелянную) цель — концентрация фокус-огня. */
+  focusShare: number;
 }
 
 export function fingerprint(result: BattleResult): Fingerprint {
@@ -32,6 +34,7 @@ export function fingerprint(result: BattleResult): Fingerprint {
   let partyCondDecisions = 0;
   let distSum = 0;
   let distN = 0;
+  const dmgByTarget = new Map<string, number>();
 
   for (const e of result.events) {
     switch (e.t) {
@@ -66,6 +69,7 @@ export function fingerprint(result: BattleResult): Fingerprint {
         if (side.get(e.unit) === 'party') {
           partyAttacks++;
           if (e.flank) partyFlanks++;
+          dmgByTarget.set(e.target, (dmgByTarget.get(e.target) ?? 0) + e.dmg);
         }
         break;
       case 'die':
@@ -76,11 +80,13 @@ export function fingerprint(result: BattleResult): Fingerprint {
     }
   }
 
+  const totalDmg = [...dmgByTarget.values()].reduce((a, b) => a + b, 0);
   return {
     rounds: result.rounds,
     ...(firstContactRound !== undefined ? { firstContactRound } : {}),
     flankPct: partyAttacks > 0 ? partyFlanks / partyAttacks : 0,
     condPct: partyDecisions > 0 ? partyCondDecisions / partyDecisions : 0,
     avgNearestEnemyDist: distN > 0 ? distSum / distN : 0,
+    focusShare: totalDmg > 0 ? Math.max(...dmgByTarget.values()) / totalDmg : 0,
   };
 }

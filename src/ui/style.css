@@ -304,6 +304,14 @@ button.primary:disabled:hover { background: var(--ink); }
 }
 .hp-sliver span { display: block; height: 100%; background: var(--ink); }
 .btoken.foe .hp-sliver span { background: var(--red); }
+.mark-badge {
+  position: absolute;
+  top: 0;
+  right: 8%;
+  font: 700 12px/1 var(--serif);
+  color: var(--red);
+  z-index: 1;
+}
 .callout {
   position: absolute;
   font: 400 15px/1.15 var(--hand);
@@ -517,6 +525,8 @@ textarea.intent-text:focus { outline: none; border-color: var(--red); }
   color: rgba(31, 27, 22, 0.65);
 }
 .foe-row b { color: var(--ink); }
+.mark-btn { margin-left: 8px; }
+.mark-btn.on { background: var(--red); color: #f7f0e1; border-color: var(--red); }
 .r-name.clickable { cursor: pointer; }
 .r-name.clickable:hover { color: var(--red); }
 .btoken { cursor: pointer; }

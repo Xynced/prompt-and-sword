@@ -9,9 +9,10 @@ import { dist } from './grid.js';
  *   Простр.:   nearTo, behind
  * Поздний словарь (фаза 4):
  *   Условия:   battleDrags (бой затянулся), initiativeEdge (мы быстрее)
- *   Селекторы: mostDangerous, attacker (кто атаковал меня)
- *   Действия:  bait (приманка), trade (размен), coverRetreat (прикрывать отход)
- *   Простр.:   flank, avoidLineOfFire (вне линии огня)
+ *   Селекторы: mostDangerous, attacker (кто атаковал меня), marked (помеченный)
+ *   Действия:  bait (приманка), trade (размен), coverRetreat (прикрывать отход),
+ *              standoff (держать дистанцию)
+ *   Простр.:   flank, avoidLineOfFire (вне линии огня), chokepoint (узкое место)
  * Глубокий словарь (фаза 6):
  *   Условия:   allyFallen (кто-то из наших пал), surrounded (меня окружили)
  *   Селекторы: shooter (стрелок), farthest (самый дальний)
@@ -25,6 +26,7 @@ export type Selector =
   | 'leader'
   | 'mostDangerous'
   | 'attacker'
+  | 'marked'
   | 'shooter'
   | 'farthest';
 
@@ -54,8 +56,10 @@ export type Preference =
   | { kind: 'bait' }
   | { kind: 'trade' }
   | { kind: 'coverRetreat' }
+  | { kind: 'standoff' }
   | { kind: 'flank' }
   | { kind: 'avoidLineOfFire' }
+  | { kind: 'chokepoint' }
   | { kind: 'brace' }
   | { kind: 'awayFrom'; ref: PosRef };
 
@@ -145,6 +149,9 @@ export function resolveSelector(
     case 'attacker':
       // кто атаковал меня последним; пока не били — ближайший
       return enemies.find((u) => u.id === self.lastAttackerId) ?? pick((u) => dist(u.pos, self.pos));
+    case 'marked':
+      // помеченный игроком перед боем; метки нет (или помеченный пал) — ближайший
+      return enemies.find((u) => u.tags.includes('marked')) ?? pick((u) => dist(u.pos, self.pos));
     case 'shooter': {
       // ближайший вражеский стрелок; стрелков нет — просто ближайший
       const shooters = enemies.filter((u) => u.range > 1);
@@ -192,10 +199,14 @@ export function describePreference(p: Preference): string {
       return 'размен';
     case 'coverRetreat':
       return 'прикрывать отход';
+    case 'standoff':
+      return 'держать дистанцию';
     case 'flank':
       return 'заходить во фланг';
     case 'avoidLineOfFire':
       return 'вне линии огня';
+    case 'chokepoint':
+      return 'узкое место';
     case 'brace':
       return 'глухая оборона';
     case 'awayFrom':

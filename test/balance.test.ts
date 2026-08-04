@@ -8,8 +8,9 @@ describe('автобаланс (фаза 5)', () => {
     expect(JSON.stringify(playBotRun(42))).toBe(JSON.stringify(playBotRun(42)));
   });
 
-  it('кайт-переформулировка компилируется на стартовом словаре', () => {
+  it('кайт-переформулировка компилируется после поражения в уроке (слово открыто)', () => {
     const state = startRun(1);
+    state.vocab.push('act.standoff'); // урок открывает слово при поражении
     expect(() => kiteRewrite(state)).not.toThrow();
   });
 

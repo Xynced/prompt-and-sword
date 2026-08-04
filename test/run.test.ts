@@ -22,7 +22,7 @@ import {
 import { CORE_WORDS, DEEP_WORDS, STARTING_VOCAB } from '../src/vocab.js';
 import { runBattle } from '../src/battle.js';
 
-/** Кайт-переформулировка (стартовый словарь), выигрывающая урок на большинстве костей. */
+/** Кайт-переформулировка (после поражения в уроке слово «держать дистанцию» открыто). */
 function lessonRewrite(state: RunState): void {
   for (const h of state.heroes) {
     if (!h.alive) continue;
@@ -32,7 +32,7 @@ function lessonRewrite(state: RunState): void {
       h.stats.range === 1
         ? [{ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 }]
         : [
-            { condition: { id: 'always' }, preference: { id: 'act.retreat' } },
+            { condition: { id: 'always' }, preference: { id: 'act.standoff' } },
             { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 },
           ],
     );
@@ -160,7 +160,7 @@ describe('забег', () => {
     expect(ends).toBeGreaterThan(0);
   });
 
-  it('урок: поражение не кончает забег, кости те же, переформулировка переворачивает бой', () => {
+  it('урок: поражение не кончает забег, кости те же, слово открыто, переформулировка переворачивает бой', () => {
     // ищем сид, где дефолт проигрывает урок, а кайт переворачивает (по симу ~8% и 75% из них)
     for (let seed = 1; seed <= 80; seed++) {
       const state = startRun(seed);
@@ -170,6 +170,7 @@ describe('забег', () => {
       expect(state.status).toBe('ongoing'); // забег жив
       expect(state.resolved).toBe(false); // узел не пройден
       expect(battleSeed(state)).toBe(seedBefore); // кости те же
+      expect(state.vocab).toContain('act.standoff'); // онбординг дал слово для контр-формулировки
       lessonRewrite(state);
       const r2 = playFight(state);
       if (r2.winner === 'party') {

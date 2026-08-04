@@ -46,6 +46,7 @@ interface SetStats {
   flankPct: number;
   condPct: number;
   avgNearestDist: number;
+  focusShare: number;
 }
 
 function collectStats(set: IrSet): SetStats {
@@ -59,6 +60,7 @@ function collectStats(set: IrSet): SetStats {
   let flank = 0;
   let cond = 0;
   let nearest = 0;
+  let focus = 0;
   for (const seed of SEEDS) {
     const r = run(set, seed);
     if (r.winner === 'party') wins++;
@@ -76,6 +78,7 @@ function collectStats(set: IrSet): SetStats {
     flank += fp.flankPct;
     cond += fp.condPct;
     nearest += fp.avgNearestEnemyDist;
+    focus += fp.focusShare;
   }
   const n = SEEDS.length;
   return {
@@ -90,6 +93,7 @@ function collectStats(set: IrSet): SetStats {
     flankPct: flank / n,
     condPct: cond / n,
     avgNearestDist: nearest / n,
+    focusShare: focus / n,
   };
 }
 
@@ -109,14 +113,14 @@ function gateA(): void {
 
   // Отпечаток поведения: наборы должны отличаться процессом, не только исходом
   console.log('\nОтпечаток поведения (партия):');
-  console.log('набор           контакт  фланг%  усл.прав%  ср.дист  ничьи');
+  console.log('набор           контакт  фланг%  усл.прав%  ср.дист  фокус%  ничьи');
   for (const s of stats) {
     console.log(
       `${s.name.padEnd(15)} ${s.avgFirstContact.toFixed(1).padStart(7)}  ${(s.flankPct * 100)
         .toFixed(0)
         .padStart(5)}%  ${(s.condPct * 100).toFixed(0).padStart(8)}%  ${s.avgNearestDist
         .toFixed(2)
-        .padStart(7)}  ${String(s.draws).padStart(5)}`,
+        .padStart(7)}  ${(s.focusShare * 100).toFixed(0).padStart(5)}%  ${String(s.draws).padStart(5)}`,
     );
   }
 
@@ -217,7 +221,7 @@ function demoRun(runSeed: number): void {
             console.log('Урок не пройден за 3 попытки — стоп');
             return;
           }
-          console.log('  переписываем приказ (кайт): ближники держат их, стрелки отходят и бьют издали — те же кости');
+          console.log('  переписываем приказ (кайт): вся партия держит дистанцию и бьёт ближайшего — те же кости');
           kiteRewrite(state);
         }
         if (state.pendingReward?.[0]) {
