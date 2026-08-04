@@ -102,7 +102,7 @@ async function compileHeroText(heroId: string): Promise<void> {
       text: heroText[heroId] ?? '',
       heroId,
       heroName: hero.name,
-      character: hero.character,
+      lenses: hero.lenses,
       vocab: run.vocab,
       allies: Object.fromEntries(
         run.heroes.filter((h) => h.alive && h.id !== heroId).map((h) => [h.id, h.name]),
@@ -296,7 +296,7 @@ function heroesHtml(): string {
   return run.heroes
     .map((h) => {
       if (!h.alive) {
-        return `<div class="hero dead"><span class="hero-name">${h.name}</span> <span class="dim">[${h.character}] — погиб(ла)</span></div>`;
+        return `<div class="hero dead"><span class="hero-name">${h.name}</span> <span class="dim">[${h.lenses.join('+')}] — погиб(ла)</span></div>`;
       }
       const hpPct = Math.round((h.hp / h.stats.maxHp) * 100);
       const hpBar = `<div class="hero-hp" title="${h.hp}/${h.stats.maxHp} hp">
@@ -330,7 +330,7 @@ function heroesHtml(): string {
         .filter((r): r is NonNullable<typeof r> => r !== null);
       const inTextMode = !!textMode[h.id];
       const card = understandingCard(
-        { name: h.name, character: h.character },
+        { name: h.name, lenses: h.lenses },
         rules,
         names,
         inTextMode ? (heroUncertainty[h.id] ?? []) : [],
@@ -349,7 +349,7 @@ function heroesHtml(): string {
              ${compiling[h.id] ? '…понимает' : 'Понять'}</button>`
         : `${rows}${addBtn}`;
       return `<div class="hero">
-        <div class="hero-name">${h.name} <span class="dim">[${h.character}]</span> ${toggle}</div>
+        <div class="hero-name">${h.name} <span class="dim">[${h.lenses.join('+')}]</span> ${toggle}</div>
         ${hpBar}
         ${editor}${err}
         <div class="dim" style="margin-top:6px">Как понял:</div>${cardHtml}
@@ -441,7 +441,7 @@ function actionPanelHtml(): string {
         <p><button class="primary" data-action="event-take">Забрать</button></p>`);
     }
     if (offer.mercenary) {
-      parts.push(`<div>У костра сидит наёмник ${esc(offer.mercenary.name)} [${offer.mercenary.character}] —
+      parts.push(`<div>У костра сидит наёмник ${esc(offer.mercenary.name)} [${offer.mercenary.lenses.join('+')}] —
         займёт место павшего, но прежние принципы прочтёт по-своему.</div>
         <p><button data-action="event-hire">Нанять</button></p>`);
     }

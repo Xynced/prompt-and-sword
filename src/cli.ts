@@ -163,8 +163,8 @@ function demoRun(runSeed: number): void {
   console.log('Карточки «как понял» перед стартом:');
   const names = heroNames(state);
   for (const spec of heroSpecs(state)) {
-    const card = understandingCard({ name: spec.name, character: spec.character }, spec.rules, names);
-    console.log(`  ${card.heroName} [${card.character}]`);
+    const card = understandingCard({ name: spec.name, lenses: spec.lenses }, spec.rules, names);
+    console.log(`  ${card.heroName} [${card.lenses.join('+')}]`);
     for (const line of card.lines) console.log(`    · ${line}`);
   }
   console.log('');
@@ -243,7 +243,7 @@ function compileRequest(text: string, heroId: string): CompileRequest {
     text,
     heroId: hero.id,
     heroName: hero.name,
-    character: hero.character,
+    lenses: hero.lenses,
     vocab: state.vocab,
     allies,
     maxPhrases: hero.slots,
@@ -278,12 +278,12 @@ async function compileCmd(text: string, heroId: string): Promise<void> {
     return;
   }
   console.log(
-    `«${text}» → ${req.heroName} [${req.character}] · ${call.model}${r.cached ? ' (из кэша)' : ''}\n`,
+    `«${text}» → ${req.heroName} [${req.lenses.join('+')}] · ${call.model}${r.cached ? ' (из кэша)' : ''}\n`,
   );
   const names = { ...req.allies, [req.heroId]: req.heroName };
   console.log('Фразы (до линзы):');
   for (const ph of r.phrases) console.log(`  · ${describeDraft(ph, names)}`);
-  const card = understandingCard({ name: req.heroName, character: req.character }, r.rules, names, r.uncertainty);
+  const card = understandingCard({ name: req.heroName, lenses: [...req.lenses] }, r.rules, names, r.uncertainty);
   console.log('\nКак понял (после линзы):');
   for (const line of card.lines) console.log(`  · ${line}`);
 }

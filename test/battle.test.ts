@@ -69,7 +69,7 @@ describe('буквалист без сработавшего правила', ()
       range: 1,
       speed: 5,
       move: 3,
-      character: 'literalist',
+      lenses: ['literalist'],
       // правило никогда не сработает: hp всегда выше 1%
       rules: [
         {
@@ -91,7 +91,7 @@ describe('буквалист без сработавшего правила', ()
       range: 1,
       speed: 4,
       move: 2,
-      character: 'plain',
+      lenses: ['plain'],
       rules: [
         {
           when: { kind: 'always' },

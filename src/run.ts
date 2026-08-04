@@ -5,7 +5,8 @@ import { type Rule } from './ir.js';
 import { HERO_STATS } from './scenarios.js';
 import { archer, berserker, grunt, hunter, packLeader, shaman, warChief, warlord } from './foes.js';
 import { mulberry32, shuffle } from './rng.js';
-import type { CharacterId, Pos } from './types.js';
+import { LENS_POOL, rollLenses } from './lens.js';
+import type { LensId, Pos } from './types.js';
 
 /**
  * Забег фазы 4: ветвящаяся карта из 15 узлов (à la Slay the Spire),
@@ -19,7 +20,8 @@ import type { CharacterId, Pos } from './types.js';
 export interface HeroState {
   id: string;
   name: string;
-  character: CharacterId;
+  /** 1–3 случайные линзы характера — выпадают при генерации забега. */
+  lenses: LensId[];
   stats: { maxHp: number; atk: number; range: number; speed: number; move: number; spawn: Pos };
   alive: boolean;
   /** Текущее hp — переносится между боями; лечится на привале и перевязкой после победы. */
@@ -115,8 +117,10 @@ export function generateMap(runSeed: number): MapNode[] {
 export function foesForNode(node: MapNode): UnitSpec[] {
   switch (node.kind) {
     case 'lesson':
-      // подобрано симом: дефолтные принципы проигрывают ~68% сидов,
-      // кайт-переформулировка выигрывает ~85% тех же костей
+      // по симу (100 сидов, случайные линзы): дефолтные принципы проигрывают
+      // ~60% сидов, кайт-переформулировка выигрывает ~52%; выигрышная
+      // формулировка зависит от выпавших линз — урок и учит читать карточки,
+      // а переигрывается бесплатно
       return [warChief(), grunt(1), grunt(2), archer(1)];
     case 'fight':
       if (node.layer <= 1) return node.slot === 0 ? [grunt(1), grunt(2)] : [grunt(1), archer(1)];
@@ -167,16 +171,17 @@ function defaultPhrases(heroId: string): PhraseDraft[] {
 }
 
 export function startRun(runSeed: number): RunState {
+  const lensRng = mulberry32(runSeed * 353 + 29);
   const heroes: HeroState[] = (
     [
-      ['grom', 'Гром', 'fanatic'],
-      ['dart', 'Дарт', 'literalist'],
-      ['lia', 'Лия', 'coward'],
+      ['grom', 'Гром'],
+      ['dart', 'Дарт'],
+      ['lia', 'Лия'],
     ] as const
-  ).map(([id, name, character]) => ({
+  ).map(([id, name]) => ({
     id,
     name,
-    character,
+    lenses: rollLenses(lensRng),
     stats: { ...HERO_STATS[id], spawn: { ...HERO_STATS[id].spawn } },
     alive: true,
     hp: HERO_STATS[id].maxHp,
@@ -220,7 +225,7 @@ export function heroSpecs(state: RunState): UnitSpec[] {
       id: h.id,
       name: h.name,
       side: 'party' as const,
-      character: h.character,
+      lenses: h.lenses,
       rules: compileHero(state, h),
       hp: h.hp,
       ...h.stats,
@@ -373,12 +378,12 @@ export function rest(state: RunState): SetPhrasesResult {
 
 // ---- События ----
 
-const MERC_POOL: { name: string; character: CharacterId }[] = [
-  { name: 'Крад', character: 'literalist' },
-  { name: 'Вельма', character: 'coward' },
-  { name: 'Осса', character: 'fanatic' },
-  { name: 'Бор', character: 'plain' },
-];
+const MERC_NAMES = ['Крад', 'Вельма', 'Осса', 'Бор'];
+
+/** Одинаковый ли набор линз (порядок не важен — наёмник обязан читать иначе). */
+function sameLenses(a: readonly LensId[], b: readonly LensId[]): boolean {
+  return [...a].sort().join() === [...b].sort().join();
+}
 
 export interface EventOffer {
   /** Базовое предложение узла (детерминировано сидом). */
@@ -388,7 +393,7 @@ export interface EventOffer {
   /** Тайник: +1 слот герою. */
   slotHero?: string;
   /** Наёмник у костра — только если есть погибший герой. */
-  mercenary?: { heroId: string; name: string; character: CharacterId };
+  mercenary?: { heroId: string; name: string; lenses: LensId[] };
 }
 
 export function eventOffer(state: RunState): EventOffer {
@@ -406,10 +411,13 @@ export function eventOffer(state: RunState): EventOffer {
 
   const dead = state.heroes.find((h) => !h.alive);
   if (dead) {
-    const merc = MERC_POOL.filter((m) => m.character !== dead.character)[
-      Math.floor(rng() * 3) % 3
-    ]!;
-    offer.mercenary = { heroId: dead.id, name: merc.name, character: merc.character };
+    const name = MERC_NAMES[Math.floor(rng() * MERC_NAMES.length)]!;
+    const lenses = rollLenses(rng);
+    if (sameLenses(lenses, dead.lenses)) {
+      // тот же набор — подменяем первую линзу, чтобы принципы точно читались иначе
+      lenses[0] = LENS_POOL.find((l) => !lenses.includes(l))!;
+    }
+    offer.mercenary = { heroId: dead.id, name, lenses };
   }
   return offer;
 }
@@ -437,10 +445,10 @@ export function chooseInEvent(state: RunState, choice: EventChoice): SetPhrasesR
     const hero = state.heroes.find((h) => h.id === offer.mercenary!.heroId)!;
     hero.alive = true;
     hero.name = offer.mercenary.name;
-    hero.character = offer.mercenary.character;
+    hero.lenses = offer.mercenary.lenses;
     hero.hp = Math.ceil(hero.stats.maxHp * MERC_HP);
     state.log.push(
-      `${hero.name} [${hero.character}] встаёт в строй — прежние принципы он прочтёт по-своему`,
+      `${hero.name} [${hero.lenses.join('+')}] встаёт в строй — прежние принципы он прочтёт по-своему`,
     );
   }
   state.resolved = true;

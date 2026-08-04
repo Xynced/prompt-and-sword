@@ -1,15 +1,15 @@
 import type { Condition, Preference, Rule } from './ir.js';
-import { applyLens } from './lens.js';
-import type { CharacterId } from './types.js';
+import { LENS_RU, applyLens } from './lens.js';
+import type { LensId } from './types.js';
 
 /**
- * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линзы.
+ * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
  * Контракт с игроком: все искажения характера видны ДО боя.
  */
 
 export interface UnderstandingCard {
   heroName: string;
-  character: CharacterId;
+  lenses: LensId[];
   lines: string[];
 }
 
@@ -68,32 +68,33 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
 }
 
 /** Помечена ли строка искажением линзы (по аннотации source). */
+const LENS_MARK_RE = new RegExp(`\\((?:${Object.values(LENS_RU).join('|')}):`);
+
 function lensMark(rule: Rule): string {
-  if (rule.source.includes('(трус:')) return ' ⚠ понял по-своему';
-  if (rule.source.includes('(фанатик:')) return ' ⚠ понял по-своему';
-  if (rule.source.startsWith('инстинкт труса')) return ' ⚠ инстинкт';
+  if (LENS_MARK_RE.test(rule.source)) return ' ⚠ понял по-своему';
+  if (rule.source.startsWith('инстинкт')) return ' ⚠ инстинкт';
   return '';
 }
 
 /**
- * Строит карточку понимания: сырые правила героя → линза → текст.
+ * Строит карточку понимания: сырые правила героя → линзы → текст.
  * Та же applyLens, что и в бою — карточка не может разойтись с поведением.
  * uncertainty — заметки LLM-компилятора («не знает слова X»), тоже видны до боя.
  */
 export function understandingCard(
-  hero: { name: string; character: CharacterId },
+  hero: { name: string; lenses: LensId[] },
   rawRules: Rule[],
   names: Record<string, string> = {},
   uncertainty: readonly string[] = [],
 ): UnderstandingCard {
   const nm = (id: string): string => names[id] ?? id;
-  const compiled = applyLens(hero.character, rawRules);
+  const compiled = applyLens(hero.lenses, rawRules);
   const lines = compiled.rules.map(
     (r) => `${condRu(r.when, nm)}${prefRu(r.then, nm)}${lensMark(r)}`,
   );
   for (const u of uncertainty) lines.push(`⚠ ${u}`);
-  if (hero.character === 'literalist') {
+  if (hero.lenses.includes('literalist')) {
     lines.push('нет правила на ситуацию — стою и защищаюсь ⚠ буквалист');
   }
-  return { heroName: hero.name, character: hero.character, lines };
+  return { heroName: hero.name, lenses: hero.lenses, lines };
 }

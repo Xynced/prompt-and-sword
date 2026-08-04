@@ -14,7 +14,7 @@ const rule = (r: Omit<Rule, 'scope'>): Rule => ({ ...r, scope: 'self' });
 export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: string[] }[] {
   return specs.map((s) => ({
     name: s.name,
-    lines: applyLens(s.character, s.rules).rules.map((r) => r.source),
+    lines: applyLens(s.lenses, s.rules).rules.map((r) => r.source),
   }));
 }
 
@@ -28,7 +28,7 @@ export function grunt(n: number): UnitSpec {
     range: 1,
     speed: 4,
     move: 3,
-    character: 'plain',
+    lenses: ['plain'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, source: 'рубить ближайшего' }),
     ],
@@ -46,7 +46,7 @@ export function packLeader(): UnitSpec {
     speed: 5,
     move: 3,
     tags: ['leader'],
-    character: 'plain',
+    lenses: ['plain'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'вожак: добивать раненых' }),
     ],
@@ -63,7 +63,7 @@ export function archer(n: number): UnitSpec {
     range: 4,
     speed: 5,
     move: 2,
-    character: 'plain',
+    lenses: ['plain'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'лучник: бить раненых' }),
       rule({ when: { kind: 'always' }, then: { kind: 'retreat' }, weight: 0.8, source: 'лучник: держать дистанцию' }),
@@ -82,7 +82,7 @@ export function warChief(): UnitSpec {
     speed: 5,
     move: 3,
     tags: ['leader'],
-    character: 'fanatic',
+    lenses: ['fanatic'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'вождь: добивать раненых' }),
     ],
@@ -102,7 +102,7 @@ export function shaman(behindId: string): UnitSpec {
     range: 4,
     speed: 5,
     move: 2,
-    character: 'plain',
+    lenses: ['plain'],
     rules: [
       rule({
         when: { kind: 'always' },
@@ -125,7 +125,7 @@ export function berserker(n: number): UnitSpec {
     range: 1,
     speed: 6,
     move: 4,
-    character: 'fanatic',
+    lenses: ['fanatic'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 2, source: 'берсерк: размен всегда выгоден' }),
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, source: 'берсерк: рвать ближайшего' }),
@@ -143,7 +143,7 @@ export function hunter(n: number): UnitSpec {
     range: 5,
     speed: 6,
     move: 3,
-    character: 'plain',
+    lenses: ['plain'],
     rules: [
       rule({
         when: { kind: 'always' },
@@ -168,7 +168,7 @@ export function warlord(): UnitSpec {
     speed: 6,
     move: 3,
     tags: ['leader'],
-    character: 'fanatic',
+    lenses: ['fanatic'],
     rules: [
       rule({
         when: { kind: 'always' },
