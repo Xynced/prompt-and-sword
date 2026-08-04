@@ -145,7 +145,13 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
                   then: { kind: 'attack', target: 'nearest' },
                   source: `${r.source} (фанатик: под огонь — так под огонь, вперёд)`,
                 }
-              : r,
+              : r.then.kind === 'brace'
+                ? {
+                    ...r,
+                    then: { kind: 'attack', target: 'nearest' },
+                    source: `${r.source} (фанатик: щиты — для трусов)`,
+                  }
+                : r,
       );
       return { rules: out, mods: { aggression: 1.6, survival: 0.4, ignoreZoC: true } };
     }
@@ -246,7 +252,13 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
                 then: { kind: 'attack', target: 'nearest' },
                 source: `${r.source} (горячка: приманивать? просто нападу)`,
               }
-            : r,
+            : r.then.kind === 'brace'
+              ? {
+                  ...r,
+                  then: { kind: 'attack', target: 'nearest' },
+                  source: `${r.source} (горячка: отсиживаться за щитом невыносимо)`,
+                }
+              : r,
       );
       return { rules: out, mods: { aggression: 1.35, survival: 0.75 } };
     }

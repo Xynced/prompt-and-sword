@@ -20,16 +20,25 @@ const SELECTORS: SelectorDraft[] = [
   'sel.leader',
   'sel.mostDangerous',
   'sel.attacker',
+  'sel.shooter',
+  'sel.farthest',
 ];
 
 /** Условия и предпочтения без параметров: одна ветка схемы и валидации на всех. */
-const PARAMLESS_CONDITIONS = ['cond.outnumbered', 'cond.battleDrags', 'cond.initiativeEdge'] as const;
+const PARAMLESS_CONDITIONS = [
+  'cond.outnumbered',
+  'cond.battleDrags',
+  'cond.initiativeEdge',
+  'cond.allyFallen',
+  'cond.surrounded',
+] as const;
 const PARAMLESS_PREFERENCES = [
   'act.holdPosition',
   'act.retreat',
   'act.bait',
   'act.trade',
   'act.coverRetreat',
+  'act.brace',
   'space.flank',
   'space.lineOfFire',
 ] as const;
@@ -70,7 +79,7 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
   for (const pref of PARAMLESS_PREFERENCES) {
     if (has(pref)) preferences.push(obj({ id: { const: pref } }));
   }
-  for (const space of ['space.nearTo', 'space.behind'] as const) {
+  for (const space of ['space.nearTo', 'space.behind', 'space.awayFrom'] as const) {
     if (!has(space)) continue;
     const refs: object[] = [];
     if (allyIds.length > 0) refs.push(obj({ ally: { type: 'string', enum: allyIds } }));
@@ -121,6 +130,10 @@ function validateCondition(
       return vocab.includes('cond.battleDrags') ? { id: 'cond.battleDrags' } : null;
     case 'cond.initiativeEdge':
       return vocab.includes('cond.initiativeEdge') ? { id: 'cond.initiativeEdge' } : null;
+    case 'cond.allyFallen':
+      return vocab.includes('cond.allyFallen') ? { id: 'cond.allyFallen' } : null;
+    case 'cond.surrounded':
+      return vocab.includes('cond.surrounded') ? { id: 'cond.surrounded' } : null;
     case 'cond.allyInDanger':
       return vocab.includes('cond.allyInDanger') && inAllies(v.ally)
         ? { id: 'cond.allyInDanger', ally: v.ally }
@@ -160,8 +173,11 @@ function validatePreference(
       return vocab.includes('space.flank') ? { id: 'space.flank' } : null;
     case 'space.lineOfFire':
       return vocab.includes('space.lineOfFire') ? { id: 'space.lineOfFire' } : null;
+    case 'act.brace':
+      return vocab.includes('act.brace') ? { id: 'act.brace' } : null;
     case 'space.nearTo':
-    case 'space.behind': {
+    case 'space.behind':
+    case 'space.awayFrom': {
       if (!vocab.includes(v.id) || !isRecord(v.ref)) return null;
       const ref = inAllies(v.ref.ally)
         ? { ally: v.ref.ally }

@@ -10,6 +10,7 @@ import {
   advance,
   chooseInEvent,
   chooseInScriptorium,
+  claimReward,
   currentNode,
   eventOffer,
   heroNames,
@@ -176,8 +177,12 @@ function demoRun(runSeed: number): void {
             console.log('Урок не пройден за 3 попытки — стоп');
             return;
           }
-          console.log('  переписываем приказ (кайт): Гром держит их, стрелки отходят и жгут слабейших — те же кости');
+          console.log('  переписываем приказ (кайт): ближники держат их, стрелки отходят и бьют издали — те же кости');
           kiteRewrite(state);
+        }
+        if (state.pendingReward?.[0]) {
+          claimReward(state, { kind: 'concept', id: state.pendingReward[0] });
+          console.log(`  ${state.log.at(-1)}`);
         }
         break;
       }

@@ -1,10 +1,10 @@
 import { type BattleResult, type UnitSpec, runBattle } from './battle.js';
 import { type PhraseDraft, compilePhrase } from './constructor.js';
-import { type ConceptId, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
+import { CORE_WORDS, type ConceptId, DEEP_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
 import { archer, berserker, grunt, hunter, packLeader, shaman, warChief, warlord } from './foes.js';
-import { mulberry32, shuffle } from './rng.js';
+import { type Rng, mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
 import type { LensId, Pos } from './types.js';
 
@@ -53,6 +53,8 @@ export interface RunState {
   resolved: boolean;
   vocab: ConceptId[];
   heroes: HeroState[];
+  /** Трофей за победу в бою: выбор из закрытых концептов; null — забран/нет. */
+  pendingReward: ConceptId[] | null;
   status: 'ongoing' | 'won' | 'lost';
   log: string[];
 }
@@ -122,11 +124,11 @@ export function generateMap(runSeed: number): MapNode[] {
 export function foesForNode(node: MapNode): UnitSpec[] {
   switch (node.kind) {
     case 'lesson':
-      // по симу (100 сидов, случайные линзы): дефолтные принципы проигрывают
-      // ~60% сидов, кайт-переформулировка выигрывает ~52%; выигрышная
-      // формулировка зависит от выпавших линз — урок и учит читать карточки,
-      // а переигрывается бесплатно
-      return [warChief(), grunt(1), grunt(2), archer(1)];
+      // первый бой нарочно простой: три врага на трёх героев. По симу (200
+      // сидов) дефолт «все бьют ближайшего» выигрывает ~92%; на неудачных
+      // костях кайт-переформулировка переворачивает ~75% — урок остаётся
+      // уроком (переигрывается бесплатно), но перестаёт быть стеной
+      return [packLeader(), grunt(1), archer(1)];
     case 'fight':
       if (node.layer <= 1) return node.slot === 0 ? [grunt(1), grunt(2)] : [grunt(1), archer(1)];
       if (node.layer <= 3)
@@ -135,7 +137,7 @@ export function foesForNode(node: MapNode): UnitSpec[] {
     case 'elite':
       return node.layer <= 3
         ? [packLeader(), grunt(1), shaman('boss')]
-        : [warChief(), shaman('chief'), hunter(1)];
+        : [warChief(), shaman('chief'), archer(1)];
     case 'boss':
       // подобрано симом: 4-й враг делает бой нерешаемым (экономика действий);
       // на полном hp (канун битвы) наивный «фокусь вожака» ~22%, контр-билды
@@ -175,6 +177,7 @@ export function startRun(runSeed: number): RunState {
     resolved: false,
     vocab: STARTING_VOCAB.slice(),
     heroes,
+    pendingReward: null,
     status: 'ongoing',
     log: [],
   };
@@ -237,6 +240,20 @@ export function battleSeed(state: RunState): number {
   return state.runSeed * 101 + state.at;
 }
 
+/**
+ * Пара закрытых концептов на выбор: одно простое слово + одно глубокое
+ * (если пул пуст — добираем из другого). Детерминировано rng.
+ */
+function conceptPair(state: RunState, rng: Rng): ConceptId[] {
+  const locked = (pool: readonly ConceptId[]): ConceptId[] =>
+    shuffle(pool.filter((c) => !state.vocab.includes(c)), rng);
+  const core = locked(CORE_WORDS);
+  const deep = locked(DEEP_WORDS);
+  const out: ConceptId[] = [];
+  out.push(...[core[0] ?? deep[1], deep[0] ?? core[1]].filter((c): c is ConceptId => c !== undefined));
+  return out;
+}
+
 const FIGHT_KINDS: NodeKind[] = ['lesson', 'fight', 'elite', 'boss'];
 
 /**
@@ -273,6 +290,7 @@ export function playFight(state: RunState): BattleResult {
   if (node.kind === 'lesson') {
     // урок — пролог без последствий: раны и потери не переносятся в забег
     state.resolved = true;
+    state.pendingReward = fightReward(state);
     state.log.push('Урок пройден — раны перевязаны, забег начинается');
     return result;
   }
@@ -293,9 +311,35 @@ export function playFight(state: RunState): BattleResult {
     state.status = 'won';
     state.log.push('Вождь орды пал. Забег пройден!');
   } else {
+    state.pendingReward = fightReward(state);
     state.log.push(`Узел ${state.at}: победа за ${result.rounds} раундов`);
   }
   return result;
+}
+
+// ---- Трофей боя ----
+
+/** Трофей за победу: пара закрытых слов на выбор; null — открывать нечего. */
+function fightReward(state: RunState): ConceptId[] | null {
+  const rng = mulberry32(state.runSeed * 449 + state.at * 31 + 7);
+  const pair = conceptPair(state, rng);
+  return pair.length > 0 ? pair : null;
+}
+
+export type RewardChoice = { kind: 'concept'; id: ConceptId } | { kind: 'skip' };
+
+/** Забрать (или отвергнуть) трофей боя. Пока трофей не решён, дальше не уйти. */
+export function claimReward(state: RunState, choice: RewardChoice): SetPhrasesResult {
+  if (!state.pendingReward) return { ok: false, error: 'Трофея нет' };
+  if (choice.kind === 'concept') {
+    if (!state.pendingReward.includes(choice.id)) return { ok: false, error: 'Такого трофея нет' };
+    state.vocab.push(choice.id);
+    state.log.push(`Трофей: открыт концепт ${choice.id}`);
+  } else {
+    state.log.push('Трофей оставлен на поле');
+  }
+  state.pendingReward = null;
+  return { ok: true };
 }
 
 /** Переход по ребру карты после пройденного узла. */
@@ -304,6 +348,7 @@ export type AdvanceResult = { ok: true } | { ok: false; error: string };
 export function advance(state: RunState, toId: number): AdvanceResult {
   if (state.status !== 'ongoing') return { ok: false, error: 'Забег окончен' };
   if (!state.resolved) return { ok: false, error: 'Текущий узел ещё не пройден' };
+  if (state.pendingReward) return { ok: false, error: 'Сначала реши судьбу трофея' };
   if (!currentNode(state).next.includes(toId)) return { ok: false, error: 'Туда дороги нет' };
   state.at = toId;
   state.resolved = false;
@@ -318,12 +363,11 @@ export interface ScriptoriumOffer {
   slotHero?: string;
 }
 
-/** Предложение скриптория: 2 закрытых концепта + слот (детерминировано сидом). */
+/** Предложение скриптория: простое + глубокое слово, плюс слот (детерминировано сидом). */
 export function scriptoriumOffer(state: RunState): ScriptoriumOffer {
   if (currentNode(state).kind !== 'scriptorium') throw new Error('Сейчас не скрипторий');
   const rng = mulberry32(state.runSeed * 997 + state.at);
-  const locked = UNLOCKABLE.filter((c) => !state.vocab.includes(c));
-  const concepts = shuffle(locked, rng).slice(0, 2);
+  const concepts = conceptPair(state, rng);
   const slotHero = state.heroes.find((h) => h.alive && h.slots < MAX_SLOTS)?.id;
   return { concepts, ...(slotHero ? { slotHero } : {}) };
 }

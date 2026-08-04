@@ -197,6 +197,19 @@ function scorePreference(
       ).length;
       return -1.2 * exposed * w;
     }
+    case 'brace': {
+      // глухая оборона: ценна, когда враги реально достают до клетки
+      if (cand.action !== 'defend') return 0;
+      const reachable = (enemiesOf(self, units) as Fighter[]).filter(
+        (e) => dist(e.pos, cand.to) <= e.move + e.range,
+      ).length;
+      return (0.8 + 0.6 * Math.min(reachable, 2)) * w;
+    }
+    case 'awayFrom': {
+      const anchor = resolvePosRef(pref.ref, self, units);
+      if (!anchor) return 0;
+      return 0.5 * Math.min(dist(cand.to, anchor.pos), MAX_DIST) * w;
+    }
   }
 }
 

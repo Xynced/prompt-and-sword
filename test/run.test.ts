@@ -6,6 +6,7 @@ import {
   battleSeed,
   chooseInEvent,
   chooseInScriptorium,
+  claimReward,
   currentNode,
   eventOffer,
   foesForNode,
@@ -18,10 +19,10 @@ import {
   setPhrases,
   startRun,
 } from '../src/run.js';
-import { STARTING_VOCAB } from '../src/vocab.js';
+import { CORE_WORDS, DEEP_WORDS, STARTING_VOCAB } from '../src/vocab.js';
 import { runBattle } from '../src/battle.js';
 
-/** Кайт-переформулировка, выигрывающая урок на большинстве костей. */
+/** Кайт-переформулировка (стартовый словарь), выигрывающая урок на большинстве костей. */
 function lessonRewrite(state: RunState): void {
   for (const h of state.heroes) {
     if (!h.alive) continue;
@@ -32,7 +33,7 @@ function lessonRewrite(state: RunState): void {
         ? [{ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 }]
         : [
             { condition: { id: 'always' }, preference: { id: 'act.retreat' } },
-            { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.weakest' }, weight: 2 },
+            { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 },
           ],
     );
   }
@@ -53,6 +54,9 @@ function autoplay(seed: number, maxLessonTries = 3): RunState {
         if (node.kind === 'lesson' && r.winner !== 'party') {
           if (++tries >= maxLessonTries) return state; // не зациклиться
           lessonRewrite(state);
+        }
+        if (state.pendingReward?.[0]) {
+          claimReward(state, { kind: 'concept', id: state.pendingReward[0] });
         }
         break;
       }
@@ -157,8 +161,8 @@ describe('забег', () => {
   });
 
   it('урок: поражение не кончает забег, кости те же, переформулировка переворачивает бой', () => {
-    // ищем сид, где дефолт проигрывает урок (по симу таких ~68%)
-    for (let seed = 1; seed <= 20; seed++) {
+    // ищем сид, где дефолт проигрывает урок, а кайт переворачивает (по симу ~8% и 75% из них)
+    for (let seed = 1; seed <= 80; seed++) {
       const state = startRun(seed);
       const seedBefore = battleSeed(state);
       const r = playFight(state);
@@ -248,6 +252,58 @@ describe('забег', () => {
     }
     const boss = foesForNode(map.at(-1)!);
     expect(boss.some((f) => f.id === 'warlord')).toBe(true);
+  });
+});
+
+describe('трофеи боя', () => {
+  it('победа в бою даёт на выбор простое и глубокое слово; взятое — открывается', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const state = startRun(seed);
+      const r = playFight(state);
+      if (r.winner !== 'party') continue; // урок можно и проиграть — реварда нет
+      expect(state.pendingReward).not.toBeNull();
+      const reward = state.pendingReward!;
+      expect(reward.length).toBe(2);
+      expect(CORE_WORDS).toContain(reward[0]);
+      expect(DEEP_WORDS).toContain(reward[1]);
+      for (const c of reward) expect(state.vocab).not.toContain(c);
+      const picked = reward[1]!;
+      expect(claimReward(state, { kind: 'concept', id: picked }).ok).toBe(true);
+      expect(state.vocab).toContain(picked);
+      expect(state.pendingReward).toBeNull();
+      return;
+    }
+    throw new Error('урок не выигран ни на одном сиде 1..30');
+  });
+
+  it('пока трофей не решён — advance заблокирован; поражение реварда не даёт', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const state = startRun(seed);
+      const r = playFight(state);
+      if (r.winner !== 'party') {
+        expect(state.pendingReward).toBeNull();
+        continue;
+      }
+      expect(advance(state, currentNode(state).next[0]!).ok).toBe(false);
+      expect(claimReward(state, { kind: 'skip' }).ok).toBe(true);
+      expect(state.vocab).toEqual(STARTING_VOCAB);
+      expect(advance(state, currentNode(state).next[0]!).ok).toBe(true);
+      return;
+    }
+    throw new Error('урок не выигран ни на одном сиде 1..30');
+  });
+
+  it('трофей детерминирован сидом и не предлагает открытых слов', () => {
+    const offers = [1, 2].map(() => {
+      const state = startRun(9);
+      let guard = 0;
+      while (state.pendingReward === null && guard++ < 3) {
+        const r = playFight(state);
+        if (r.winner !== 'party') lessonRewrite(state);
+      }
+      return state.pendingReward;
+    });
+    expect(offers[0]).toEqual(offers[1]);
   });
 });
 

@@ -4,7 +4,7 @@ import { generateMap, heroSpecs, setPhrases, startRun } from '../src/run.js';
 
 function customState() {
   const state = startRun(5);
-  state.vocab.push('sel.leader', 'space.flank');
+  state.vocab.push('sel.leader', 'space.flank', 'cond.outnumbered');
   const lead = state.heroes[0]!;
   lead.slots = 3;
   const r = setPhrases(state, lead.id, [
