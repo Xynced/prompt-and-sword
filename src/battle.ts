@@ -109,7 +109,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
       if (!unit.alive) continue;
       unit.defending = false;
 
-      const decision = decide(unit, units);
+      const decision = decide(unit, units, round);
       const { to, action, targetId } = decision.chosen;
       events.push({
         t: 'decision',
@@ -136,6 +136,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
           let dmg = rollDamage(unit.atk * (flank ? 1.5 : 1), rng);
           if (target.defending) dmg = Math.max(1, Math.floor(dmg * 0.5));
           target.hp = Math.max(0, target.hp - dmg);
+          target.lastAttackerId = unit.id;
           events.push({
             t: 'attack',
             unit: unit.id,

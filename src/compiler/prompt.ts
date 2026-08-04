@@ -8,7 +8,7 @@ import type { CharacterId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 1;
+export const PROMPT_VERSION = 2;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -27,6 +27,15 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
     '{"id":"space.nearTo","ref":{"ally":"<id>"}|{"enemy":<селектор>}} — предпочитать клетки рядом с якорем',
   'space.behind':
     '{"id":"space.behind","ref":{"ally":"<id>"}|{"enemy":<селектор>}} — предпочитать клетки позади якоря (дальше от врагов)',
+  'cond.battleDrags': '{"id":"cond.battleDrags"} — условие: бой затянулся (раунд 5 и дальше)',
+  'cond.initiativeEdge': '{"id":"cond.initiativeEdge"} — условие: наша средняя скорость выше вражеской',
+  'sel.mostDangerous': '"sel.mostDangerous" — селектор врага: с самой высокой атакой',
+  'sel.attacker': '"sel.attacker" — селектор врага: кто атаковал меня последним (или ближайший, пока никто не бил)',
+  'act.bait': '{"id":"act.bait"} — приманка: маячить в досягаемости врагов, тянуть их на себя, не подставляясь под удар',
+  'act.trade': '{"id":"act.trade"} — размен: наносить удар, когда он добивает или снимает много hp, даже под ответный удар',
+  'act.coverRetreat': '{"id":"act.coverRetreat"} — прикрывать отход: встать заслоном между врагами и самым раненым союзником',
+  'space.flank': '{"id":"space.flank"} — фланг: заходить на цель с двух сторон, атаковать с фланга',
+  'space.lineOfFire': '{"id":"space.lineOfFire"} — держаться вне линии огня вражеских стрелков',
 };
 
 export interface PromptContext {

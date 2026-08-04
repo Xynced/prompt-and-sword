@@ -38,7 +38,15 @@ export function applyLens(character: CharacterId, rules: Rule[]): CompiledBehavi
             source: `${r.source} (трус: прикрывать = стоять позади)`,
           };
         }
-        if (r.then.kind === 'attack') {
+        if (r.then.kind === 'bait') {
+          // «приманка» требует смелости — трус просто отходит
+          return {
+            ...r,
+            then: { kind: 'retreat' },
+            source: `${r.source} (трус: приманка = просто отойти)`,
+          };
+        }
+        if (r.then.kind === 'attack' || r.then.kind === 'trade' || r.then.kind === 'flank') {
           // рискованные правила получают штраф веса
           return { ...r, weight: r.weight * 0.7, source: `${r.source} (трус: неохотно)` };
         }
@@ -56,7 +64,7 @@ export function applyLens(character: CharacterId, rules: Rule[]): CompiledBehavi
     }
 
     case 'fanatic': {
-      // «отступай» → «отступай, перебив всех» = не отступает
+      // «отступай» → «отступай, перебив всех» = не отступает; осторожность инвертируется
       const out: Rule[] = rules.map((r) =>
         r.then.kind === 'retreat'
           ? {
@@ -64,7 +72,19 @@ export function applyLens(character: CharacterId, rules: Rule[]): CompiledBehavi
               then: { kind: 'attack', target: 'nearest' },
               source: `${r.source} (фанатик: отступать = перебить всех)`,
             }
-          : r,
+          : r.then.kind === 'coverRetreat'
+            ? {
+                ...r,
+                then: { kind: 'attack', target: 'nearest' },
+                source: `${r.source} (фанатик: отход не прикрывают — добивают)`,
+              }
+            : r.then.kind === 'avoidLineOfFire'
+              ? {
+                  ...r,
+                  then: { kind: 'attack', target: 'nearest' },
+                  source: `${r.source} (фанатик: под огонь — так под огонь, вперёд)`,
+                }
+              : r,
       );
       return {
         rules: out,

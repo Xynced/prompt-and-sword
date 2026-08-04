@@ -11,9 +11,16 @@ export type ConditionDraft =
   | { id: 'always' }
   | { id: 'cond.hpBelow'; who: 'self' | { ally: string }; frac: number }
   | { id: 'cond.outnumbered' }
-  | { id: 'cond.allyInDanger'; ally: string };
+  | { id: 'cond.allyInDanger'; ally: string }
+  | { id: 'cond.battleDrags' }
+  | { id: 'cond.initiativeEdge' };
 
-export type SelectorDraft = 'sel.nearest' | 'sel.weakest' | 'sel.leader';
+export type SelectorDraft =
+  | 'sel.nearest'
+  | 'sel.weakest'
+  | 'sel.leader'
+  | 'sel.mostDangerous'
+  | 'sel.attacker';
 
 export type PreferenceDraft =
   | { id: 'act.attack'; target: SelectorDraft }
@@ -21,7 +28,12 @@ export type PreferenceDraft =
   | { id: 'act.holdPosition' }
   | { id: 'act.retreat' }
   | { id: 'space.nearTo'; ref: { ally: string } | { enemy: SelectorDraft } }
-  | { id: 'space.behind'; ref: { ally: string } | { enemy: SelectorDraft } };
+  | { id: 'space.behind'; ref: { ally: string } | { enemy: SelectorDraft } }
+  | { id: 'act.bait' }
+  | { id: 'act.trade' }
+  | { id: 'act.coverRetreat' }
+  | { id: 'space.flank' }
+  | { id: 'space.lineOfFire' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -38,6 +50,8 @@ const SELECTOR_MAP: Record<SelectorDraft, Selector> = {
   'sel.nearest': 'nearest',
   'sel.weakest': 'weakest',
   'sel.leader': 'leader',
+  'sel.mostDangerous': 'mostDangerous',
+  'sel.attacker': 'attacker',
 };
 
 function requiredConcepts(draft: PhraseDraft): ConceptId[] {
@@ -64,7 +78,11 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
           : `если hp ${nm(c.who.ally)} ниже ${Math.round(c.frac * 100)}%: `
         : c.id === 'cond.outnumbered'
           ? 'если врагов больше: '
-          : `если ${nm(c.ally)} в опасности: `;
+          : c.id === 'cond.battleDrags'
+            ? 'если бой затянулся: '
+            : c.id === 'cond.initiativeEdge'
+              ? 'если мы быстрее: '
+              : `если ${nm(c.ally)} в опасности: `;
   const p = draft.preference;
   const refText = (ref: { ally: string } | { enemy: SelectorDraft }): string =>
     'ally' in ref ? nm(ref.ally) : CONCEPTS[ref.enemy].label;
@@ -77,9 +95,19 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
           ? 'держать позицию'
           : p.id === 'act.retreat'
             ? 'отступать'
-            : p.id === 'space.nearTo'
-              ? `держаться рядом с ${refText(p.ref)}`
-              : `держаться позади ${refText(p.ref)}`;
+            : p.id === 'act.bait'
+              ? 'изображать приманку'
+              : p.id === 'act.trade'
+                ? 'идти на размен'
+                : p.id === 'act.coverRetreat'
+                  ? 'прикрывать отход'
+                  : p.id === 'space.flank'
+                    ? 'заходить во фланг'
+                    : p.id === 'space.lineOfFire'
+                      ? 'держаться вне линии огня'
+                      : p.id === 'space.nearTo'
+                        ? `держаться рядом с ${refText(p.ref)}`
+                        : `держаться позади ${refText(p.ref)}`;
   return condText + prefText;
 }
 
@@ -100,7 +128,11 @@ export function compilePhrase(
         ? { kind: 'hpBelow', who: c.who, frac: c.frac }
         : c.id === 'cond.outnumbered'
           ? { kind: 'outnumbered' }
-          : { kind: 'allyInDanger', ally: c.ally };
+          : c.id === 'cond.battleDrags'
+            ? { kind: 'battleDrags' }
+            : c.id === 'cond.initiativeEdge'
+              ? { kind: 'initiativeEdge' }
+              : { kind: 'allyInDanger', ally: c.ally };
 
   const p = draft.preference;
   const toPosRef = (ref: { ally: string } | { enemy: SelectorDraft }): PosRef =>
@@ -115,9 +147,19 @@ export function compilePhrase(
           ? { kind: 'holdPosition' }
           : p.id === 'act.retreat'
             ? { kind: 'retreat' }
-            : p.id === 'space.nearTo'
-              ? { kind: 'nearTo', ref: toPosRef(p.ref) }
-              : { kind: 'behind', ref: toPosRef(p.ref) };
+            : p.id === 'act.bait'
+              ? { kind: 'bait' }
+              : p.id === 'act.trade'
+                ? { kind: 'trade' }
+                : p.id === 'act.coverRetreat'
+                  ? { kind: 'coverRetreat' }
+                  : p.id === 'space.flank'
+                    ? { kind: 'flank' }
+                    : p.id === 'space.lineOfFire'
+                      ? { kind: 'avoidLineOfFire' }
+                      : p.id === 'space.nearTo'
+                        ? { kind: 'nearTo', ref: toPosRef(p.ref) }
+                        : { kind: 'behind', ref: toPosRef(p.ref) };
 
   return {
     ok: true,

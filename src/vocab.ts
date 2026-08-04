@@ -15,7 +15,17 @@ export type ConceptId =
   | 'act.holdPosition'
   | 'act.retreat'
   | 'space.nearTo'
-  | 'space.behind';
+  | 'space.behind'
+  // поздний словарь (фаза 4) — качественно новые стратегии
+  | 'cond.battleDrags'
+  | 'cond.initiativeEdge'
+  | 'sel.mostDangerous'
+  | 'sel.attacker'
+  | 'act.bait'
+  | 'act.trade'
+  | 'act.coverRetreat'
+  | 'space.flank'
+  | 'space.lineOfFire';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -38,6 +48,15 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.retreat': { id: 'act.retreat', label: 'отступать', category: 'action' },
   'space.nearTo': { id: 'space.nearTo', label: 'рядом с', category: 'space' },
   'space.behind': { id: 'space.behind', label: 'позади', category: 'space' },
+  'cond.battleDrags': { id: 'cond.battleDrags', label: 'бой затянулся', category: 'condition' },
+  'cond.initiativeEdge': { id: 'cond.initiativeEdge', label: 'мы быстрее', category: 'condition' },
+  'sel.mostDangerous': { id: 'sel.mostDangerous', label: 'самый опасный', category: 'selector' },
+  'sel.attacker': { id: 'sel.attacker', label: 'кто атаковал меня', category: 'selector' },
+  'act.bait': { id: 'act.bait', label: 'приманка', category: 'action' },
+  'act.trade': { id: 'act.trade', label: 'размен', category: 'action' },
+  'act.coverRetreat': { id: 'act.coverRetreat', label: 'прикрывать отход', category: 'action' },
+  'space.flank': { id: 'space.flank', label: 'заходить во фланг', category: 'space' },
+  'space.lineOfFire': { id: 'space.lineOfFire', label: 'вне линии огня', category: 'space' },
 };
 
 /** Стартовый словарь мини-забега: 9 из 12 концептов. */
@@ -54,4 +73,17 @@ export const STARTING_VOCAB: ConceptId[] = [
 ];
 
 /** Открываются в скриптории по ходу забега. */
-export const UNLOCKABLE: ConceptId[] = ['sel.leader', 'space.behind', 'cond.allyInDanger'];
+export const UNLOCKABLE: ConceptId[] = [
+  'sel.leader',
+  'space.behind',
+  'cond.allyInDanger',
+  'cond.battleDrags',
+  'cond.initiativeEdge',
+  'sel.mostDangerous',
+  'sel.attacker',
+  'act.bait',
+  'act.trade',
+  'act.coverRetreat',
+  'space.flank',
+  'space.lineOfFire',
+];

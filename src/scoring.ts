@@ -1,6 +1,7 @@
 import {
   type Preference,
   type Rule,
+  alliesOf,
   describePreference,
   enemiesOf,
   evalCondition,
@@ -8,7 +9,7 @@ import {
   resolveSelector,
 } from './ir.js';
 import type { CompiledBehavior } from './lens.js';
-import { dist, hasLoS, posEq, reachableTiles } from './grid.js';
+import { dist, hasLoS, isFlanking, posEq, reachableTiles } from './grid.js';
 import type { CombatUnit, Pos } from './types.js';
 
 export interface Fighter extends CombatUnit {
@@ -134,6 +135,68 @@ function scorePreference(
       }
       return s;
     }
+    case 'bait': {
+      // приманка: быть досягаемым для врагов (тянуть на себя), но не под ударом прямо сейчас
+      const enemies = enemiesOf(self, units) as Fighter[];
+      const reachable = enemies.filter((e) => dist(e.pos, cand.to) <= e.move + e.range).length;
+      const inRange = enemies.filter((e) => dist(e.pos, cand.to) <= e.range).length;
+      return (0.5 * reachable - 0.7 * inRange) * w;
+    }
+    case 'trade': {
+      // размен: жать атаку, если она добивает или снимает много — угрозу перевешивает вес
+      if (cand.action !== 'attack' || !cand.targetId) return 0;
+      const target = units.find((u) => u.id === cand.targetId)!;
+      const expDmg = Math.min(self.atk * (target.defending ? 0.5 : 1), target.hp);
+      return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
+    }
+    case 'coverRetreat': {
+      // прикрывать отход: встать между врагами и самым раненым союзником
+      const wounded = (alliesOf(self, units) as Fighter[])
+        .filter((a) => a.id !== self.id && a.hp < 0.5 * a.maxHp)
+        .reduce<Fighter | undefined>(
+          (best, a) => (!best || a.hp < best.hp || (a.hp === best.hp && a.id < best.id) ? a : best),
+          undefined,
+        );
+      if (!wounded) return 0;
+      const threat = resolveSelector('nearest', wounded, units);
+      let s = -0.3 * dist(cand.to, wounded.pos) * w;
+      if (
+        threat &&
+        dist(cand.to, wounded.pos) <= 2 &&
+        dist(cand.to, threat.pos) < dist(wounded.pos, threat.pos)
+      ) {
+        s += 2.2 * w; // заслон: я ближе к угрозе, чем отходящий
+      }
+      return s;
+    }
+    case 'flank': {
+      // фланг: премия атакам с фланга; ближники подтягиваются к цели
+      let s = 0;
+      if (cand.action === 'attack' && cand.targetId) {
+        const target = units.find((u) => u.id === cand.targetId)!;
+        const allies = units
+          .filter((u) => u.alive && u.side === self.side && u !== self)
+          .map((u) => u.pos);
+        if (self.range === 1 && isFlanking(cand.to, target.pos, allies)) s += 2.5 * w;
+      }
+      if (self.range === 1) {
+        const nearest = resolveSelector('nearest', self, units);
+        if (nearest) s -= 0.3 * Math.max(dist(cand.to, nearest.pos) - 1, 0) * w;
+      }
+      return s;
+    }
+    case 'avoidLineOfFire': {
+      // вне линии огня: штраф за клетки под прицелом вражеских стрелков
+      const shooters = (enemiesOf(self, units) as Fighter[]).filter((e) => e.range > 1);
+      const exposed = shooters.filter(
+        (e) =>
+          dist(e.pos, cand.to) <= e.range &&
+          hasLoS(e.pos, cand.to, (p) =>
+            units.some((u) => u.alive && u !== self && u !== e && posEq(u.pos, p)),
+          ),
+      ).length;
+      return -1.2 * exposed * w;
+    }
   }
 }
 
@@ -181,8 +244,8 @@ export function scoreCandidate(
 }
 
 /** Детерминированный выбор действия: max score, тайбрейк — меньше двигаться, потом по порядку. */
-export function decide(self: Fighter, units: readonly Fighter[]): Decision {
-  const fired = self.compiled.rules.filter((r) => evalCondition(r.when, self, units));
+export function decide(self: Fighter, units: readonly Fighter[], round = 1): Decision {
+  const fired = self.compiled.rules.filter((r) => evalCondition(r.when, self, units, round));
 
   if (!self.compiled.instincts.gapFill && fired.length === 0) {
     return {

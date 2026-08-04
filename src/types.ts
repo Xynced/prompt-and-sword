@@ -25,4 +25,6 @@ export interface CombatUnit {
   defending: boolean;
   tags: string[];
   character: CharacterId;
+  /** Кто последним нанёс мне урон — для селектора «кто атаковал меня». */
+  lastAttackerId?: string;
 }

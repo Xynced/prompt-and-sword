@@ -14,7 +14,25 @@ export interface CompilerOutput {
   uncertainty: string[];
 }
 
-const SELECTORS: SelectorDraft[] = ['sel.nearest', 'sel.weakest', 'sel.leader'];
+const SELECTORS: SelectorDraft[] = [
+  'sel.nearest',
+  'sel.weakest',
+  'sel.leader',
+  'sel.mostDangerous',
+  'sel.attacker',
+];
+
+/** Условия и предпочтения без параметров: одна ветка схемы и валидации на всех. */
+const PARAMLESS_CONDITIONS = ['cond.outnumbered', 'cond.battleDrags', 'cond.initiativeEdge'] as const;
+const PARAMLESS_PREFERENCES = [
+  'act.holdPosition',
+  'act.retreat',
+  'act.bait',
+  'act.trade',
+  'act.coverRetreat',
+  'space.flank',
+  'space.lineOfFire',
+] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
 export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonly string[]): object {
@@ -35,7 +53,9 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
       obj({ id: { const: 'cond.hpBelow' }, who: { anyOf: who }, frac: { type: 'number' } }),
     );
   }
-  if (has('cond.outnumbered')) conditions.push(obj({ id: { const: 'cond.outnumbered' } }));
+  for (const cond of PARAMLESS_CONDITIONS) {
+    if (has(cond)) conditions.push(obj({ id: { const: cond } }));
+  }
   if (has('cond.allyInDanger') && allyIds.length > 0) {
     conditions.push(obj({ id: { const: 'cond.allyInDanger' }, ally: { type: 'string', enum: allyIds } }));
   }
@@ -47,8 +67,9 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
   if (has('act.protect') && allyIds.length > 0) {
     preferences.push(obj({ id: { const: 'act.protect' }, ally: { type: 'string', enum: allyIds } }));
   }
-  if (has('act.holdPosition')) preferences.push(obj({ id: { const: 'act.holdPosition' } }));
-  if (has('act.retreat')) preferences.push(obj({ id: { const: 'act.retreat' } }));
+  for (const pref of PARAMLESS_PREFERENCES) {
+    if (has(pref)) preferences.push(obj({ id: { const: pref } }));
+  }
   for (const space of ['space.nearTo', 'space.behind'] as const) {
     if (!has(space)) continue;
     const refs: object[] = [];
@@ -96,6 +117,10 @@ function validateCondition(
     }
     case 'cond.outnumbered':
       return vocab.includes('cond.outnumbered') ? { id: 'cond.outnumbered' } : null;
+    case 'cond.battleDrags':
+      return vocab.includes('cond.battleDrags') ? { id: 'cond.battleDrags' } : null;
+    case 'cond.initiativeEdge':
+      return vocab.includes('cond.initiativeEdge') ? { id: 'cond.initiativeEdge' } : null;
     case 'cond.allyInDanger':
       return vocab.includes('cond.allyInDanger') && inAllies(v.ally)
         ? { id: 'cond.allyInDanger', ally: v.ally }
@@ -125,6 +150,16 @@ function validatePreference(
       return vocab.includes('act.holdPosition') ? { id: 'act.holdPosition' } : null;
     case 'act.retreat':
       return vocab.includes('act.retreat') ? { id: 'act.retreat' } : null;
+    case 'act.bait':
+      return vocab.includes('act.bait') ? { id: 'act.bait' } : null;
+    case 'act.trade':
+      return vocab.includes('act.trade') ? { id: 'act.trade' } : null;
+    case 'act.coverRetreat':
+      return vocab.includes('act.coverRetreat') ? { id: 'act.coverRetreat' } : null;
+    case 'space.flank':
+      return vocab.includes('space.flank') ? { id: 'space.flank' } : null;
+    case 'space.lineOfFire':
+      return vocab.includes('space.lineOfFire') ? { id: 'space.lineOfFire' } : null;
     case 'space.nearTo':
     case 'space.behind': {
       if (!vocab.includes(v.id) || !isRecord(v.ref)) return null;
