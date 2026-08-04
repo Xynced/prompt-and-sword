@@ -33,6 +33,7 @@ import {
   startRun,
 } from '../run.js';
 import { foeIntel } from '../foes.js';
+import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU } from '../lens.js';
 import type { LensId, Side } from '../types.js';
 
@@ -44,8 +45,16 @@ import type { LensId, Side } from '../types.js';
 
 const app = document.getElementById('app')!;
 
-const urlSeed = Number(new URLSearchParams(location.search).get('seed') ?? 1);
-const run: RunState = startRun(Number.isFinite(urlSeed) ? urlSeed : 1);
+const urlParams = new URLSearchParams(location.search);
+const urlSeed = Number(urlParams.get('seed') ?? 1);
+/** ?build=ps1.… — забег из чужого билда: тот же сид, словарь и принципы. */
+const urlBuild = urlParams.get('build');
+const importedBuild = urlBuild ? importBuild(urlBuild) : undefined;
+if (importedBuild && !importedBuild.ok) {
+  alert(`Строка билда не прочитана: ${importedBuild.error}. Начат обычный забег.`);
+}
+const run: RunState =
+  importedBuild?.ok === true ? importedBuild.state : startRun(Number.isFinite(urlSeed) ? urlSeed : 1);
 
 // ---------- состояние UI ----------
 
@@ -731,6 +740,7 @@ function mapScreenHtml(): string {
     <div class="page-r">
       <div class="page-head">
         <span class="title">Действующие приказы</span>
+        <button class="linkish" data-action="export-build">экспорт билда</button>
         <button class="linkish" data-action="open-editor">переписать ▾</button>
       </div>
       <div class="roster">${rosterHtml(false)}</div>
@@ -1095,6 +1105,7 @@ function runEndHtml(): string {
       <div class="a-quip">${esc(quip)}</div>
       <div class="a-lines">${lines}</div>
       <div class="btn-row" style="margin-top:4px">
+        <button data-action="export-build">${won ? 'вот мой билд, побей мой сид' : 'экспорт билда'}</button>
         <span class="spacer"></span>
         <button class="primary" data-action="new-run">новый забег (seed ${run.runSeed + 1})</button>
       </div>
@@ -1301,6 +1312,24 @@ function bind(): void {
         case 'new-run':
           location.search = `?seed=${run.runSeed + 1}`;
           break;
+        case 'export-build': {
+          const url = `${location.origin}${location.pathname}?build=${exportBuild(run)}`;
+          const label = el.textContent;
+          if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(url).then(
+              () => {
+                el.textContent = 'ссылка скопирована ✓';
+                setTimeout(() => {
+                  el.textContent = label;
+                }, 1500);
+              },
+              () => window.prompt('Скопируй ссылку на билд:', url),
+            );
+          } else {
+            window.prompt('Скопируй ссылку на билд:', url);
+          }
+          break;
+        }
       }
     });
   }
