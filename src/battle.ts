@@ -2,7 +2,7 @@ import { type Rng, mulberry32, shuffle } from './rng.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
 import { dist, isFlanking, posEq } from './grid.js';
-import type { CharacterId, Pos, Side } from './types.js';
+import type { LensId, Pos, Side } from './types.js';
 import { type Decision, type Fighter, decide } from './scoring.js';
 
 export interface UnitSpec {
@@ -17,7 +17,8 @@ export interface UnitSpec {
   speed: number;
   move: number;
   tags?: string[];
-  character: CharacterId;
+  /** Линзы характера в порядке применения. */
+  lenses: LensId[];
   rules: Rule[];
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
@@ -64,8 +65,8 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     alive: true,
     defending: false,
     tags: spec.tags ?? [],
-    character: spec.character,
-    compiled: applyLens(spec.character, spec.rules),
+    lenses: spec.lenses,
+    compiled: applyLens(spec.lenses, spec.rules),
   };
 }
 

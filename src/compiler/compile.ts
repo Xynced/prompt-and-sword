@@ -2,7 +2,7 @@ import type { PhraseDraft } from '../constructor.js';
 import { compilePhrase } from '../constructor.js';
 import type { Rule } from '../ir.js';
 import type { ConceptId } from '../vocab.js';
-import type { CharacterId } from '../types.js';
+import type { LensId } from '../types.js';
 import { type CompilerCache, cacheKey } from './cache.js';
 import { buildCompileSchema, validateOutput } from './schema.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -17,7 +17,7 @@ export interface CompileRequest {
   text: string;
   heroId: string;
   heroName: string;
-  character: CharacterId;
+  lenses: readonly LensId[];
   vocab: readonly ConceptId[];
   /** id → имя живых союзников (без самого героя). */
   allies: Readonly<Record<string, string>>;
@@ -47,7 +47,7 @@ export async function compileFreeText(
   const key = cacheKey({
     text,
     vocab: req.vocab,
-    character: req.character,
+    lenses: req.lenses,
     allyIds,
     maxPhrases: req.maxPhrases,
     model: call.model,
@@ -59,7 +59,7 @@ export async function compileFreeText(
     const schema = buildCompileSchema(req.vocab, allyIds);
     const system = buildSystemPrompt({
       heroName: req.heroName,
-      character: req.character,
+      lenses: req.lenses,
       vocab: req.vocab,
       allies: req.allies,
       maxPhrases: req.maxPhrases,

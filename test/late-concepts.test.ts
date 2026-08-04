@@ -29,13 +29,13 @@ function unit(id: string, side: 'party' | 'foe', pos: Pos, over: Partial<CombatU
     alive: true,
     defending: false,
     tags: [],
-    character: 'plain',
+    lenses: ['plain'],
     ...over,
   };
 }
 
 function fighter(id: string, side: 'party' | 'foe', pos: Pos, over: Partial<CombatUnit> = {}): Fighter {
-  return { ...unit(id, side, pos, over), compiled: applyLens('plain', []) };
+  return { ...unit(id, side, pos, over), compiled: applyLens(['plain'], []) };
 }
 
 const rule = (then: Rule['then'], w = 2): Rule => ({
@@ -91,19 +91,19 @@ describe('селекторы позднего словаря', () => {
 
 describe('линзы и поздний словарь', () => {
   it('трус: «приманка» = просто отойти', () => {
-    const c = applyLens('coward', [rule({ kind: 'bait' })]);
+    const c = applyLens(['coward'], [rule({ kind: 'bait' })]);
     expect(c.rules[0]!.then).toEqual({ kind: 'retreat' });
     expect(c.rules[0]!.source).toContain('трус');
   });
 
   it('трус: размен и фланг — неохотно (штраф веса)', () => {
-    const c = applyLens('coward', [rule({ kind: 'trade' }, 2), rule({ kind: 'flank' }, 2)]);
+    const c = applyLens(['coward'], [rule({ kind: 'trade' }, 2), rule({ kind: 'flank' }, 2)]);
     expect(c.rules[0]!.weight).toBeCloseTo(1.4);
     expect(c.rules[1]!.weight).toBeCloseTo(1.4);
   });
 
   it('фанатик: «прикрывать отход» и «вне линии огня» превращаются в атаку', () => {
-    const c = applyLens('fanatic', [rule({ kind: 'coverRetreat' }), rule({ kind: 'avoidLineOfFire' })]);
+    const c = applyLens(['fanatic'], [rule({ kind: 'coverRetreat' }), rule({ kind: 'avoidLineOfFire' })]);
     expect(c.rules[0]!.then).toEqual({ kind: 'attack', target: 'nearest' });
     expect(c.rules[1]!.then).toEqual({ kind: 'attack', target: 'nearest' });
     for (const r of c.rules) expect(r.source).toContain('фанатик');
@@ -209,7 +209,7 @@ describe('скоринг поздних предпочтений', () => {
 
 describe('карточки: поздние концепты читаются', () => {
   it('шаблоны на месте, искажение труса помечено', () => {
-    const card = understandingCard({ name: 'Гром', character: 'coward' }, [
+    const card = understandingCard({ name: 'Гром', lenses: ['coward'] }, [
       rule({ kind: 'bait' }),
       rule({ kind: 'flank' }),
     ]);
@@ -251,7 +251,7 @@ describe('детерминизм с поздними правилами', () => 
         range: 1,
         speed: 5,
         move: 3,
-        character: 'plain',
+        lenses: ['plain'],
         rules: [rule({ kind: 'flank' }), rule({ kind: 'trade' })],
         spawn: { x: 1, y: 3 },
       },
@@ -264,7 +264,7 @@ describe('детерминизм с поздними правилами', () => 
         range: 4,
         speed: 6,
         move: 3,
-        character: 'plain',
+        lenses: ['plain'],
         rules: [rule({ kind: 'avoidLineOfFire' }), rule({ kind: 'attack', target: 'attacker' })],
         spawn: { x: 1, y: 5 },
       },
@@ -279,7 +279,7 @@ describe('детерминизм с поздними правилами', () => 
         range: 1,
         speed: 4,
         move: 3,
-        character: 'plain',
+        lenses: ['plain'],
         rules: [rule({ kind: 'bait' }), rule({ kind: 'attack', target: 'mostDangerous' })],
       },
       {
@@ -291,7 +291,7 @@ describe('детерминизм с поздними правилами', () => 
         range: 3,
         speed: 5,
         move: 2,
-        character: 'plain',
+        lenses: ['plain'],
         rules: [rule({ kind: 'coverRetreat' }), rule({ kind: 'attack', target: 'weakest' })],
       },
     ];

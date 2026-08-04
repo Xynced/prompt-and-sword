@@ -5,7 +5,18 @@ export interface Pos {
   y: number;
 }
 
-export type CharacterId = 'plain' | 'coward' | 'fanatic' | 'literalist';
+export type LensId =
+  | 'plain'
+  | 'coward'
+  | 'fanatic'
+  | 'literalist'
+  | 'avenger'
+  | 'duelist'
+  | 'gloryhound'
+  | 'guardian'
+  | 'paranoid'
+  | 'hothead'
+  | 'showman';
 
 /** Юнит в бою — общий вид для IR-условий, скоринга и сима. */
 export interface CombatUnit {
@@ -24,7 +35,8 @@ export interface CombatUnit {
   alive: boolean;
   defending: boolean;
   tags: string[];
-  character: CharacterId;
+  /** Линзы характера в порядке применения (1–3 у героев). */
+  lenses: LensId[];
   /** Кто последним нанёс мне урон — для селектора «кто атаковал меня». */
   lastAttackerId?: string;
 }

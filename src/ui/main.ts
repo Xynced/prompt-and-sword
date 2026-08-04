@@ -33,7 +33,8 @@ import {
   startRun,
 } from '../run.js';
 import { foeIntel } from '../foes.js';
-import type { Side } from '../types.js';
+import { LENS_RU } from '../lens.js';
+import type { LensId, Side } from '../types.js';
 
 /**
  * UI по дизайн-прототипу «Prompt & Sword - Prototype.dc.html» (разворот кодекса,
@@ -127,7 +128,7 @@ async function compileHeroText(heroId: string): Promise<void> {
       text: heroText[heroId] ?? '',
       heroId,
       heroName: hero.name,
-      character: hero.character,
+      lenses: hero.lenses,
       vocab: run.vocab,
       allies: Object.fromEntries(
         run.heroes.filter((h) => h.alive && h.id !== heroId).map((h) => [h.id, h.name]),
@@ -218,18 +219,23 @@ function nodeTitle(node: MapNode): string {
   return list[node.id % list.length]!;
 }
 
-const CHAR_RU: Record<string, string> = {
-  fanatic: 'фанатик',
-  coward: 'трус',
-  literalist: 'буквалист',
-  plain: 'служака',
-};
+/** Ярлык героя: линзы через + («трус+мститель»). */
+function lensTag(lenses: readonly LensId[]): string {
+  return lenses.map((l) => LENS_RU[l]).join('+');
+}
 
-const LENS_HINT: Record<string, string> = {
-  fanatic: 'фанатик выбрасывает осторожные оговорки — дай ему, кого убивать.',
-  coward: 'трус превращает «прикрывать» в «стоять позади». Используй это нарочно.',
+const LENS_HINT: Record<LensId, string> = {
+  plain: 'обычный читает как написано — без вдохновения, без фантазий.',
+  coward: 'трус превращает «прикрывать» в «стоять позади», а при трети hp бежит. Используй это нарочно.',
+  fanatic: 'фанатик выбрасывает осторожные оговорки — «отступать» читает как «перебить всех».',
   literalist: 'буквалист не заполняет пробелов. Не оставляй пробелов.',
-  plain: 'служака читает как написано — без вдохновения, без фантазий.',
+  avenger: 'мститель бросает всё ради того, кто его ударил.',
+  duelist: 'дуэлянт слабых не добивает — вызывает сильнейшего; в спину не бьёт.',
+  gloryhound: 'славолюб признаёт одну достойную цель — вожака.',
+  guardian: 'наседка прикрывает самого раненого — даже без приказа.',
+  paranoid: 'параноику везде мерещатся стрелки: на линию огня он не выйдет.',
+  hothead: 'горячке невыносимо стоять на месте — «держать позицию» станет атакой.',
+  showman: 'позёр красуется перед строем врага — приманка без приказа.',
 };
 
 /** Приказы героя как связный текст (до линзы — как написано). */
@@ -242,14 +248,14 @@ function ordersSentence(h: { phrases: PhraseDraft[] }): string {
 }
 
 /** Строки «как понял» — после линзы, тем же applyLens, что и бой. */
-function readingLines(h: { id: string; name: string; character: RunState['heroes'][0]['character']; phrases: PhraseDraft[] }): string[] {
+function readingLines(h: { id: string; name: string; lenses: LensId[]; phrases: PhraseDraft[] }): string[] {
   const names = heroNames(run);
   const rules = h.phrases
     .map((d) => compilePhrase(d, run.vocab, names))
     .filter((r): r is Extract<ReturnType<typeof compilePhrase>, { ok: true }> => r.ok)
     .map((r) => r.rule);
   return understandingCard(
-    { name: h.name, character: h.character },
+    { name: h.name, lenses: h.lenses },
     rules,
     names,
     heroUncertainty[h.id] ?? [],
@@ -561,7 +567,7 @@ function rosterHtml(compact: boolean): string {
         return `<div class="roster-row dead">
           <div class="numerals">✝</div>
           <div class="r-body"><div class="r-head"><span class="r-name">${esc(h.name)}</span>
-            <span class="r-tag">${CHAR_RU[h.character]}</span>
+            <span class="r-tag">${lensTag(h.lenses)}</span>
             <span class="r-hp">пал(а)</span></div></div>
         </div>`;
       }
@@ -574,7 +580,7 @@ function rosterHtml(compact: boolean): string {
         <div class="r-body">
           <div class="r-head">
             <span class="r-name">${esc(h.name)}</span>
-            <span class="r-tag ${h.character === 'fanatic' ? 'fanatic' : ''}">${CHAR_RU[h.character]}</span>
+            <span class="r-tag ${h.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(h.lenses)}</span>
             <span class="r-hp ${low ? 'low' : ''}" data-hp="${h.id}">${hpTxt}</span>
           </div>
           <div class="orders-text" ${compact ? 'style="font-size:12.5px"' : ''}>${
@@ -683,7 +689,7 @@ function nodePanelHtml(): string {
     }
     if (offer.mercenary) {
       parts.push(`<div class="desc">У костра сидит наёмник ${esc(offer.mercenary.name)}
-        [${CHAR_RU[offer.mercenary.character]}] — займёт место павшего, но прежние принципы
+        [${lensTag(offer.mercenary.lenses)}] — займёт место павшего, но прежние принципы
         прочтёт по-своему.</div>
         <div class="btn-row"><button data-action="event-hire">нанять</button></div>`);
     }
@@ -947,11 +953,11 @@ function editorHtml(): string {
     .map((h) => {
       if (!h.alive) {
         return `<div class="eh-card dead"><div class="nm"><span>${esc(h.name)}</span>
-          <span class="ch">${CHAR_RU[h.character]}</span></div>
+          <span class="ch">${lensTag(h.lenses)}</span></div>
           <div class="sub">пал(а) в бою</div></div>`;
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
-        <div class="nm"><span>${esc(h.name)}</span><span class="ch">${CHAR_RU[h.character]}</span></div>
+        <div class="nm"><span>${esc(h.name)}</span><span class="ch">${lensTag(h.lenses)}</span></div>
         <div class="sub">${h.phrases.length}/${h.slots} приказов · hp ${h.hp}/${h.stats.maxHp}</div>
       </div>`;
     })
@@ -1005,7 +1011,7 @@ function editorHtml(): string {
       <div class="cols">
         <div class="heroes-col">
           ${heroCards}
-          <div class="lens-hint">${LENS_HINT[eh.character]}</div>
+          <div class="lens-hint">${eh.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>
         </div>
         <div class="slots-col">
           <div style="display:flex;align-items:center;gap:8px">

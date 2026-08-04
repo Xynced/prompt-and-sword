@@ -1,5 +1,5 @@
 import type { ConceptId } from '../vocab.js';
-import type { CharacterId } from '../types.js';
+import type { LensId } from '../types.js';
 import type { CompilerOutput } from './schema.js';
 import { PROMPT_VERSION } from './prompt.js';
 
@@ -17,7 +17,8 @@ export interface CompilerCache {
 export function cacheKey(args: {
   text: string;
   vocab: readonly ConceptId[];
-  character: CharacterId;
+  /** Порядок линз важен (влияет на промпт), поэтому не сортируется. */
+  lenses: readonly LensId[];
   allyIds: readonly string[];
   maxPhrases: number;
   /** Идентификатор модели: смена провайдера не должна отдавать чужой кэш. */
@@ -28,7 +29,7 @@ export function cacheKey(args: {
     args.model,
     args.text.trim(),
     [...args.vocab].sort(),
-    args.character,
+    [...args.lenses],
     [...args.allyIds].sort(),
     args.maxPhrases,
   ]);

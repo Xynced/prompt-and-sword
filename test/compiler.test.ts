@@ -17,7 +17,7 @@ const req: CompileRequest = {
   text: 'Прикрывай Лию, а если врагов больше — отступай',
   heroId: 'grom',
   heroName: 'Гром',
-  character: 'fanatic',
+  lenses: ['fanatic'],
   vocab: STARTING_VOCAB,
   allies: { lia: 'Лия', dart: 'Дарт' },
   maxPhrases: 2,
@@ -137,7 +137,7 @@ describe('compileFreeText', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const card = understandingCard(
-      { name: 'Гром', character: 'fanatic' },
+      { name: 'Гром', lenses: ['fanatic'] },
       r.rules,
       { lia: 'Лия' },
       r.uncertainty,

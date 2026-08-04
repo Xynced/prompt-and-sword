@@ -12,11 +12,11 @@ const rule = (r: Omit<Rule, 'scope'>): Rule => ({ ...r, scope: 'self' });
 function hero(
   id: string,
   name: string,
-  character: UnitSpec['character'],
+  lenses: UnitSpec['lenses'],
   stats: Pick<UnitSpec, 'maxHp' | 'atk' | 'range' | 'speed' | 'move' | 'spawn'>,
   rules: Rule[],
 ): UnitSpec {
-  return { id, name, side: 'party', character, rules, ...stats };
+  return { id, name, side: 'party', lenses, rules, ...stats };
 }
 
 export const HERO_STATS = {
@@ -45,13 +45,13 @@ export function makeIrSets(): IrSet[] {
       name: 'rush',
       desc: 'Раш: все атакуют ближайшего',
       party: [
-        hero('grom', 'Гром', 'fanatic', GROM, [
+        hero('grom', 'Гром', ['fanatic'], GROM, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'бей ближайшего' }),
         ]),
-        hero('dart', 'Дарт', 'literalist', DART, [
+        hero('dart', 'Дарт', ['literalist'], DART, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'бей ближайшего' }),
         ]),
-        hero('lia', 'Лия', 'coward', LIA, [
+        hero('lia', 'Лия', ['coward'], LIA, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'бей ближайшего' }),
         ]),
       ],
@@ -60,13 +60,13 @@ export function makeIrSets(): IrSet[] {
       name: 'focus-leader',
       desc: 'Фокус: все валят вожака',
       party: [
-        hero('grom', 'Гром', 'fanatic', GROM, [
+        hero('grom', 'Гром', ['fanatic'], GROM, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'leader' }, weight: 2, source: 'фокусь вожака' }),
         ]),
-        hero('dart', 'Дарт', 'literalist', DART, [
+        hero('dart', 'Дарт', ['literalist'], DART, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'leader' }, weight: 2, source: 'фокусь вожака' }),
         ]),
-        hero('lia', 'Лия', 'coward', LIA, [
+        hero('lia', 'Лия', ['coward'], LIA, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'leader' }, weight: 2, source: 'фокусь вожака' }),
         ]),
       ],
@@ -75,15 +75,15 @@ export function makeIrSets(): IrSet[] {
       name: 'turtle',
       desc: 'Черепаха: держать позиции, бить кто подойдёт',
       party: [
-        hero('grom', 'Гром', 'fanatic', GROM, [
+        hero('grom', 'Гром', ['fanatic'], GROM, [
           rule({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 2, source: 'держи позицию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1, source: 'бей кто подойдёт' }),
         ]),
-        hero('dart', 'Дарт', 'literalist', DART, [
+        hero('dart', 'Дарт', ['literalist'], DART, [
           rule({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 2, source: 'держи позицию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1, source: 'бей кто подойдёт' }),
         ]),
-        hero('lia', 'Лия', 'coward', LIA, [
+        hero('lia', 'Лия', ['coward'], LIA, [
           rule({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 2, source: 'держи позицию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1, source: 'бей кто подойдёт' }),
         ]),
@@ -93,14 +93,14 @@ export function makeIrSets(): IrSet[] {
       name: 'guard-mage',
       desc: 'Защита мага: Гром прикрывает Лию, Дарт снимает раненых',
       party: [
-        hero('grom', 'Гром', 'fanatic', GROM, [
+        hero('grom', 'Гром', ['fanatic'], GROM, [
           rule({ when: { kind: 'always' }, then: { kind: 'protect', ally: 'lia' }, weight: 2, source: 'прикрывай Лию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1, source: 'отгоняй ближайшего' }),
         ]),
-        hero('dart', 'Дарт', 'literalist', DART, [
+        hero('dart', 'Дарт', ['literalist'], DART, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'снимай раненых' }),
         ]),
-        hero('lia', 'Лия', 'coward', LIA, [
+        hero('lia', 'Лия', ['coward'], LIA, [
           rule({ when: { kind: 'hpBelow', who: 'self', frac: 0.5 }, then: { kind: 'retreat' }, weight: 2, source: 'ранена — отходи' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, source: 'жги ближайшего' }),
         ]),
@@ -110,14 +110,14 @@ export function makeIrSets(): IrSet[] {
       name: 'kite',
       desc: 'Кайт: стрелки держат дистанцию, Гром — заслон',
       party: [
-        hero('grom', 'Гром', 'fanatic', GROM, [
+        hero('grom', 'Гром', ['fanatic'], GROM, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'держи их на себе' }),
         ]),
-        hero('dart', 'Дарт', 'literalist', DART, [
+        hero('dart', 'Дарт', ['literalist'], DART, [
           rule({ when: { kind: 'always' }, then: { kind: 'retreat' }, weight: 1.2, source: 'держи дистанцию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'стреляй в ближайшего' }),
         ]),
-        hero('lia', 'Лия', 'coward', LIA, [
+        hero('lia', 'Лия', ['coward'], LIA, [
           rule({ when: { kind: 'always' }, then: { kind: 'retreat' }, weight: 1.2, source: 'держи дистанцию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'жги раненых' }),
         ]),

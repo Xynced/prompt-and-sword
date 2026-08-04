@@ -21,7 +21,7 @@ const retreat = (): Rule => ({
 
 describe('understandingCard', () => {
   it('трус: «прикрывать» показан как «встаю позади» с пометкой искажения', () => {
-    const card = understandingCard({ name: 'Тень', character: 'coward' }, [protect()], names);
+    const card = understandingCard({ name: 'Тень', lenses: ['coward'] }, [protect()], names);
     const line = card.lines.find((l) => l.includes('позади'))!;
     expect(line).toContain('встаю позади Лия');
     expect(line).toContain('⚠');
@@ -30,7 +30,7 @@ describe('understandingCard', () => {
   });
 
   it('фанатик: «отступай» показан как атака с пометкой', () => {
-    const card = understandingCard({ name: 'Гром', character: 'fanatic' }, [retreat()], names);
+    const card = understandingCard({ name: 'Гром', lenses: ['fanatic'] }, [retreat()], names);
     const line = card.lines[0]!;
     expect(line).toContain('если моё hp ниже 50%');
     expect(line).toContain('атакую ближайшего');
@@ -38,20 +38,20 @@ describe('understandingCard', () => {
   });
 
   it('буквалист: правила без искажений + предупреждение о пропусках', () => {
-    const card = understandingCard({ name: 'Дарт', character: 'literalist' }, [retreat()], names);
+    const card = understandingCard({ name: 'Дарт', lenses: ['literalist'] }, [retreat()], names);
     expect(card.lines[0]).not.toContain('⚠');
     expect(card.lines.at(-1)).toContain('буквалист');
   });
 
   it('plain: никаких пометок', () => {
-    const card = understandingCard({ name: 'Наёмник', character: 'plain' }, [protect(), retreat()], names);
+    const card = understandingCard({ name: 'Наёмник', lenses: ['plain'] }, [protect(), retreat()], names);
     expect(card.lines).toHaveLength(2);
     for (const l of card.lines) expect(l).not.toContain('⚠');
   });
 
   it('карточка детерминирована', () => {
-    const a = understandingCard({ name: 'Тень', character: 'coward' }, [protect()], names);
-    const b = understandingCard({ name: 'Тень', character: 'coward' }, [protect()], names);
+    const a = understandingCard({ name: 'Тень', lenses: ['coward'] }, [protect()], names);
+    const b = understandingCard({ name: 'Тень', lenses: ['coward'] }, [protect()], names);
     expect(a).toEqual(b);
   });
 });

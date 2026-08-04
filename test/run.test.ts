@@ -288,17 +288,28 @@ describe('скрипторий и события', () => {
     lia.alive = false;
     lia.hp = 0;
     const phrasesBefore = JSON.stringify(lia.phrases);
-    const characterBefore = lia.character;
+    const lensesBefore = [...lia.lenses].sort();
     state.at = state.map.find((n) => n.kind === 'event')!.id;
     const offer = eventOffer(state);
     expect(offer.mercenary?.heroId).toBe('lia');
-    expect(offer.mercenary!.character).not.toBe(characterBefore);
+    expect([...offer.mercenary!.lenses].sort()).not.toEqual(lensesBefore);
     chooseInEvent(state, { kind: 'hire' });
     expect(lia.alive).toBe(true);
-    expect(lia.character).toBe(offer.mercenary!.character);
+    expect(lia.lenses).toEqual(offer.mercenary!.lenses);
     expect(lia.name).toBe(offer.mercenary!.name);
     expect(JSON.stringify(lia.phrases)).toBe(phrasesBefore); // принципы те же — читаются иначе
     expect(lia.hp).toBeGreaterThan(0);
+  });
+
+  it('герои получают 1–3 случайные линзы, детерминировано сидом забега', () => {
+    const a = startRun(5);
+    for (const h of a.heroes) {
+      expect(h.lenses.length).toBeGreaterThanOrEqual(1);
+      expect(h.lenses.length).toBeLessThanOrEqual(3);
+      expect(new Set(h.lenses).size).toBe(h.lenses.length);
+    }
+    expect(startRun(5).heroes.map((h) => h.lenses)).toEqual(a.heroes.map((h) => h.lenses));
+    expect(startRun(6).heroes.map((h) => h.lenses)).not.toEqual(a.heroes.map((h) => h.lenses));
   });
 
   it('событие без погибших: книжник или тайник, наёмника нет', () => {
