@@ -241,16 +241,20 @@ export function battleSeed(state: RunState): number {
 }
 
 /**
- * Пара закрытых концептов на выбор: одно простое слово + одно глубокое
+ * Закрытые концепты на выбор: чередуем простые и глубокие слова
  * (если пул пуст — добираем из другого). Детерминировано rng.
  */
-function conceptPair(state: RunState, rng: Rng): ConceptId[] {
+function conceptChoices(state: RunState, rng: Rng, count: number): ConceptId[] {
   const locked = (pool: readonly ConceptId[]): ConceptId[] =>
     shuffle(pool.filter((c) => !state.vocab.includes(c)), rng);
   const core = locked(CORE_WORDS);
   const deep = locked(DEEP_WORDS);
   const out: ConceptId[] = [];
-  out.push(...[core[0] ?? deep[1], deep[0] ?? core[1]].filter((c): c is ConceptId => c !== undefined));
+  while (out.length < count) {
+    const next = out.length % 2 === 0 ? (core.shift() ?? deep.shift()) : (deep.shift() ?? core.shift());
+    if (next === undefined) break;
+    out.push(next);
+  }
   return out;
 }
 
@@ -319,11 +323,12 @@ export function playFight(state: RunState): BattleResult {
 
 // ---- Трофей боя ----
 
-/** Трофей за победу: пара закрытых слов на выбор; null — открывать нечего. */
+/** Трофей за победу: 3–4 закрытых слова на выбор; null — открывать нечего. */
 function fightReward(state: RunState): ConceptId[] | null {
   const rng = mulberry32(state.runSeed * 449 + state.at * 31 + 7);
-  const pair = conceptPair(state, rng);
-  return pair.length > 0 ? pair : null;
+  const count = 3 + (rng() < 0.5 ? 1 : 0);
+  const choices = conceptChoices(state, rng, count);
+  return choices.length > 0 ? choices : null;
 }
 
 export type RewardChoice = { kind: 'concept'; id: ConceptId } | { kind: 'skip' };
@@ -367,7 +372,7 @@ export interface ScriptoriumOffer {
 export function scriptoriumOffer(state: RunState): ScriptoriumOffer {
   if (currentNode(state).kind !== 'scriptorium') throw new Error('Сейчас не скрипторий');
   const rng = mulberry32(state.runSeed * 997 + state.at);
-  const concepts = conceptPair(state, rng);
+  const concepts = conceptChoices(state, rng, 2);
   const slotHero = state.heroes.find((h) => h.alive && h.slots < MAX_SLOTS)?.id;
   return { concepts, ...(slotHero ? { slotHero } : {}) };
 }

@@ -256,16 +256,18 @@ describe('забег', () => {
 });
 
 describe('трофеи боя', () => {
-  it('победа в бою даёт на выбор простое и глубокое слово; взятое — открывается', () => {
+  it('победа в бою даёт на выбор 3–4 разных слова (простые и глубокие); взятое — открывается', () => {
     for (let seed = 1; seed <= 30; seed++) {
       const state = startRun(seed);
       const r = playFight(state);
       if (r.winner !== 'party') continue; // урок можно и проиграть — реварда нет
       expect(state.pendingReward).not.toBeNull();
       const reward = state.pendingReward!;
-      expect(reward.length).toBe(2);
-      expect(CORE_WORDS).toContain(reward[0]);
-      expect(DEEP_WORDS).toContain(reward[1]);
+      expect(reward.length).toBeGreaterThanOrEqual(3);
+      expect(reward.length).toBeLessThanOrEqual(4);
+      expect(new Set(reward).size).toBe(reward.length);
+      expect(reward.some((c) => CORE_WORDS.includes(c))).toBe(true);
+      expect(reward.some((c) => DEEP_WORDS.includes(c))).toBe(true);
       for (const c of reward) expect(state.vocab).not.toContain(c);
       const picked = reward[1]!;
       expect(claimReward(state, { kind: 'concept', id: picked }).ok).toBe(true);
