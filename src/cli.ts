@@ -6,6 +6,7 @@ import { describeDraft } from './constructor.js';
 import { type CompileRequest, anthropicModelCall, compileFreeText, type ModelCall } from './compiler/compile.js';
 import { fileCache } from './compiler/cache-node.js';
 import { balanceSweep, kiteRewrite } from './balance.js';
+import { fingerprint } from './metrics.js';
 import {
   advance,
   chooseInEvent,
@@ -36,33 +37,59 @@ interface SetStats {
   name: string;
   desc: string;
   winrate: number;
+  draws: number;
   avgRounds: number;
   avgSurvivors: number;
   avgPartyX: number;
+  /** Поведенческий отпечаток (средние по сидам). */
+  avgFirstContact: number;
+  flankPct: number;
+  condPct: number;
+  avgNearestDist: number;
 }
 
 function collectStats(set: IrSet): SetStats {
   let wins = 0;
+  let draws = 0;
   let rounds = 0;
   let survivors = 0;
   let partyX = 0;
+  let contactSum = 0;
+  let contactN = 0;
+  let flank = 0;
+  let cond = 0;
+  let nearest = 0;
   for (const seed of SEEDS) {
     const r = run(set, seed);
     if (r.winner === 'party') wins++;
+    if (r.winner === 'draw') draws++;
     rounds += r.rounds;
     const alive = r.units.filter((u) => u.side === 'party' && u.alive);
     survivors += alive.length;
     const party = r.units.filter((u) => u.side === 'party');
     partyX += party.reduce((s, u) => s + u.pos.x, 0) / party.length;
+    const fp = fingerprint(r);
+    if (fp.firstContactRound !== undefined) {
+      contactSum += fp.firstContactRound;
+      contactN++;
+    }
+    flank += fp.flankPct;
+    cond += fp.condPct;
+    nearest += fp.avgNearestEnemyDist;
   }
   const n = SEEDS.length;
   return {
     name: set.name,
     desc: set.desc,
     winrate: wins / n,
+    draws,
     avgRounds: rounds / n,
     avgSurvivors: survivors / n,
     avgPartyX: partyX / n,
+    avgFirstContact: contactN > 0 ? contactSum / contactN : 0,
+    flankPct: flank / n,
+    condPct: cond / n,
+    avgNearestDist: nearest / n,
   };
 }
 
@@ -77,6 +104,19 @@ function gateA(): void {
         .padStart(6)}  ${s.avgSurvivors.toFixed(2).padStart(8)}  ${s.avgPartyX
         .toFixed(2)
         .padStart(10)}  — ${s.desc}`,
+    );
+  }
+
+  // Отпечаток поведения: наборы должны отличаться процессом, не только исходом
+  console.log('\nОтпечаток поведения (партия):');
+  console.log('набор           контакт  фланг%  усл.прав%  ср.дист  ничьи');
+  for (const s of stats) {
+    console.log(
+      `${s.name.padEnd(15)} ${s.avgFirstContact.toFixed(1).padStart(7)}  ${(s.flankPct * 100)
+        .toFixed(0)
+        .padStart(5)}%  ${(s.condPct * 100).toFixed(0).padStart(8)}%  ${s.avgNearestDist
+        .toFixed(2)
+        .padStart(7)}  ${String(s.draws).padStart(5)}`,
     );
   }
 

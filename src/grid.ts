@@ -1,7 +1,7 @@
 import type { Pos } from './types.js';
 
-export const GRID_W = 8;
-export const GRID_H = 8;
+export const GRID_W = 12;
+export const GRID_H = 12;
 
 /** Дистанция Чебышёва: движение и смежность 8-направленные. */
 export function dist(a: Pos, b: Pos): number {
@@ -63,6 +63,30 @@ export function isFlanking(attacker: Pos, target: Pos, allies: readonly Pos[]): 
     const v2 = { x: a.x - target.x, y: a.y - target.y };
     return v1.x * v2.x + v1.y * v2.y <= 0;
   });
+}
+
+/**
+ * Поле дистанций BFS от точки по проходимым клеткам (обход террейна).
+ * Ключ — posKey; заблокированные и отрезанные клетки в карте отсутствуют.
+ * На пустом поле совпадает с Чебышёвым — тяга к цели остаётся прежней.
+ */
+export function distanceField(from: Pos, isBlocked: (p: Pos) => boolean): Map<string, number> {
+  const field = new Map<string, number>([[posKey(from), 0]]);
+  const queue: Pos[] = [from];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    const d = field.get(posKey(cur))!;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const next = { x: cur.x + dx, y: cur.y + dy };
+        if (!inBounds(next) || field.has(posKey(next)) || isBlocked(next)) continue;
+        field.set(posKey(next), d + 1);
+        queue.push(next);
+      }
+    }
+  }
+  return field;
 }
 
 /**

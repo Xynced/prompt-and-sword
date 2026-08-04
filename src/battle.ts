@@ -1,7 +1,9 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
+import { expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
-import { dist, isFlanking, posEq } from './grid.js';
+import { dist, isFlanking, posEq, posKey } from './grid.js';
+import { pickTerrain } from './terrain.js';
 import type { LensId, Pos, Side } from './types.js';
 import { type Decision, type Fighter, decide } from './scoring.js';
 
@@ -27,7 +29,7 @@ export interface UnitSpec {
 export type BattleEvent =
   | { t: 'spawn'; unit: string; name: string; side: Side; pos: Pos; maxHp: number }
   | { t: 'round'; n: number }
-  | ({ t: 'decision'; unit: string; round: number } & Pick<Decision, 'factors'> & {
+  | ({ t: 'decision'; unit: string; round: number } & Pick<Decision, 'factors' | 'condRules'> & {
       to: Pos;
       action: string;
       target?: string;
@@ -44,10 +46,12 @@ export interface BattleResult {
   rounds: number;
   events: BattleEvent[];
   units: Fighter[];
+  /** Террейн боя (камни): имя схемы и клетки — для отрисовки и разбора. */
+  terrain: { name: string; tiles: Pos[] };
 }
 
 const MAX_ROUNDS = 30;
-const FOE_SPAWN_SLOTS: Pos[] = [1, 2, 4, 5, 6].map((y) => ({ x: 6, y }));
+const FOE_SPAWN_SLOTS: Pos[] = [2, 4, 5, 7, 9].map((y) => ({ x: 9, y }));
 
 function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
   return {
@@ -81,7 +85,7 @@ function placeUnits(specs: readonly UnitSpec[], rng: Rng): Fighter[] {
 }
 
 function rollDamage(base: number, rng: Rng): number {
-  return Math.max(1, Math.round(base * (0.85 + 0.3 * rng())));
+  return Math.max(1, Math.round(expectedDamage(base) * (0.85 + 0.3 * rng())));
 }
 
 function winnerOf(units: readonly Fighter[]): Side | undefined {
@@ -95,6 +99,12 @@ function winnerOf(units: readonly Fighter[]): Side | undefined {
 export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResult {
   const rng = mulberry32(seed);
   const units = placeUnits(specs, rng);
+  // камни, совпавшие с чьей-то точкой спавна, убираем (кастомные спавны тестов/сценариев)
+  const layout = pickTerrain(seed);
+  const tiles = layout.tiles.filter((t) => !units.some((u) => posEq(u.pos, t)));
+  const terrain = { name: layout.name, tiles };
+  const blockedSet = new Set(tiles.map(posKey));
+  const blocked = (p: Pos): boolean => blockedSet.has(posKey(p));
   const events: BattleEvent[] = [];
   for (const u of units) {
     events.push({ t: 'spawn', unit: u.id, name: u.name, side: u.side, pos: { ...u.pos }, maxHp: u.maxHp });
@@ -112,7 +122,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
       if (!unit.alive) continue;
       unit.defending = false;
 
-      const decision = decide(unit, units, round);
+      const decision = decide(unit, units, round, blocked);
       const { to, action, targetId } = decision.chosen;
       events.push({
         t: 'decision',
@@ -122,6 +132,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
         action,
         ...(targetId ? { target: targetId } : {}),
         factors: decision.factors,
+        condRules: decision.condRules,
       });
 
       if (!posEq(to, unit.pos)) {
@@ -163,12 +174,12 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
       const w = winnerOf(units);
       if (w) {
         events.push({ t: 'end', winner: w, rounds: round });
-        return { winner: w, rounds: round, events, units };
+        return { winner: w, rounds: round, events, units, terrain };
       }
     }
   }
 
   events.push({ t: 'end', winner: 'draw', rounds });
-  return { winner: 'draw', rounds, events, units };
+  return { winner: 'draw', rounds, events, units, terrain };
 }
 
