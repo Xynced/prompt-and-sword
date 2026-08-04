@@ -20,6 +20,7 @@ import {
   battleSeed,
   chooseInEvent,
   chooseInScriptorium,
+  claimReward,
   currentNode,
   eventOffer,
   foesForNode,
@@ -255,6 +256,13 @@ const NODE_RU: Record<NodeKind, string> = {
   boss: 'босс',
 };
 
+const CAT_RU: Record<string, string> = {
+  condition: 'условие',
+  selector: 'селектор',
+  action: 'действие',
+  space: 'пространство',
+};
+
 /** Полевые названия узлов — только флейвор UI, детерминированы позицией узла. */
 const NODE_TITLES: Record<NodeKind, string[]> = {
   lesson: ['Учебный плац у старой мельницы'],
@@ -377,6 +385,8 @@ function conditionOptions(): Opt<ConditionDraft>[] {
   }
   if (has('cond.battleDrags')) out.push({ value: { id: 'cond.battleDrags' }, label: 'если бой затянулся' });
   if (has('cond.initiativeEdge')) out.push({ value: { id: 'cond.initiativeEdge' }, label: 'если мы быстрее' });
+  if (has('cond.allyFallen')) out.push({ value: { id: 'cond.allyFallen' }, label: 'если кто-то из наших пал' });
+  if (has('cond.surrounded')) out.push({ value: { id: 'cond.surrounded' }, label: 'если меня окружили' });
   return out;
 }
 
@@ -385,7 +395,15 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   const out: Opt<PreferenceDraft>[] = [];
   const has = (c: ConceptId): boolean => run.vocab.includes(c);
   const selectors = (
-    ['sel.nearest', 'sel.weakest', 'sel.leader', 'sel.mostDangerous', 'sel.attacker'] as const
+    [
+      'sel.nearest',
+      'sel.weakest',
+      'sel.leader',
+      'sel.mostDangerous',
+      'sel.attacker',
+      'sel.shooter',
+      'sel.farthest',
+    ] as const
   ).filter(has);
   const selRu: Record<string, string> = {
     'sel.nearest': 'ближайшего',
@@ -393,6 +411,8 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
     'sel.leader': 'вожака',
     'sel.mostDangerous': 'самого опасного',
     'sel.attacker': 'того, кто атаковал меня',
+    'sel.shooter': 'стрелка',
+    'sel.farthest': 'самого дальнего',
   };
   if (has('act.attack')) {
     for (const s of selectors) out.push({ value: { id: 'act.attack', target: s }, label: `атаковать ${selRu[s]}` });
@@ -409,9 +429,15 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('act.coverRetreat')) out.push({ value: { id: 'act.coverRetreat' }, label: 'прикрывать отход' });
   if (has('space.flank')) out.push({ value: { id: 'space.flank' }, label: 'заходить во фланг' });
   if (has('space.lineOfFire')) out.push({ value: { id: 'space.lineOfFire' }, label: 'держаться вне линии огня' });
-  for (const space of ['space.nearTo', 'space.behind'] as const) {
+  if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
+  for (const space of ['space.nearTo', 'space.behind', 'space.awayFrom'] as const) {
     if (!has(space)) continue;
-    const verb = space === 'space.nearTo' ? 'держаться рядом с' : 'держаться позади';
+    const verb =
+      space === 'space.nearTo'
+        ? 'держаться рядом с'
+        : space === 'space.behind'
+          ? 'держаться позади'
+          : 'держаться подальше от';
     for (const h of run.heroes.filter((h) => h.alive && h.id !== heroId)) {
       out.push({ value: { id: space, ref: { ally: h.id } }, label: `${verb} ${names[h.id]}` });
     }
@@ -690,7 +716,7 @@ function mapSvg(): string {
     x: 48 + n.layer * 106,
     y: 118 + (n.slot - (layerW.get(n.layer)! - 1) / 2) * 76,
   });
-  const canGo = run.status === 'ongoing' && run.resolved;
+  const canGo = run.status === 'ongoing' && run.resolved && !run.pendingReward;
   const nextIds = new Set(canGo ? currentNode(run).next : []);
 
   const edges = run.map
@@ -740,6 +766,25 @@ function nodePanelHtml(): string {
   const node = currentNode(run);
   if (run.status !== 'ongoing') return '';
   if (run.resolved) {
+    if (run.pendingReward) {
+      const items = run.pendingReward
+        .map(
+          (c) => `<button class="shop-item" data-action="reward-take" data-concept="${c}">
+            <span style="flex:1;display:flex;flex-direction:column;gap:3px">
+              <span class="s-title">${esc(CONCEPTS[c].label)}</span>
+              <span class="s-desc">${CAT_RU[CONCEPTS[c].category]} — новое слово для приказов</span>
+            </span>
+            <span class="s-cost">взять</span>
+          </button>`,
+        )
+        .join('');
+      return `<div class="node-panel">
+        <h2>Трофей боя</h2>
+        <div class="desc">В обозе врага — обрывки чужих наставлений. Одно слово можно разобрать.</div>
+        <div class="shop">${items}</div>
+        <div class="btn-row"><button data-action="reward-skip">оставить на поле</button></div>
+      </div>`;
+    }
     return `<div class="node-panel">
       <h2>Куда дальше?</h2>
       <div class="desc">Пути расходятся. Выбери следующий узел на карте — красный ромб зовёт.</div>
@@ -815,7 +860,13 @@ function mapScreenHtml(): string {
         <span>узел ${run.at + 1} из ${run.map.length}</span>
         <span class="spacer"></span>
         <button class="linkish" data-action="export-journal">журнал плейтеста</button>
-        <span>${run.resolved && run.status === 'ongoing' ? 'кликни следующий узел, чтобы идти' : ''}</span>
+        <span>${
+          run.resolved && run.status === 'ongoing'
+            ? run.pendingReward
+              ? 'сначала реши судьбу трофея'
+              : 'кликни следующий узел, чтобы идти'
+            : ''
+        }</span>
       </div>
     </div>
     <div class="gutter"></div>
@@ -838,18 +889,12 @@ function scriptoriumHtml(): string {
   const node = currentNode(run);
   const offer = scriptoriumOffer(run);
   const names = heroNames(run);
-  const catRu: Record<string, string> = {
-    condition: 'условие',
-    selector: 'селектор',
-    action: 'действие',
-    space: 'пространство',
-  };
   const items = offer.concepts
     .map(
       (c) => `<button class="shop-item" data-action="buy-concept" data-concept="${c}">
         <span style="flex:1;display:flex;flex-direction:column;gap:3px">
           <span class="s-title">${esc(CONCEPTS[c].label)}</span>
-          <span class="s-desc">${catRu[CONCEPTS[c].category]} — фраза, которую раньше нельзя было сказать</span>
+          <span class="s-desc">${CAT_RU[CONCEPTS[c].category]} — фраза, которую раньше нельзя было сказать</span>
         </span>
         <span class="s-cost">выбрать</span>
       </button>`,
@@ -1539,6 +1584,14 @@ function bind(): void {
           break;
         case 'buy-concept':
           chooseInScriptorium(run, { kind: 'concept', id: el.dataset.concept as ConceptId });
+          render();
+          break;
+        case 'reward-take':
+          claimReward(run, { kind: 'concept', id: el.dataset.concept as ConceptId });
+          render();
+          break;
+        case 'reward-skip':
+          claimReward(run, { kind: 'skip' });
           render();
           break;
         case 'buy-slot':

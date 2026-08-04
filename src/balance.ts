@@ -4,6 +4,7 @@ import {
   advance,
   chooseInEvent,
   chooseInScriptorium,
+  claimReward,
   currentNode,
   eventOffer,
   playFight,
@@ -25,7 +26,7 @@ import { mulberry32 } from './rng.js';
  * а не абсолютные проценты.
  */
 
-/** Кайт: ближники держат врагов на себе, стрелки отходят и жгут слабейших (онбординг урока). */
+/** Кайт: ближники держат врагов на себе, стрелки отходят и бьют издали (онбординг урока, стартовый словарь). */
 export function kiteRewrite(state: RunState): void {
   for (const h of state.heroes) {
     if (!h.alive) continue;
@@ -42,7 +43,7 @@ export function kiteRewrite(state: RunState): void {
             { condition: { id: 'always' } as const, preference: { id: 'act.retreat' } as const },
             {
               condition: { id: 'always' } as const,
-              preference: { id: 'act.attack', target: 'sel.weakest' } as const,
+              preference: { id: 'act.attack', target: 'sel.nearest' } as const,
               weight: 2,
             },
           ];
@@ -132,6 +133,8 @@ export function playBotRun(runSeed: number): RunOutcome {
         out.deathLayer = node.layer;
         out.deathKind = node.kind;
       }
+      // трофей боя: бот всегда берёт первое слово
+      if (state.pendingReward?.[0]) claimReward(state, { kind: 'concept', id: state.pendingReward[0] });
     } else if (node.kind === 'scriptorium') {
       const offer = scriptoriumOffer(state);
       const choice = offer.concepts[0]

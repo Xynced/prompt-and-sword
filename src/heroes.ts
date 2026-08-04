@@ -152,25 +152,11 @@ export function pickParty(rng: Rng): HeroArchetype[] {
   return [front, ...rest];
 }
 
-/** Стартовые принципы архетипа — осмысленный, но не оптимальный дефолт (только стартовый словарь). */
-export function defaultPhrasesFor(arch: HeroArchetype, party: readonly HeroArchetype[]): PhraseDraft[] {
-  switch (arch.role) {
-    case 'front': {
-      // прикрывает самого хрупкого из остальных
-      const ward = party
-        .filter((h) => h.id !== arch.id)
-        .reduce((best, h) => (h.stats.maxHp < best.stats.maxHp ? h : best));
-      return [
-        { condition: { id: 'always' }, preference: { id: 'act.protect', ally: ward.id } },
-        { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' } },
-      ];
-    }
-    case 'melee':
-      return [{ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' } }];
-    case 'ranged':
-      return [
-        { condition: { id: 'cond.hpBelow', who: 'self', frac: 0.5 }, preference: { id: 'act.retreat' } },
-        { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.weakest' } },
-      ];
-  }
+/**
+ * Стартовые принципы архетипа — наивный дефолт из нищего стартового словаря
+ * (атаковать/ближайший/отступать): все рубят ближайшего. Урок первого боя —
+ * переписать это в кайт.
+ */
+export function defaultPhrasesFor(_arch: HeroArchetype, _party: readonly HeroArchetype[]): PhraseDraft[] {
+  return [{ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' } }];
 }

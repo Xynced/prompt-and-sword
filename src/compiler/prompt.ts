@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 3;
+export const PROMPT_VERSION = 4;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -36,6 +36,13 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
   'act.coverRetreat': '{"id":"act.coverRetreat"} — прикрывать отход: встать заслоном между врагами и самым раненым союзником',
   'space.flank': '{"id":"space.flank"} — фланг: заходить на цель с двух сторон, атаковать с фланга',
   'space.lineOfFire': '{"id":"space.lineOfFire"} — держаться вне линии огня вражеских стрелков',
+  'cond.allyFallen': '{"id":"cond.allyFallen"} — условие: кто-то из наших уже погиб в этом бою',
+  'cond.surrounded': '{"id":"cond.surrounded"} — условие: меня окружили (двое и больше врагов вплотную)',
+  'sel.shooter': '"sel.shooter" — селектор врага: ближайший стрелок (или ближайший враг, если стрелков нет)',
+  'sel.farthest': '"sel.farthest" — селектор врага: самый дальний',
+  'act.brace': '{"id":"act.brace"} — глухая оборона: встать и держать удар (входящий урон вдвое меньше)',
+  'space.awayFrom':
+    '{"id":"space.awayFrom","ref":{"ally":"<id>"}|{"enemy":<селектор>}} — предпочитать клетки подальше от якоря',
 };
 
 export interface PromptContext {

@@ -9,16 +9,27 @@ import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import { memoryCache } from '../src/compiler/cache.js';
 import { compilePhrase } from '../src/constructor.js';
 import { understandingCard } from '../src/cards.js';
-import { STARTING_VOCAB } from '../src/vocab.js';
+import { type ConceptId, STARTING_VOCAB } from '../src/vocab.js';
 
 /** Все тесты компилятора — на моках ModelCall; живой API не нужен. */
+
+/** Ранний словарь MVP: старт + первые простые слова (защита, условия, пространство). */
+const MVP_VOCAB: ConceptId[] = [
+  ...STARTING_VOCAB,
+  'cond.hpBelow',
+  'cond.outnumbered',
+  'sel.weakest',
+  'act.protect',
+  'act.holdPosition',
+  'space.nearTo',
+];
 
 const req: CompileRequest = {
   text: 'Прикрывай Лию, а если врагов больше — отступай',
   heroId: 'grom',
   heroName: 'Гром',
   lenses: ['fanatic'],
-  vocab: STARTING_VOCAB,
+  vocab: MVP_VOCAB,
   allies: { lia: 'Лия', dart: 'Дарт' },
   maxPhrases: 2,
 };
@@ -39,7 +50,7 @@ const mock = (raw: unknown, model = 'mock-model'): ModelCall =>
 
 describe('buildCompileSchema', () => {
   it('закрытые концепты не попадают в схему', () => {
-    const s = JSON.stringify(buildCompileSchema(STARTING_VOCAB, ['lia']));
+    const s = JSON.stringify(buildCompileSchema(MVP_VOCAB, ['lia']));
     expect(s).not.toContain('sel.leader'); // не в стартовом словаре
     expect(s).not.toContain('space.behind');
     expect(s).not.toContain('cond.allyInDanger');
@@ -48,7 +59,7 @@ describe('buildCompileSchema', () => {
   });
 
   it('id союзников — enum, чужих не бывает', () => {
-    const s = JSON.stringify(buildCompileSchema(STARTING_VOCAB, ['lia', 'dart']));
+    const s = JSON.stringify(buildCompileSchema(MVP_VOCAB, ['lia', 'dart']));
     expect(s).toContain('"enum":["lia","dart"]');
   });
 });
@@ -61,7 +72,7 @@ describe('compileFreeText', () => {
     expect(r.rules).toHaveLength(2);
     const names = { ...req.allies, grom: 'Гром' };
     const viaConstructor = goodOutput.phrases.map((d) => {
-      const c = compilePhrase(d as never, STARTING_VOCAB, names);
+      const c = compilePhrase(d as never, MVP_VOCAB, names);
       return c.ok ? c.rule : null;
     });
     expect(r.rules).toEqual(viaConstructor);
@@ -100,7 +111,7 @@ describe('compileFreeText', () => {
       ],
       uncertainty: [],
     };
-    const v = validateOutput(raw, STARTING_VOCAB, ['lia'], 2);
+    const v = validateOutput(raw, MVP_VOCAB, ['lia'], 2);
     expect(v.ok).toBe(true);
     if (!v.ok) return;
     expect(v.output.phrases[0]!.condition).toEqual({ id: 'cond.hpBelow', who: 'self', frac: 0.9 });
@@ -111,7 +122,7 @@ describe('compileFreeText', () => {
       phrases: [{ condition: { id: 'always' }, preference: { id: 'act.protect', ally: 'boss' }, weight: 1 }],
       uncertainty: [],
     };
-    const v = validateOutput(raw, STARTING_VOCAB, ['lia'], 2);
+    const v = validateOutput(raw, MVP_VOCAB, ['lia'], 2);
     expect(v.ok).toBe(false);
   });
 

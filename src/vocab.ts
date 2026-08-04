@@ -25,7 +25,14 @@ export type ConceptId =
   | 'act.trade'
   | 'act.coverRetreat'
   | 'space.flank'
-  | 'space.lineOfFire';
+  | 'space.lineOfFire'
+  // глубокий словарь (фаза 6) — ещё один слой тактики
+  | 'cond.allyFallen'
+  | 'cond.surrounded'
+  | 'sel.shooter'
+  | 'sel.farthest'
+  | 'act.brace'
+  | 'space.awayFrom';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -57,33 +64,54 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.coverRetreat': { id: 'act.coverRetreat', label: 'прикрывать отход', category: 'action' },
   'space.flank': { id: 'space.flank', label: 'заходить во фланг', category: 'space' },
   'space.lineOfFire': { id: 'space.lineOfFire', label: 'вне линии огня', category: 'space' },
+  'cond.allyFallen': { id: 'cond.allyFallen', label: 'кто-то из наших пал', category: 'condition' },
+  'cond.surrounded': { id: 'cond.surrounded', label: 'меня окружили', category: 'condition' },
+  'sel.shooter': { id: 'sel.shooter', label: 'стрелок', category: 'selector' },
+  'sel.farthest': { id: 'sel.farthest', label: 'самый дальний', category: 'selector' },
+  'act.brace': { id: 'act.brace', label: 'глухая оборона', category: 'action' },
+  'space.awayFrom': { id: 'space.awayFrom', label: 'держаться подальше от', category: 'space' },
 };
 
-/** Стартовый словарь мини-забега: 9 из 12 концептов. */
-export const STARTING_VOCAB: ConceptId[] = [
+/**
+ * Стартовый словарь — нарочно нищий: атаковать, ближайший, отступать.
+ * Всё остальное добывается в бою (трофеи) и в скриптории.
+ */
+export const STARTING_VOCAB: ConceptId[] = ['act.attack', 'sel.nearest', 'act.retreat'];
+
+/**
+ * Простые слова — база выразительности; в предложениях трофея/скриптория
+ * идут первой колонкой (простое против глубокого).
+ */
+export const CORE_WORDS: ConceptId[] = [
   'cond.hpBelow',
   'cond.outnumbered',
-  'sel.nearest',
+  'cond.allyInDanger',
   'sel.weakest',
-  'act.attack',
+  'sel.leader',
   'act.protect',
   'act.holdPosition',
-  'act.retreat',
   'space.nearTo',
+  'space.behind',
 ];
 
-/** Открываются в скриптории по ходу забега. */
-export const UNLOCKABLE: ConceptId[] = [
-  'sel.leader',
-  'space.behind',
-  'cond.allyInDanger',
+/** Глубокие слова — качественно новые стратегии; вторая колонка предложений. */
+export const DEEP_WORDS: ConceptId[] = [
   'cond.battleDrags',
   'cond.initiativeEdge',
+  'cond.allyFallen',
+  'cond.surrounded',
   'sel.mostDangerous',
   'sel.attacker',
+  'sel.shooter',
+  'sel.farthest',
   'act.bait',
   'act.trade',
   'act.coverRetreat',
+  'act.brace',
   'space.flank',
   'space.lineOfFire',
+  'space.awayFrom',
 ];
+
+/** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */
+export const UNLOCKABLE: ConceptId[] = [...CORE_WORDS, ...DEEP_WORDS];

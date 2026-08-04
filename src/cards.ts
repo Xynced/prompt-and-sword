@@ -19,6 +19,8 @@ const SEL_RU: Record<string, string> = {
   leader: 'вожака',
   mostDangerous: 'самого опасного',
   attacker: 'того, кто меня атаковал',
+  shooter: 'стрелка',
+  farthest: 'самого дальнего',
 };
 
 function condRu(c: Condition, nm: (id: string) => string): string {
@@ -37,6 +39,10 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если бой затянулся — ';
     case 'initiativeEdge':
       return 'если мы быстрее — ';
+    case 'allyFallen':
+      return 'если кто-то из наших пал — ';
+    case 'surrounded':
+      return 'если меня окружили — ';
   }
 }
 
@@ -64,6 +70,10 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'захожу во фланг и бью с двух сторон';
     case 'avoidLineOfFire':
       return 'держусь вне линии огня вражеских стрелков';
+    case 'brace':
+      return 'встаю в глухую оборону, когда до меня могут достать';
+    case 'awayFrom':
+      return `держусь подальше от ${p.ref.type === 'ally' ? nm(p.ref.id) : SEL_RU[p.ref.sel]}`;
   }
 }
 

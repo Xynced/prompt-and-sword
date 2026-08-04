@@ -12,9 +12,21 @@ import { dist } from './grid.js';
  *   Селекторы: mostDangerous, attacker (кто атаковал меня)
  *   Действия:  bait (приманка), trade (размен), coverRetreat (прикрывать отход)
  *   Простр.:   flank, avoidLineOfFire (вне линии огня)
+ * Глубокий словарь (фаза 6):
+ *   Условия:   allyFallen (кто-то из наших пал), surrounded (меня окружили)
+ *   Селекторы: shooter (стрелок), farthest (самый дальний)
+ *   Действия:  brace (глухая оборона)
+ *   Простр.:   awayFrom (держаться подальше от)
  */
 
-export type Selector = 'nearest' | 'weakest' | 'leader' | 'mostDangerous' | 'attacker';
+export type Selector =
+  | 'nearest'
+  | 'weakest'
+  | 'leader'
+  | 'mostDangerous'
+  | 'attacker'
+  | 'shooter'
+  | 'farthest';
 
 /** С какого раунда бой считается затянувшимся. */
 export const BATTLE_DRAGS_ROUND = 5;
@@ -25,7 +37,9 @@ export type Condition =
   | { kind: 'outnumbered' }
   | { kind: 'allyInDanger'; ally: string }
   | { kind: 'battleDrags' }
-  | { kind: 'initiativeEdge' };
+  | { kind: 'initiativeEdge' }
+  | { kind: 'allyFallen' }
+  | { kind: 'surrounded' };
 
 /** Ссылка на позицию-якорь для пространственных предпочтений. */
 export type PosRef = { type: 'ally'; id: string } | { type: 'enemy'; sel: Selector };
@@ -41,7 +55,9 @@ export type Preference =
   | { kind: 'trade' }
   | { kind: 'coverRetreat' }
   | { kind: 'flank' }
-  | { kind: 'avoidLineOfFire' };
+  | { kind: 'avoidLineOfFire' }
+  | { kind: 'brace' }
+  | { kind: 'awayFrom'; ref: PosRef };
 
 export interface Rule {
   when: Condition;
@@ -96,6 +112,10 @@ export function evalCondition(
       const enemies = enemiesOf(self, units);
       return enemies.length > 0 && avg(alliesOf(self, units)) > avg(enemies);
     }
+    case 'allyFallen':
+      return units.some((u) => u.side === self.side && u.id !== self.id && !u.alive);
+    case 'surrounded':
+      return enemiesOf(self, units).filter((e) => dist(e.pos, self.pos) === 1).length >= 2;
   }
 }
 
@@ -125,6 +145,18 @@ export function resolveSelector(
     case 'attacker':
       // кто атаковал меня последним; пока не били — ближайший
       return enemies.find((u) => u.id === self.lastAttackerId) ?? pick((u) => dist(u.pos, self.pos));
+    case 'shooter': {
+      // ближайший вражеский стрелок; стрелков нет — просто ближайший
+      const shooters = enemies.filter((u) => u.range > 1);
+      if (shooters.length === 0) return pick((u) => dist(u.pos, self.pos));
+      return shooters.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
+    case 'farthest':
+      return pick((u) => -dist(u.pos, self.pos));
   }
 }
 
@@ -164,5 +196,9 @@ export function describePreference(p: Preference): string {
       return 'заходить во фланг';
     case 'avoidLineOfFire':
       return 'вне линии огня';
+    case 'brace':
+      return 'глухая оборона';
+    case 'awayFrom':
+      return `подальше от(${p.ref.type === 'ally' ? p.ref.id : p.ref.sel})`;
   }
 }

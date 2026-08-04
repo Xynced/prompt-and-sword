@@ -13,14 +13,18 @@ export type ConditionDraft =
   | { id: 'cond.outnumbered' }
   | { id: 'cond.allyInDanger'; ally: string }
   | { id: 'cond.battleDrags' }
-  | { id: 'cond.initiativeEdge' };
+  | { id: 'cond.initiativeEdge' }
+  | { id: 'cond.allyFallen' }
+  | { id: 'cond.surrounded' };
 
 export type SelectorDraft =
   | 'sel.nearest'
   | 'sel.weakest'
   | 'sel.leader'
   | 'sel.mostDangerous'
-  | 'sel.attacker';
+  | 'sel.attacker'
+  | 'sel.shooter'
+  | 'sel.farthest';
 
 export type PreferenceDraft =
   | { id: 'act.attack'; target: SelectorDraft }
@@ -33,7 +37,9 @@ export type PreferenceDraft =
   | { id: 'act.trade' }
   | { id: 'act.coverRetreat' }
   | { id: 'space.flank' }
-  | { id: 'space.lineOfFire' };
+  | { id: 'space.lineOfFire' }
+  | { id: 'act.brace' }
+  | { id: 'space.awayFrom'; ref: { ally: string } | { enemy: SelectorDraft } };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -52,6 +58,8 @@ const SELECTOR_MAP: Record<SelectorDraft, Selector> = {
   'sel.leader': 'leader',
   'sel.mostDangerous': 'mostDangerous',
   'sel.attacker': 'attacker',
+  'sel.shooter': 'shooter',
+  'sel.farthest': 'farthest',
 };
 
 function requiredConcepts(draft: PhraseDraft): ConceptId[] {
@@ -60,7 +68,10 @@ function requiredConcepts(draft: PhraseDraft): ConceptId[] {
   const p = draft.preference;
   out.push(p.id);
   if (p.id === 'act.attack') out.push(p.target);
-  if ((p.id === 'space.nearTo' || p.id === 'space.behind') && 'enemy' in p.ref) {
+  if (
+    (p.id === 'space.nearTo' || p.id === 'space.behind' || p.id === 'space.awayFrom') &&
+    'enemy' in p.ref
+  ) {
     out.push(p.ref.enemy);
   }
   return out;
@@ -82,7 +93,11 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
             ? 'если бой затянулся: '
             : c.id === 'cond.initiativeEdge'
               ? 'если мы быстрее: '
-              : `если ${nm(c.ally)} в опасности: `;
+              : c.id === 'cond.allyFallen'
+                ? 'если кто-то из наших пал: '
+                : c.id === 'cond.surrounded'
+                  ? 'если меня окружили: '
+                  : `если ${nm(c.ally)} в опасности: `;
   const p = draft.preference;
   const refText = (ref: { ally: string } | { enemy: SelectorDraft }): string =>
     'ally' in ref ? nm(ref.ally) : CONCEPTS[ref.enemy].label;
@@ -105,9 +120,13 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
                     ? 'заходить во фланг'
                     : p.id === 'space.lineOfFire'
                       ? 'держаться вне линии огня'
-                      : p.id === 'space.nearTo'
-                        ? `держаться рядом с ${refText(p.ref)}`
-                        : `держаться позади ${refText(p.ref)}`;
+                      : p.id === 'act.brace'
+                        ? 'вставать в глухую оборону'
+                        : p.id === 'space.awayFrom'
+                          ? `держаться подальше от ${refText(p.ref)}`
+                          : p.id === 'space.nearTo'
+                            ? `держаться рядом с ${refText(p.ref)}`
+                            : `держаться позади ${refText(p.ref)}`;
   return condText + prefText;
 }
 
@@ -132,7 +151,11 @@ export function compilePhrase(
             ? { kind: 'battleDrags' }
             : c.id === 'cond.initiativeEdge'
               ? { kind: 'initiativeEdge' }
-              : { kind: 'allyInDanger', ally: c.ally };
+              : c.id === 'cond.allyFallen'
+                ? { kind: 'allyFallen' }
+                : c.id === 'cond.surrounded'
+                  ? { kind: 'surrounded' }
+                  : { kind: 'allyInDanger', ally: c.ally };
 
   const p = draft.preference;
   const toPosRef = (ref: { ally: string } | { enemy: SelectorDraft }): PosRef =>
@@ -157,9 +180,13 @@ export function compilePhrase(
                     ? { kind: 'flank' }
                     : p.id === 'space.lineOfFire'
                       ? { kind: 'avoidLineOfFire' }
-                      : p.id === 'space.nearTo'
-                        ? { kind: 'nearTo', ref: toPosRef(p.ref) }
-                        : { kind: 'behind', ref: toPosRef(p.ref) };
+                      : p.id === 'act.brace'
+                        ? { kind: 'brace' }
+                        : p.id === 'space.awayFrom'
+                          ? { kind: 'awayFrom', ref: toPosRef(p.ref) }
+                          : p.id === 'space.nearTo'
+                            ? { kind: 'nearTo', ref: toPosRef(p.ref) }
+                            : { kind: 'behind', ref: toPosRef(p.ref) };
 
   return {
     ok: true,
