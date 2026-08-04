@@ -7,21 +7,27 @@ import type { CompilerOutput } from '../compiler/schema.js';
 import type { Rule } from '../ir.js';
 import { CONCEPTS, type ConceptId } from '../vocab.js';
 import {
-  NODES,
+  type MapNode,
   type RunState,
+  advance,
   battleSeed,
+  chooseInEvent,
   chooseInScriptorium,
   currentNode,
-  foesForFight,
+  eventOffer,
+  foesForNode,
   heroNames,
   heroSpecs,
+  intelVisible,
   playFight,
+  rest,
   scriptoriumOffer,
   setPhrases,
   startRun,
 } from '../run.js';
+import { foeIntel } from '../foes.js';
 
-/** Фаза 2: «играбельно и уродливо». Чистый DOM, никакого фреймворка. */
+/** Фаза 4: забег по карте, «полевой дневник». Чистый DOM, никакого фреймворка. */
 
 const app = document.getElementById('app')!;
 
@@ -31,6 +37,10 @@ let battle: BattleResult | null = null;
 let playIdx = 0;
 let timer: number | null = null;
 let editError: Record<string, string> = {};
+/** Пройденные узлы (для отрисовки карты). */
+const visited = new Set<number>([run.at]);
+/** Онбординг: после поражения в уроке предлагаем переписать приказ. */
+let lessonNudge = false;
 
 // ---------- LLM-компилятор свободного текста (опционален: без ключа — конструктор) ----------
 // Провайдер настраивается в .env: VITE_COMPILER_API_KEY (или VITE_ANTHROPIC_API_KEY),
@@ -161,6 +171,8 @@ function conditionOptions(): Opt<ConditionDraft>[] {
       out.push({ value: { id: 'cond.allyInDanger', ally: h.id }, label: `если ${names[h.id]} в опасности` });
     }
   }
+  if (has('cond.battleDrags')) out.push({ value: { id: 'cond.battleDrags' }, label: 'если бой затянулся' });
+  if (has('cond.initiativeEdge')) out.push({ value: { id: 'cond.initiativeEdge' }, label: 'если мы быстрее' });
   return out;
 }
 
@@ -168,11 +180,15 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   const names = heroNames(run);
   const out: Opt<PreferenceDraft>[] = [];
   const has = (c: ConceptId): boolean => run.vocab.includes(c);
-  const selectors = (['sel.nearest', 'sel.weakest', 'sel.leader'] as const).filter(has);
+  const selectors = (
+    ['sel.nearest', 'sel.weakest', 'sel.leader', 'sel.mostDangerous', 'sel.attacker'] as const
+  ).filter(has);
   const selRu: Record<string, string> = {
     'sel.nearest': 'ближайшего',
     'sel.weakest': 'слабейшего',
     'sel.leader': 'вожака',
+    'sel.mostDangerous': 'самого опасного',
+    'sel.attacker': 'того, кто атаковал меня',
   };
   if (has('act.attack')) {
     for (const s of selectors) out.push({ value: { id: 'act.attack', target: s }, label: `атаковать ${selRu[s]}` });
@@ -184,6 +200,11 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   }
   if (has('act.holdPosition')) out.push({ value: { id: 'act.holdPosition' }, label: 'держать позицию' });
   if (has('act.retreat')) out.push({ value: { id: 'act.retreat' }, label: 'отступать' });
+  if (has('act.bait')) out.push({ value: { id: 'act.bait' }, label: 'изображать приманку' });
+  if (has('act.trade')) out.push({ value: { id: 'act.trade' }, label: 'идти на размен' });
+  if (has('act.coverRetreat')) out.push({ value: { id: 'act.coverRetreat' }, label: 'прикрывать отход' });
+  if (has('space.flank')) out.push({ value: { id: 'space.flank' }, label: 'заходить во фланг' });
+  if (has('space.lineOfFire')) out.push({ value: { id: 'space.lineOfFire' }, label: 'держаться вне линии огня' });
   for (const space of ['space.nearTo', 'space.behind'] as const) {
     if (!has(space)) continue;
     const verb = space === 'space.nearTo' ? 'держаться рядом с' : 'держаться позади';
@@ -210,12 +231,64 @@ function selectHtml<T>(cls: string, hero: string, idx: number, opts: Opt<T>[], c
 
 // ---------- экран узла ----------
 
-function nodeStripHtml(): string {
-  return `<div class="nodes">${NODES.map((n, i) => {
-    const cls = i < run.nodeIndex ? 'done' : i === run.nodeIndex && run.status === 'ongoing' ? 'current' : '';
-    const label = n.kind === 'fight' ? `⚔ ${n.index + 1}` : '✎';
-    return `<span class="node ${cls}">${label}</span>`;
-  }).join('')}</div>`;
+const NODE_ICON: Record<MapNode['kind'], string> = {
+  lesson: '⚑',
+  fight: '⚔',
+  elite: '☠',
+  event: '?',
+  rest: '⛺',
+  scriptorium: '✎',
+  boss: '♛',
+};
+
+const NODE_RU: Record<MapNode['kind'], string> = {
+  lesson: 'урок',
+  fight: 'бой',
+  elite: 'элита',
+  event: 'событие',
+  rest: 'привал',
+  scriptorium: 'скрипторий',
+  boss: 'босс',
+};
+
+/** Карта забега: слои слева направо, чернильные узлы и рёбра. */
+function mapHtml(): string {
+  const layerW = new Map<number, number>();
+  for (const n of run.map) layerW.set(n.layer, (layerW.get(n.layer) ?? 0) + 1);
+  const pos = (n: MapNode): { x: number; y: number } => ({
+    x: 46 + n.layer * 108,
+    y: 120 + (n.slot - (layerW.get(n.layer)! - 1) / 2) * 72,
+  });
+  const canGo = run.status === 'ongoing' && run.resolved;
+  const nextIds = new Set(canGo ? currentNode(run).next : []);
+
+  const edges = run.map
+    .flatMap((n) =>
+      n.next.map((to) => {
+        const a = pos(n);
+        const b = pos(run.map[to]!);
+        const active = nextIds.has(to) && n.id === run.at;
+        return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="edge ${active ? 'active' : ''}"/>`;
+      }),
+    )
+    .join('');
+  const nodes = run.map
+    .map((n) => {
+      const { x, y } = pos(n);
+      const cls = [
+        'map-node',
+        visited.has(n.id) ? 'done' : '',
+        n.id === run.at ? 'current' : '',
+        nextIds.has(n.id) ? 'selectable' : '',
+      ].join(' ');
+      return `<g class="${cls}" data-node="${n.id}">
+        <circle cx="${x}" cy="${y}" r="19"/>
+        <text x="${x}" y="${y + 5}" text-anchor="middle">${NODE_ICON[n.kind]}</text>
+        <title>${NODE_RU[n.kind]}</title>
+      </g>`;
+    })
+    .join('');
+  return `<svg class="map" viewBox="0 0 850 240" role="img" aria-label="Карта забега">${edges}${nodes}</svg>`;
 }
 
 function heroesHtml(): string {
@@ -225,6 +298,11 @@ function heroesHtml(): string {
       if (!h.alive) {
         return `<div class="hero dead"><span class="hero-name">${h.name}</span> <span class="dim">[${h.character}] — погиб(ла)</span></div>`;
       }
+      const hpPct = Math.round((h.hp / h.stats.maxHp) * 100);
+      const hpBar = `<div class="hero-hp" title="${h.hp}/${h.stats.maxHp} hp">
+        <span style="width:${hpPct}%" class="${hpPct <= 35 ? 'low' : ''}"></span>
+        <i>${h.hp}/${h.stats.maxHp}</i>
+      </div>`;
       const rows = h.phrases
         .map(
           (ph, i) => `
@@ -272,6 +350,7 @@ function heroesHtml(): string {
         : `${rows}${addBtn}`;
       return `<div class="hero">
         <div class="hero-name">${h.name} <span class="dim">[${h.character}]</span> ${toggle}</div>
+        ${hpBar}
         ${editor}${err}
         <div class="dim" style="margin-top:6px">Как понял:</div>${cardHtml}
       </div>`;
@@ -284,37 +363,93 @@ function setPhrasesPreview(heroId: string, draft: PhraseDraft, names: Record<str
   return r.ok ? r.rule : null;
 }
 
+const FIGHT_KINDS: MapNode['kind'][] = ['lesson', 'fight', 'elite', 'boss'];
+
+function intelHtml(node: MapNode): string {
+  if (!intelVisible(node)) return '';
+  const intel = foeIntel(foesForNode(node))
+    .map(
+      (i) =>
+        `<div class="intel-foe"><b>${esc(i.name)}</b>: ${i.lines.map(esc).join('; ')}</div>`,
+    )
+    .join('');
+  return `<div class="intel"><div class="dim">Разведка — принципы врага видны:</div>${intel}</div>`;
+}
+
+function advanceHtml(): string {
+  const names = currentNode(run)
+    .next.map((id) => {
+      const n = run.map[id]!;
+      return `<button data-action="advance" data-node="${id}">${NODE_ICON[n.kind]} ${NODE_RU[n.kind]}</button>`;
+    })
+    .join(' ');
+  return `<h2>Куда дальше?</h2><p>${names}</p>`;
+}
+
 function actionPanelHtml(): string {
   if (run.status !== 'ongoing') {
     const cls = run.status === 'won' ? 'win' : 'loss';
-    const text = run.status === 'won' ? '🏆 Забег пройден!' : '☠ Забег окончен';
+    const text = run.status === 'won' ? '♛ Вождь орды пал. Забег пройден!' : '☠ Забег окончен';
     return `<div class="result-banner ${cls}">${text}</div>
       <div class="dim">${run.log.map(esc).join('<br>')}</div>
       <p><button class="primary" data-action="new-run">Новый забег (seed ${run.runSeed + 1})</button></p>`;
   }
-  const node = currentNode(run)!;
-  if (node.kind === 'fight') {
-    const foes = foesForFight(node.index)
+  if (run.resolved) return advanceHtml();
+
+  const node = currentNode(run);
+  if (FIGHT_KINDS.includes(node.kind)) {
+    const foes = foesForNode(node)
       .map((f) => f.name)
       .join(', ');
-    return `<h2>Бой ${node.index + 1} из 5</h2>
+    const nudge = lessonNudge
+      ? `<div class="onboarding">Первый приказ почти никогда не выигрывает этот бой — так задумано.
+         Перепиши принципы под то, что видно в разведке, и переиграй: <b>кости те же</b>.</div>`
+      : node.kind === 'lesson'
+        ? `<div class="dim">Учебный бой: поражение ничего не стоит — экспериментируй.</div>`
+        : '';
+    return `<h2>${NODE_ICON[node.kind]} ${NODE_RU[node.kind][0]!.toUpperCase()}${NODE_RU[node.kind].slice(1)}</h2>
       <div class="dim">Противник: ${esc(foes)}</div>
+      ${intelHtml(node)}
+      ${nudge}
       <p><button class="primary" data-action="fight">⚔ В бой</button></p>`;
   }
-  const offer = scriptoriumOffer(run);
-  const conceptBtns = offer.concepts
-    .map(
-      (c) =>
-        `<button data-action="buy-concept" data-concept="${c}">Открыть концепт: «${CONCEPTS[c].label}»</button>`,
-    )
-    .join(' ');
-  const names = heroNames(run);
-  const slotBtn = offer.slotHero
-    ? `<button data-action="buy-slot" data-hero="${offer.slotHero}">+1 слот для ${names[offer.slotHero]}</button>`
-    : '';
-  return `<h2>✎ Скрипторий</h2>
-    <div class="dim">Выбери одно:</div>
-    <p>${conceptBtns} ${slotBtn} <button data-action="skip">Пропустить</button></p>`;
+  if (node.kind === 'scriptorium') {
+    const offer = scriptoriumOffer(run);
+    const conceptBtns = offer.concepts
+      .map(
+        (c) =>
+          `<button data-action="buy-concept" data-concept="${c}">Открыть концепт: «${CONCEPTS[c].label}»</button>`,
+      )
+      .join(' ');
+    const names = heroNames(run);
+    const slotBtn = offer.slotHero
+      ? `<button data-action="buy-slot" data-hero="${offer.slotHero}">+1 слот для ${names[offer.slotHero]}</button>`
+      : '';
+    return `<h2>✎ Скрипторий</h2>
+      <div class="dim">Выбери одно:</div>
+      <p>${conceptBtns} ${slotBtn} <button data-action="skip">Пропустить</button></p>`;
+  }
+  if (node.kind === 'event') {
+    const offer = eventOffer(run);
+    const names = heroNames(run);
+    const parts: string[] = [];
+    if (offer.concept) {
+      parts.push(`<div>Странствующий книжник готов растолковать концепт «${CONCEPTS[offer.concept].label}».</div>
+        <p><button class="primary" data-action="event-take">Изучить</button></p>`);
+    } else if (offer.slotHero) {
+      parts.push(`<div>В тайнике — чистый лист для полевого дневника: +1 слот для ${names[offer.slotHero]}.</div>
+        <p><button class="primary" data-action="event-take">Забрать</button></p>`);
+    }
+    if (offer.mercenary) {
+      parts.push(`<div>У костра сидит наёмник ${esc(offer.mercenary.name)} [${offer.mercenary.character}] —
+        займёт место павшего, но прежние принципы прочтёт по-своему.</div>
+        <p><button data-action="event-hire">Нанять</button></p>`);
+    }
+    return `<h2>? Событие</h2>${parts.join('')}<p><button data-action="event-skip">Пройти мимо</button></p>`;
+  }
+  return `<h2>⛺ Привал</h2>
+    <div class="dim">Перевязать раны: живые герои восстановят большую часть здоровья.</div>
+    <p><button class="primary" data-action="rest">Отдохнуть</button></p>`;
 }
 
 function vocabHtml(): string {
@@ -325,7 +460,7 @@ function renderNodeScreen(): void {
   app.innerHTML = `
     <h1>Prompt &amp; Sword</h1>
     <div class="dim">Забег seed=${run.runSeed}. Билд — это текст: пиши принципы, герои поймут по-своему.</div>
-    ${nodeStripHtml()}
+    <div class="panel map-panel">${mapHtml()}</div>
     <div class="columns">
       <div class="col-main">
         <div class="panel">${actionPanelHtml()}</div>
@@ -381,6 +516,22 @@ function bindNodeScreen(): void {
       } else if (a === 'skip') {
         chooseInScriptorium(run, { kind: 'skip' });
         renderNodeScreen();
+      } else if (a === 'event-take') {
+        chooseInEvent(run, { kind: 'take' });
+        renderNodeScreen();
+      } else if (a === 'event-hire') {
+        chooseInEvent(run, { kind: 'hire' });
+        renderNodeScreen();
+      } else if (a === 'event-skip') {
+        chooseInEvent(run, { kind: 'skip' });
+        renderNodeScreen();
+      } else if (a === 'rest') {
+        rest(run);
+        renderNodeScreen();
+      } else if (a === 'advance') {
+        const to = Number(btn.dataset.node);
+        if (advance(run, to).ok) visited.add(to);
+        renderNodeScreen();
       } else if (a === 'new-run') {
         location.search = `?seed=${run.runSeed + 1}`;
       } else if (a === 'add-phrase') {
@@ -409,6 +560,14 @@ function bindNodeScreen(): void {
       }
     });
   }
+  // клик по достижимому узлу карты = переход
+  for (const g of app.querySelectorAll<SVGGElement>('.map-node.selectable')) {
+    g.addEventListener('click', () => {
+      const to = Number(g.dataset.node);
+      if (advance(run, to).ok) visited.add(to);
+      renderNodeScreen();
+    });
+  }
 }
 
 // ---------- экран боя ----------
@@ -425,8 +584,8 @@ interface ViewUnit {
 
 function startBattle(): void {
   const node = currentNode(run);
-  if (node?.kind !== 'fight') return;
-  battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foesForFight(node.index)]);
+  if (!FIGHT_KINDS.includes(node.kind) || run.resolved) return;
+  battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foesForNode(node)]);
   playIdx = 0;
   stopTimer();
   renderBattleScreen();
@@ -497,15 +656,23 @@ function renderBattleScreen(): void {
     }
   }
 
+  const node = currentNode(run);
+  const lost = battle.winner !== 'party';
   const banner = done
     ? battle.winner === 'party'
       ? `<div class="result-banner win">Победа за ${battle.rounds} раундов</div>`
-      : battle.winner === 'foe'
-        ? `<div class="result-banner loss">Поражение…</div>`
-        : `<div class="result-banner">Ничья (лимит раундов)</div>`
+      : `<div class="result-banner loss">${battle.winner === 'foe' ? 'Поражение…' : 'Ничья (лимит раундов)'}</div>` +
+        (node.kind === 'lesson'
+          ? `<div class="onboarding">Это ничего не стоило. Перепиши приказ — и переиграй с теми же костями.</div>`
+          : '')
     : '';
+  const acceptLabel = !lost
+    ? 'Принять исход'
+    : node.kind === 'lesson'
+      ? 'Вернуться к приказам'
+      : 'Принять поражение (конец забега)';
   const doneButtons = done
-    ? `<button class="primary" data-action="accept">Принять исход</button>
+    ? `<button class="primary" data-action="accept">${acceptLabel}</button>
        <button data-action="sparring">↻ Переиграть с теми же костями</button>`
     : `<button data-action="ff">⏩ До конца</button>`;
 
@@ -534,11 +701,15 @@ function renderBattleScreen(): void {
         renderBattleScreen();
       } else if (a === 'accept') {
         stopTimer();
+        const node = currentNode(run);
+        lessonNudge = node.kind === 'lesson' && battle!.winner !== 'party';
         playFight(run);
         battle = null;
         renderNodeScreen();
       } else if (a === 'sparring') {
         stopTimer();
+        const node = currentNode(run);
+        if (node.kind === 'lesson' && battle!.winner !== 'party') lessonNudge = true;
         battle = null;
         renderNodeScreen();
       }
