@@ -10,6 +10,8 @@ export interface UnitSpec {
   name: string;
   side: Side;
   maxHp: number;
+  /** Стартовое hp боя (перенос между боями забега); по умолчанию maxHp. */
+  hp?: number;
   atk: number;
   range: number;
   speed: number;
@@ -52,7 +54,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     name: spec.name,
     side: spec.side,
     maxHp: spec.maxHp,
-    hp: spec.maxHp,
+    hp: Math.min(spec.hp ?? spec.maxHp, spec.maxHp),
     atk: spec.atk,
     range: spec.range,
     speed: spec.speed,

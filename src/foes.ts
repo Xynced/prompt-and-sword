@@ -156,13 +156,13 @@ export function hunter(n: number): UnitSpec {
   };
 }
 
-/** Финальный босс забега. Ходит со свитой (шаман за спиной, берсерки по бокам). */
+/** Финальный босс забега. Ходит со свитой (шаман за спиной, берсерк рядом). */
 export function warlord(): UnitSpec {
   return {
     id: 'warlord',
     name: 'Вождь орды',
     side: 'foe',
-    maxHp: 46,
+    maxHp: 52,
     atk: 9,
     range: 1,
     speed: 6,

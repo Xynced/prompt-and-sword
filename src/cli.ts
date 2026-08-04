@@ -6,12 +6,17 @@ import { describeDraft } from './constructor.js';
 import { type CompileRequest, anthropicModelCall, compileFreeText, type ModelCall } from './compiler/compile.js';
 import { fileCache } from './compiler/cache-node.js';
 import {
+  advance,
+  chooseInEvent,
   chooseInScriptorium,
   currentNode,
+  eventOffer,
   heroNames,
   heroSpecs,
   playFight,
+  rest,
   scriptoriumOffer,
+  setPhrases,
   startRun,
 } from './run.js';
 
@@ -137,10 +142,23 @@ function verboseRun(setName: string, seed: number): void {
   }
 }
 
-/** Демо мини-забега: дефолтные принципы, в скриптории берём первый концепт. */
+/** Переформулировка для урока (кайт): чему онбординг должен научить игрока. */
+function lessonRewrite(state: ReturnType<typeof startRun>): void {
+  setPhrases(state, 'grom', [
+    { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 },
+  ]);
+  for (const id of ['dart', 'lia']) {
+    setPhrases(state, id, [
+      { condition: { id: 'always' }, preference: { id: 'act.retreat' } },
+      { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.weakest' }, weight: 2 },
+    ]);
+  }
+}
+
+/** Демо забега: дефолтные принципы, урок при поражении переигрывается с фокусом. */
 function demoRun(runSeed: number): void {
   const state = startRun(runSeed);
-  console.log(`Мини-забег, seed=${runSeed}\n`);
+  console.log(`Забег, seed=${runSeed} — карта из ${state.map.length} узлов\n`);
 
   console.log('Карточки «как понял» перед стартом:');
   const names = heroNames(state);
@@ -151,25 +169,60 @@ function demoRun(runSeed: number): void {
   }
   console.log('');
 
+  let lessonTries = 0;
   while (state.status === 'ongoing') {
-    const node = currentNode(state)!;
-    if (node.kind === 'fight') {
-      const alive = state.heroes.filter((h) => h.alive).map((h) => h.name);
-      const r = playFight(state);
-      console.log(
-        `Бой ${node.index + 1}: [${alive.join(', ')}] → ${
-          r.winner === 'party' ? 'победа' : r.winner === 'foe' ? 'поражение' : 'ничья'
-        } за ${r.rounds} раундов`,
-      );
-    } else {
-      const offer = scriptoriumOffer(state);
-      const choice = offer.concepts[0]
-        ? ({ kind: 'concept', id: offer.concepts[0] } as const)
-        : offer.slotHero
-          ? ({ kind: 'slot', heroId: offer.slotHero } as const)
-          : ({ kind: 'skip' } as const);
-      chooseInScriptorium(state, choice);
-      console.log(`Скрипторий: ${state.log.at(-1)}`);
+    const node = currentNode(state);
+    switch (node.kind) {
+      case 'lesson':
+      case 'fight':
+      case 'elite':
+      case 'boss': {
+        const alive = state.heroes.filter((h) => h.alive).map((h) => `${h.name} ${h.hp}hp`);
+        const r = playFight(state);
+        console.log(
+          `Узел ${node.id} [${node.kind}]: [${alive.join(', ')}] → ${
+            r.winner === 'party' ? 'победа' : r.winner === 'foe' ? 'поражение' : 'ничья'
+          } за ${r.rounds} раундов`,
+        );
+        if (node.kind === 'lesson' && r.winner !== 'party') {
+          if (++lessonTries > 3) {
+            console.log('Урок не пройден за 3 попытки — стоп');
+            return;
+          }
+          console.log('  переписываем приказ (кайт): Гром держит их, стрелки отходят и жгут слабейших — те же кости');
+          lessonRewrite(state);
+        }
+        break;
+      }
+      case 'scriptorium': {
+        const offer = scriptoriumOffer(state);
+        const choice = offer.concepts[0]
+          ? ({ kind: 'concept', id: offer.concepts[0] } as const)
+          : offer.slotHero
+            ? ({ kind: 'slot', heroId: offer.slotHero } as const)
+            : ({ kind: 'skip' } as const);
+        chooseInScriptorium(state, choice);
+        console.log(`Узел ${node.id} [скрипторий]: ${state.log.at(-1)}`);
+        break;
+      }
+      case 'event': {
+        const offer = eventOffer(state);
+        const choice = offer.mercenary
+          ? ({ kind: 'hire' } as const)
+          : offer.concept || offer.slotHero
+            ? ({ kind: 'take' } as const)
+            : ({ kind: 'skip' } as const);
+        chooseInEvent(state, choice);
+        console.log(`Узел ${node.id} [событие]: ${state.log.at(-1)}`);
+        break;
+      }
+      case 'rest':
+        rest(state);
+        console.log(`Узел ${node.id} [привал]: ${state.log.at(-1)}`);
+        break;
+    }
+    if (state.status === 'ongoing' && state.resolved) {
+      advance(state, currentNode(state).next[0]!);
     }
   }
   console.log(`\nИтог забега: ${state.status === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}`);
@@ -303,25 +356,25 @@ async function corpusCmd(files: string[], heroId: string): Promise<void> {
   console.log(`  совпало с намерением: ${intentMatch}/${withIntent} (${pct(intentMatch, withIntent)} из строк с «=>»)`);
 }
 
-const [cmd = 'gateA', ...rest] = process.argv.slice(2);
+const [cmd = 'gateA', ...args] = process.argv.slice(2);
 if (cmd === 'gateA') {
   gateA();
 } else if (cmd === 'run') {
-  const setName = rest[0] ?? 'rush';
-  const seed = Number(rest[1] ?? 1);
+  const setName = args[0] ?? 'rush';
+  const seed = Number(args[1] ?? 1);
   verboseRun(setName, seed);
 } else if (cmd === 'demo-run') {
-  demoRun(Number(rest[0] ?? 1));
+  demoRun(Number(args[0] ?? 1));
 } else if (cmd === 'compile') {
-  const text = rest[0];
+  const text = args[0];
   if (!text) {
     console.error('Использование: pnpm sim compile "<текст принципа>" [heroId=grom]');
     process.exitCode = 1;
   } else {
-    await compileCmd(text, rest[1] ?? 'grom');
+    await compileCmd(text, args[1] ?? 'grom');
   }
 } else if (cmd === 'corpus') {
-  await corpusCmd(rest.filter((a) => a.endsWith('.txt')), 'grom');
+  await corpusCmd(args.filter((a) => a.endsWith('.txt')), 'grom');
 } else {
   console.log(
     'Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed> | compile "<текст>" [герой] | corpus [файлы…]]',

@@ -3,13 +3,17 @@ import { type PhraseDraft, compilePhrase } from './constructor.js';
 import { type ConceptId, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { HERO_STATS } from './scenarios.js';
-import { archer, grunt, packLeader, warChief } from './foes.js';
+import { archer, berserker, grunt, hunter, packLeader, shaman, warChief, warlord } from './foes.js';
 import { mulberry32, shuffle } from './rng.js';
 import type { CharacterId, Pos } from './types.js';
 
 /**
- * Мини-забег фазы 2: 5 боёв, скрипторий между ними, 3 героя, пермасмерть.
+ * Забег фазы 4: ветвящаяся карта из 15 узлов (à la Slay the Spire),
+ * HP переносится между боями, пермасмерть, события, привал, босс.
  * Всё детерминировано сидом забега.
+ *
+ * Первый узел — урок: поражение не кончает забег, а предлагает переписать
+ * приказ и переиграть с теми же костями (онбординг ядра игры).
  */
 
 export interface HeroState {
@@ -18,57 +22,126 @@ export interface HeroState {
   character: CharacterId;
   stats: { maxHp: number; atk: number; range: number; speed: number; move: number; spawn: Pos };
   alive: boolean;
+  /** Текущее hp — переносится между боями; лечится на привале и перевязкой после победы. */
+  hp: number;
   slots: number;
   phrases: PhraseDraft[];
 }
 
-export type RunNode = { kind: 'fight'; index: number } | { kind: 'scriptorium' };
+export type NodeKind = 'lesson' | 'fight' | 'elite' | 'event' | 'rest' | 'scriptorium' | 'boss';
 
-export interface ScriptoriumOffer {
-  concepts: ConceptId[];
-  /** Герой, которому можно докупить слот (если есть кому). */
-  slotHero?: string;
+export interface MapNode {
+  id: number;
+  layer: number;
+  /** Позиция внутри слоя (для отрисовки и состава боя). */
+  slot: number;
+  kind: NodeKind;
+  /** id узлов следующего слоя, в которые можно пойти. */
+  next: number[];
 }
 
 export interface RunState {
   runSeed: number;
-  nodeIndex: number;
+  map: MapNode[];
+  /** Текущий узел карты. */
+  at: number;
+  /** Узел пройден — можно выбирать следующий из map[at].next. */
+  resolved: boolean;
   vocab: ConceptId[];
   heroes: HeroState[];
   status: 'ongoing' | 'won' | 'lost';
   log: string[];
 }
 
-/** 5 боёв, скрипторий после каждого кроме последнего. */
-export const NODES: RunNode[] = [
-  { kind: 'fight', index: 0 },
-  { kind: 'scriptorium' },
-  { kind: 'fight', index: 1 },
-  { kind: 'scriptorium' },
-  { kind: 'fight', index: 2 },
-  { kind: 'scriptorium' },
-  { kind: 'fight', index: 3 },
-  { kind: 'scriptorium' },
-  { kind: 'fight', index: 4 },
-];
-
 export const START_SLOTS = 2;
 export const MAX_SLOTS = 4;
 
-export function foesForFight(index: number): UnitSpec[] {
-  switch (index) {
-    case 0:
-      return [grunt(1), grunt(2)];
-    case 1:
-      return [grunt(1), grunt(2), grunt(3)];
-    case 2:
-      return [packLeader(), grunt(1), grunt(2)];
-    case 3:
-      return [packLeader(), grunt(1), archer(1)];
-    default:
+/** Перевязка после победы: доля maxHp. */
+const PATCH_UP = 0.25;
+/** Привал: доля недостающего hp. */
+const REST_HEAL = 0.6;
+/** Наёмник приходит потрёпанным. */
+const MERC_HP = 0.6;
+
+// ---- Генерация карты ----
+
+/** Слои карты; порядок узлов внутри слоя тасуется сидом. */
+const LAYER_KINDS: NodeKind[][] = [
+  ['lesson'],
+  ['fight', 'fight'],
+  ['scriptorium', 'event'],
+  ['fight', 'elite', 'fight'],
+  ['event', 'scriptorium'],
+  ['elite', 'fight'],
+  ['rest', 'scriptorium'],
+  ['boss'],
+];
+
+/** Рёбра слоя wa → wb: каждый узел ведёт в 1–2 узла, все узлы достижимы. */
+function edgeSlots(wa: number, wb: number, ai: number): number[] {
+  if (wb === 1) return [0];
+  const base = Math.round((ai * (wb - 1)) / Math.max(wa - 1, 1));
+  const out = [base];
+  if (base + 1 < wb) out.push(base + 1);
+  else if (base - 1 >= 0) out.push(base - 1);
+  return out.sort((a, b) => a - b);
+}
+
+export function generateMap(runSeed: number): MapNode[] {
+  const rng = mulberry32(runSeed * 271 + 13);
+  const layers = LAYER_KINDS.map((kinds) => shuffle(kinds, rng));
+  const map: MapNode[] = [];
+  const layerStart: number[] = [];
+  let id = 0;
+  for (const [layer, kinds] of layers.entries()) {
+    layerStart.push(id);
+    for (const [slot, kind] of kinds.entries()) {
+      map.push({ id: id++, layer, slot, kind, next: [] });
+    }
+  }
+  for (const node of map) {
+    const nextKinds = layers[node.layer + 1];
+    if (!nextKinds) continue;
+    const wa = layers[node.layer]!.length;
+    node.next = edgeSlots(wa, nextKinds.length, node.slot).map(
+      (s) => layerStart[node.layer + 1]! + s,
+    );
+  }
+  return map;
+}
+
+// ---- Состав врагов по узлам ----
+
+export function foesForNode(node: MapNode): UnitSpec[] {
+  switch (node.kind) {
+    case 'lesson':
+      // подобрано симом: дефолтные принципы проигрывают ~68% сидов,
+      // кайт-переформулировка выигрывает ~85% тех же костей
       return [warChief(), grunt(1), grunt(2), archer(1)];
+    case 'fight':
+      if (node.layer <= 1) return node.slot === 0 ? [grunt(1), grunt(2)] : [grunt(1), archer(1)];
+      if (node.layer <= 3)
+        return node.slot === 0 ? [grunt(1), grunt(2), archer(1)] : [grunt(1), grunt(2), grunt(3)];
+      return [berserker(1), grunt(1), archer(1)];
+    case 'elite':
+      return node.layer <= 3
+        ? [packLeader(), grunt(1), shaman('boss')]
+        : [warChief(), shaman('chief'), hunter(1)];
+    case 'boss':
+      // подобрано симом: 4-й враг делает бой нерешаемым (экономика действий);
+      // наивный «фокусь вожака» проигрывает, снятие свиты под заслоном — выигрывает
+      return [warlord(), shaman('warlord'), berserker(1)];
+    default:
+      throw new Error(`Узел ${node.kind} — не бой`);
   }
 }
+
+/** Узлы, где перед боем видны принципы врагов (разведка). */
+export function intelVisible(node: MapNode): boolean {
+  return node.kind === 'elite' || node.kind === 'boss' || node.kind === 'lesson';
+}
+
+// ---- Старт и доступ ----
 
 const p = (draft: PhraseDraft): PhraseDraft => draft;
 
@@ -106,12 +179,15 @@ export function startRun(runSeed: number): RunState {
     character,
     stats: { ...HERO_STATS[id], spawn: { ...HERO_STATS[id].spawn } },
     alive: true,
+    hp: HERO_STATS[id].maxHp,
     slots: START_SLOTS,
     phrases: defaultPhrases(id),
   }));
   return {
     runSeed,
-    nodeIndex: 0,
+    map: generateMap(runSeed),
+    at: 0,
+    resolved: false,
     vocab: STARTING_VOCAB.slice(),
     heroes,
     status: 'ongoing',
@@ -119,8 +195,8 @@ export function startRun(runSeed: number): RunState {
   };
 }
 
-export function currentNode(state: RunState): RunNode | undefined {
-  return NODES[state.nodeIndex];
+export function currentNode(state: RunState): MapNode {
+  return state.map[state.at]!;
 }
 
 export function heroNames(state: RunState): Record<string, string> {
@@ -146,6 +222,7 @@ export function heroSpecs(state: RunState): UnitSpec[] {
       side: 'party' as const,
       character: h.character,
       rules: compileHero(state, h),
+      hp: h.hp,
       ...h.stats,
     }));
 }
@@ -168,42 +245,88 @@ export function setPhrases(state: RunState, heroId: string, drafts: PhraseDraft[
   return { ok: true };
 }
 
+// ---- Прохождение узлов ----
+
 export function battleSeed(state: RunState): number {
-  return state.runSeed * 101 + state.nodeIndex;
+  return state.runSeed * 101 + state.at;
 }
 
-/** Сыграть текущий боевой узел. Пермасмерть; выжившие лечатся между боями. */
+const FIGHT_KINDS: NodeKind[] = ['lesson', 'fight', 'elite', 'boss'];
+
+/**
+ * Сыграть боевой узел. Пермасмерть; hp переносится (после победы — перевязка).
+ * Урок (первый узел) на поражение не кончает забег: переписывай приказ и
+ * переигрывай с теми же костями, сколько нужно.
+ */
 export function playFight(state: RunState): BattleResult {
   const node = currentNode(state);
-  if (state.status !== 'ongoing' || node?.kind !== 'fight') {
+  if (state.status !== 'ongoing' || state.resolved || !FIGHT_KINDS.includes(node.kind)) {
     throw new Error('Сейчас не боевой узел');
   }
-  const result = runBattle(battleSeed(state), [...heroSpecs(state), ...foesForFight(node.index)]);
-
-  for (const u of result.units) {
-    if (u.side !== 'party' || u.alive) continue;
-    const hero = state.heroes.find((h) => h.id === u.id)!;
-    hero.alive = false;
-    state.log.push(`✝ ${hero.name} погибает в бою ${node.index + 1}`);
-  }
+  const result = runBattle(battleSeed(state), [...heroSpecs(state), ...foesForNode(node)]);
 
   if (result.winner !== 'party') {
-    state.status = 'lost';
-    state.log.push(`Забег окончен: поражение в бою ${node.index + 1}`);
-  } else if (state.nodeIndex === NODES.length - 1) {
+    if (node.kind === 'lesson') {
+      state.log.push('Урок: поражение. Перепиши приказ и переиграй с теми же костями.');
+    } else {
+      state.status = 'lost';
+      state.log.push(`Забег окончен: поражение (узел ${state.at})`);
+    }
+    return result;
+  }
+
+  if (node.kind === 'lesson') {
+    // урок — пролог без последствий: раны и потери не переносятся в забег
+    state.resolved = true;
+    state.log.push('Урок пройден — раны перевязаны, забег начинается');
+    return result;
+  }
+
+  for (const u of result.units) {
+    if (u.side !== 'party') continue;
+    const hero = state.heroes.find((h) => h.id === u.id)!;
+    if (!u.alive) {
+      hero.alive = false;
+      hero.hp = 0;
+      state.log.push(`✝ ${hero.name} погибает (узел ${state.at})`);
+    } else {
+      hero.hp = Math.min(u.hp + Math.ceil(hero.stats.maxHp * PATCH_UP), hero.stats.maxHp);
+    }
+  }
+  state.resolved = true;
+  if (node.kind === 'boss') {
     state.status = 'won';
-    state.log.push('Забег пройден!');
+    state.log.push('Вождь орды пал. Забег пройден!');
   } else {
-    state.nodeIndex++;
-    state.log.push(`Бой ${node.index + 1} выигран за ${result.rounds} раундов`);
+    state.log.push(`Узел ${state.at}: победа за ${result.rounds} раундов`);
   }
   return result;
 }
 
+/** Переход по ребру карты после пройденного узла. */
+export type AdvanceResult = { ok: true } | { ok: false; error: string };
+
+export function advance(state: RunState, toId: number): AdvanceResult {
+  if (state.status !== 'ongoing') return { ok: false, error: 'Забег окончен' };
+  if (!state.resolved) return { ok: false, error: 'Текущий узел ещё не пройден' };
+  if (!currentNode(state).next.includes(toId)) return { ok: false, error: 'Туда дороги нет' };
+  state.at = toId;
+  state.resolved = false;
+  return { ok: true };
+}
+
+// ---- Скрипторий ----
+
+export interface ScriptoriumOffer {
+  concepts: ConceptId[];
+  /** Герой, которому можно докупить слот (если есть кому). */
+  slotHero?: string;
+}
+
 /** Предложение скриптория: 2 закрытых концепта + слот (детерминировано сидом). */
 export function scriptoriumOffer(state: RunState): ScriptoriumOffer {
-  if (currentNode(state)?.kind !== 'scriptorium') throw new Error('Сейчас не скрипторий');
-  const rng = mulberry32(state.runSeed * 997 + state.nodeIndex);
+  if (currentNode(state).kind !== 'scriptorium') throw new Error('Сейчас не скрипторий');
+  const rng = mulberry32(state.runSeed * 997 + state.at);
   const locked = UNLOCKABLE.filter((c) => !state.vocab.includes(c));
   const concepts = shuffle(locked, rng).slice(0, 2);
   const slotHero = state.heroes.find((h) => h.alive && h.slots < MAX_SLOTS)?.id;
@@ -217,6 +340,7 @@ export type ScriptoriumChoice =
 
 export function chooseInScriptorium(state: RunState, choice: ScriptoriumChoice): SetPhrasesResult {
   const offer = scriptoriumOffer(state);
+  if (state.resolved) return { ok: false, error: 'Узел уже пройден' };
   if (choice.kind === 'skip') {
     state.log.push('Скрипторий пропущен');
   } else if (choice.kind === 'concept') {
@@ -229,6 +353,96 @@ export function chooseInScriptorium(state: RunState, choice: ScriptoriumChoice):
     hero.slots++;
     state.log.push(`${hero.name}: +1 слот принципа (${hero.slots})`);
   }
-  state.nodeIndex++;
+  state.resolved = true;
+  return { ok: true };
+}
+
+// ---- Привал ----
+
+export function rest(state: RunState): SetPhrasesResult {
+  if (currentNode(state).kind !== 'rest') return { ok: false, error: 'Сейчас не привал' };
+  if (state.resolved) return { ok: false, error: 'Узел уже пройден' };
+  for (const h of state.heroes) {
+    if (!h.alive) continue;
+    h.hp = Math.min(h.hp + Math.ceil((h.stats.maxHp - h.hp) * REST_HEAL), h.stats.maxHp);
+  }
+  state.resolved = true;
+  state.log.push('Привал: раны перевязаны');
+  return { ok: true };
+}
+
+// ---- События ----
+
+const MERC_POOL: { name: string; character: CharacterId }[] = [
+  { name: 'Крад', character: 'literalist' },
+  { name: 'Вельма', character: 'coward' },
+  { name: 'Осса', character: 'fanatic' },
+  { name: 'Бор', character: 'plain' },
+];
+
+export interface EventOffer {
+  /** Базовое предложение узла (детерминировано сидом). */
+  kind: 'bookseller' | 'cache';
+  /** Книжник: концепт задаром. */
+  concept?: ConceptId;
+  /** Тайник: +1 слот герою. */
+  slotHero?: string;
+  /** Наёмник у костра — только если есть погибший герой. */
+  mercenary?: { heroId: string; name: string; character: CharacterId };
+}
+
+export function eventOffer(state: RunState): EventOffer {
+  if (currentNode(state).kind !== 'event') throw new Error('Сейчас не событие');
+  const rng = mulberry32(state.runSeed * 613 + state.at);
+  const locked = shuffle(
+    UNLOCKABLE.filter((c) => !state.vocab.includes(c)),
+    rng,
+  );
+  const slotHero = state.heroes.find((h) => h.alive && h.slots < MAX_SLOTS)?.id;
+  const kind: EventOffer['kind'] = locked.length > 0 && (rng() < 0.5 || !slotHero) ? 'bookseller' : 'cache';
+  const offer: EventOffer = { kind };
+  if (kind === 'bookseller' && locked[0]) offer.concept = locked[0];
+  if (kind === 'cache' && slotHero) offer.slotHero = slotHero;
+
+  const dead = state.heroes.find((h) => !h.alive);
+  if (dead) {
+    const merc = MERC_POOL.filter((m) => m.character !== dead.character)[
+      Math.floor(rng() * 3) % 3
+    ]!;
+    offer.mercenary = { heroId: dead.id, name: merc.name, character: merc.character };
+  }
+  return offer;
+}
+
+export type EventChoice = { kind: 'take' } | { kind: 'hire' } | { kind: 'skip' };
+
+export function chooseInEvent(state: RunState, choice: EventChoice): SetPhrasesResult {
+  const offer = eventOffer(state);
+  if (state.resolved) return { ok: false, error: 'Узел уже пройден' };
+  if (choice.kind === 'skip') {
+    state.log.push('Событие пропущено');
+  } else if (choice.kind === 'take') {
+    if (offer.concept) {
+      state.vocab.push(offer.concept);
+      state.log.push(`Книжник: открыт концепт ${offer.concept}`);
+    } else if (offer.slotHero) {
+      const hero = state.heroes.find((h) => h.id === offer.slotHero)!;
+      hero.slots++;
+      state.log.push(`Тайник: ${hero.name} +1 слот (${hero.slots})`);
+    } else {
+      return { ok: false, error: 'Брать нечего' };
+    }
+  } else {
+    if (!offer.mercenary) return { ok: false, error: 'Наёмника нет' };
+    const hero = state.heroes.find((h) => h.id === offer.mercenary!.heroId)!;
+    hero.alive = true;
+    hero.name = offer.mercenary.name;
+    hero.character = offer.mercenary.character;
+    hero.hp = Math.ceil(hero.stats.maxHp * MERC_HP);
+    state.log.push(
+      `${hero.name} [${hero.character}] встаёт в строй — прежние принципы он прочтёт по-своему`,
+    );
+  }
+  state.resolved = true;
   return { ok: true };
 }
