@@ -8,8 +8,8 @@
 |---|---|---|
 | [types.ts](types.ts) | Базовые типы: сторона, позиция, юнит, виды действий, id линз | `Side`, `Pos`, `ActionKind`, `LensId`, `CombatUnit` |
 | [rng.ts](rng.ts) | Seeded RNG — единственный источник случайности | `mulberry32`, `shuffle` |
-| [grid.ts](grid.ts) | Сетка 12×12: дистанция (Чебышёв), LoS, фланг, достижимость | `GRID_W/H`, `dist`, `hasLoS`, `isFlanking`, `reachableTiles` |
-| [terrain.ts](terrain.ts) | Схемы камней (блок движения и LoS), выбор от сида | `TERRAIN_LAYOUTS`, `pickTerrain` |
+| [grid.ts](grid.ts) | Сетка 18×18: дистанция (Чебышёв), LoS, фланг, достижимость | `GRID_W/H`, `dist`, `hasLoS`, `isFlanking`, `reachableTiles` |
+| [terrain.ts](terrain.ts) | Поле из клеток со свойствами (камень/высота/опасность/бурелом), 12 арен-сценариев ASCII-схемами, пулы по тегам | `Tile`, `ArenaTag`, `TERRAIN_LAYOUTS`, `pickTerrain` |
 | [tuning.ts](tuning.ts) | Константы баланса: урон, экономика хода, цены прикрытий | `DMG_SCALE`, `expectedDamage`, `AP_PER_TURN`, `AP_VALUE`, `ACTION_BIAS_WEIGHT`, `WEAK_ATK_MULT`, `COVER` |
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», вычисление условий и селекторов | `Rule`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
 | [vocab.ts](vocab.ts) | Словарь концептов (33: условия, селекторы, действия, манера удара), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
@@ -36,7 +36,7 @@
 |---|---|---|
 | [heroes.ts](heroes.ts) | Пул героев со способностями, сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
 | [foes.ts](foes.ts) | Фабрики врагов (принципы в том же IR) + разведка перед боем | `grunt`, `warChief`, `shaman`, …, `foeIntel` |
-| [run.ts](run.ts) | Забег: ветвящаяся карта 15 узлов, состояние партии, скрипторий, события, трофеи, босс | `generateMap`, `RunState`, `foesForNode` |
+| [run.ts](run.ts) | Забег: ветвящаяся карта 15 узлов, состояние партии, скрипторий, события, трофеи, босс | `generateMap`, `RunState`, `foesForNode`, `arenaForNode` |
 | [sparring.ts](sparring.ts) | «Переиграть с теми же костями»: тот же seed, новые принципы, дифф исходов | `sparring`, `SparringDiff` |
 | [share.ts](share.ts) | Экспорт/импорт билда строкой `ps1.…` (сид + словарь + принципы) | `exportBuild`, `importBuild` |
 | [scenarios.ts](scenarios.ts) | Фиксированные IR-наборы и статы для Ворот A и CLI-прогонов | `makeIrSets`, `makeFoes`, `HERO_STATS` |

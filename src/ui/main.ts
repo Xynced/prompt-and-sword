@@ -18,6 +18,7 @@ import {
   type NodeKind,
   type RunState,
   advance,
+  arenaForNode,
   battleSeed,
   chooseInEvent,
   chooseInScriptorium,
@@ -626,7 +627,7 @@ function startBattle(): void {
   // foeSpecs — с применённой меткой: бой на экране и бой в забеге (playFight) — один бой
   const foes = foeSpecs(run);
   const leaderIds = new Set(foes.filter((f) => f.tags?.includes('leader')).map((f) => f.id));
-  battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foes]);
+  battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foes], arenaForNode(node));
   recordEvent({
     t: 'battle',
     node: node.kind,
@@ -1025,9 +1026,13 @@ function tokensHtml(): string {
 
 function terrainHtml(): string {
   if (!battle) return '';
-  return battle.terrain.tiles
-    .map((t) => `<div class="rock" style="left:${t.x * CELL}%;top:${t.y * CELL}%"></div>`)
-    .join('');
+  const out: string[] = [];
+  battle.terrain.tiles.forEach((row, y) =>
+    row.forEach((t, x) => {
+      if (t.blocked) out.push(`<div class="rock" style="left:${x * CELL}%;top:${y * CELL}%"></div>`);
+    }),
+  );
+  return out.join('');
 }
 
 function battleScreenHtml(): string {

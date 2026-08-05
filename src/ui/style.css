@@ -278,11 +278,11 @@ button.primary:disabled:hover { background: var(--ink); }
 }
 .btoken.dead { opacity: 0.22; }
 .btoken .dm {
-  width: 24px;
-  height: 24px;
+  width: 19px;
+  height: 19px;
   display: grid;
   place-items: center;
-  font: 600 12px/1 var(--serif);
+  font: 600 10px/1 var(--serif);
   border-radius: 3px;
   transform: rotate(45deg);
   background: var(--modal);

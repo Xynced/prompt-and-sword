@@ -1,7 +1,7 @@
 import type { Pos } from './types.js';
 
-export const GRID_W = 12;
-export const GRID_H = 12;
+export const GRID_W = 18;
+export const GRID_H = 18;
 
 /** Дистанция Чебышёва: движение и смежность 8-направленные. */
 export function dist(a: Pos, b: Pos): number {

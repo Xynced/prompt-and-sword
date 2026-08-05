@@ -6,6 +6,7 @@ import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './her
 import { archer, berserker, grunt, hunter, packLeader, shaman, warChief, warlord } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
+import type { ArenaTag } from './terrain.js';
 import type { LensId, Pos } from './types.js';
 
 /**
@@ -169,6 +170,16 @@ export function intelVisible(node: MapNode): boolean {
 }
 
 /**
+ * Пул арен узла: ранние слои — простые схемы (поле открывается вместе со
+ * словами), у элиты и босса свои. Конкретная схема — от battleSeed внутри пула.
+ */
+export function arenaForNode(node: MapNode): ArenaTag {
+  if (node.kind === 'boss') return 'boss';
+  if (node.kind === 'elite') return 'elite';
+  return node.layer <= 1 ? 'early' : 'late';
+}
+
+/**
  * Боевые спеки врагов текущего узла с применённой меткой. Единая точка для
  * playFight и UI: бой на экране и бой в забеге обязаны быть одним боем.
  */
@@ -318,7 +329,7 @@ export function playFight(state: RunState): BattleResult {
     }
     state.log.push('Канун битвы: лагерь и перевязка — в бой со свежими силами');
   }
-  const result = runBattle(battleSeed(state), [...heroSpecs(state), ...foeSpecs(state)]);
+  const result = runBattle(battleSeed(state), [...heroSpecs(state), ...foeSpecs(state)], arenaForNode(node));
 
   if (result.winner !== 'party') {
     if (node.kind === 'lesson') {

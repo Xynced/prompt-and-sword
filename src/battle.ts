@@ -2,8 +2,8 @@ import { type Rng, mulberry32, shuffle } from './rng.js';
 import { AP_PER_TURN, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
-import { dist, isFlanking, posEq, posKey } from './grid.js';
-import { pickTerrain } from './terrain.js';
+import { dist, isFlanking, posEq } from './grid.js';
+import { type ArenaTag, type Tile, pickTerrain } from './terrain.js';
 import type { LensId, Pos, Side } from './types.js';
 import {
   AP_COST,
@@ -66,12 +66,12 @@ export interface BattleResult {
   rounds: number;
   events: BattleEvent[];
   units: Fighter[];
-  /** Террейн боя (камни): имя схемы и клетки — для отрисовки и разбора. */
-  terrain: { name: string; tiles: Pos[] };
+  /** Террейн боя: имя и вопрос схемы, клетки [y][x] — для отрисовки и разбора. */
+  terrain: { name: string; scenario: string; tiles: Tile[][] };
 }
 
 const MAX_ROUNDS = 30;
-const FOE_SPAWN_SLOTS: Pos[] = [2, 4, 5, 7, 9].map((y) => ({ x: 9, y }));
+const FOE_SPAWN_SLOTS: Pos[] = [3, 6, 8, 11, 14].map((y) => ({ x: 15, y }));
 
 function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
   return {
@@ -117,15 +117,19 @@ function winnerOf(units: readonly Fighter[]): Side | undefined {
 }
 
 /** Детерминированный бой: тот же seed + те же принципы = тот же лог событий. */
-export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResult {
+export function runBattle(seed: number, specs: readonly UnitSpec[], arena: ArenaTag = 'late'): BattleResult {
   const rng = mulberry32(seed);
   const units = placeUnits(specs, rng);
-  // камни, совпавшие с чьей-то точкой спавна, убираем (кастомные спавны тестов/сценариев)
-  const layout = pickTerrain(seed);
-  const tiles = layout.tiles.filter((t) => !units.some((u) => posEq(u.pos, t)));
-  const terrain = { name: layout.name, tiles };
-  const blockedSet = new Set(tiles.map(posKey));
-  const blocked = (p: Pos): boolean => blockedSet.has(posKey(p));
+  // рабочая копия схемы; камни, совпавшие с чьей-то точкой спавна, убираем
+  // (кастомные спавны тестов/сценариев)
+  const layout = pickTerrain(seed, arena);
+  const tiles = layout.tiles.map((row) => row.map((t) => ({ ...t })));
+  for (const u of units) {
+    const t = tiles[u.pos.y]?.[u.pos.x];
+    if (t?.blocked) t.blocked = false;
+  }
+  const terrain = { name: layout.name, scenario: layout.scenario, tiles };
+  const blocked = (p: Pos): boolean => tiles[p.y]?.[p.x]?.blocked === true;
   const events: BattleEvent[] = [];
   for (const u of units) {
     events.push({ t: 'spawn', unit: u.id, name: u.name, side: u.side, pos: { ...u.pos }, maxHp: u.maxHp });
