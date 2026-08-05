@@ -20,9 +20,9 @@ function hero(
 }
 
 export const HERO_STATS = {
-  grom: { maxHp: 40, atk: 8, range: 1, speed: 5, move: 2, spawn: { x: 2, y: 5 } },
-  dart: { maxHp: 24, atk: 6, range: 5, speed: 6, move: 2, spawn: { x: 1, y: 3 } },
-  lia: { maxHp: 20, atk: 8, range: 4, speed: 4, move: 1, spawn: { x: 1, y: 8 } },
+  grom: { maxHp: 80, atk: 8, range: 1, speed: 5, move: 2, spawn: { x: 2, y: 5 } },
+  dart: { maxHp: 48, atk: 6, range: 5, speed: 6, move: 2, spawn: { x: 1, y: 3 } },
+  lia: { maxHp: 40, atk: 8, range: 4, speed: 4, move: 1, spawn: { x: 1, y: 8 } },
 } as const;
 
 const GROM = HERO_STATS.grom;
