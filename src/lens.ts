@@ -249,7 +249,7 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         return r;
       });
       // вполсилы не бьёт — это оскорбление противника
-      return { rules: out, mods: { aggression: 1.1, actionBias: { weakAttack: 0.7 } } };
+      return { rules: out, mods: { aggression: 1.1, actionBias: { weakAttack: 0.85 } } };
     }
 
     case 'gloryhound': {
@@ -285,7 +285,7 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
           aggression: 0.85,
           survival: 1.2,
           // закрыть своего собой — самый понятный наседке способ потратить ход
-          actionBias: { shieldAlly: 3 },
+          actionBias: { shieldAlly: 2.2 },
         },
       };
     }

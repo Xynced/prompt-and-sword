@@ -241,6 +241,14 @@ function strikeReach(u: Fighter): number {
  */
 const SHIELD_FULL_RISK = 0.3;
 
+/**
+ * Премия правила за щит союзнику при полной нужде. Заметно меньше премии за
+ * атаку (3 × вес): прикрыть — часть исполнения приказа «прикрывай X», но не
+ * замена бою. При 2.5 наседка уходила в телохранители и теряла шестую часть
+ * побед на уроке.
+ */
+const SHIELD_RULE_BONUS = 1.4;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel);
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -296,7 +304,7 @@ function scorePreference(
       const ally = units.find((u) => u.id === pref.ally && u.alive);
       if (!ally) return 0;
       if (cand.action === 'shieldAlly' && cand.targetId === ally.id) {
-        return 2.5 * w * shieldNeed(ally as Fighter, units);
+        return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units);
       }
       let s = -0.4 * dist(cand.to, ally.pos) * w;
       const threat = resolveSelector('nearest', ally as Fighter, units);
@@ -363,7 +371,7 @@ function scorePreference(
         );
       if (!wounded) return 0;
       if (cand.action === 'shieldAlly' && cand.targetId === wounded.id) {
-        return 2.5 * w * shieldNeed(wounded, units);
+        return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units);
       }
       const threat = resolveSelector('nearest', wounded, units);
       let s = -0.3 * dist(cand.to, wounded.pos) * w;
