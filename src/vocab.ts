@@ -35,7 +35,11 @@ export type ConceptId =
   | 'sel.shooter'
   | 'sel.farthest'
   | 'act.brace'
-  | 'space.awayFrom';
+  | 'space.awayFrom'
+  // манера удара (экономика хода) — не «кого бить», а «чем бить»
+  | 'act.strikeOften'
+  | 'act.strikeHard'
+  | 'act.strikeDesperate';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -76,6 +80,9 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'sel.farthest': { id: 'sel.farthest', label: 'самый дальний', category: 'selector' },
   'act.brace': { id: 'act.brace', label: 'глухая оборона', category: 'action' },
   'space.awayFrom': { id: 'space.awayFrom', label: 'держаться подальше от', category: 'space' },
+  'act.strikeOften': { id: 'act.strikeOften', label: 'бить часто', category: 'action' },
+  'act.strikeHard': { id: 'act.strikeHard', label: 'бить наверняка', category: 'action' },
+  'act.strikeDesperate': { id: 'act.strikeDesperate', label: 'бить отчаянно', category: 'action' },
 };
 
 /**
@@ -103,6 +110,9 @@ export const CORE_WORDS: ConceptId[] = [
   'act.protect',
   'space.nearTo',
   'space.behind',
+  // пара «часто против наверняка» — самый простой вход в экономику хода
+  'act.strikeOften',
+  'act.strikeHard',
 ];
 
 /** Глубокие слова — качественно новые стратегии; вторая колонка предложений. */
@@ -125,6 +135,8 @@ export const DEEP_WORDS: ConceptId[] = [
   'space.lineOfFire',
   'space.chokepoint',
   'space.awayFrom',
+  // размен «сильнее бью — больнее получаю» стоит понимать до того, как взял
+  'act.strikeDesperate',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */

@@ -249,6 +249,14 @@ const SHIELD_FULL_RISK = 0.3;
  */
 const SHIELD_RULE_BONUS = 1.4;
 
+/**
+ * Премия правила о манере удара своему виду атаки. Должна перебивать разницу
+ * между видами по урону (около 3.5 очка между слабым и обычным ударом), иначе
+ * слово не меняет ничего: приказ «бей часто» обязан пересиливать арифметику,
+ * ради этого игрок его и берёт.
+ */
+const STRIKE_STYLE_BONUS = 2.5;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel);
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -435,6 +443,20 @@ function scorePreference(
       if (!anchor) return 0;
       return 0.5 * Math.min(dist(cand.to, anchor.pos), MAX_DIST) * w;
     }
+    // Манера удара: премия своему виду атаки, штраф чужому. Штраф обязателен —
+    // без него «бей наверняка» не запрещал бы добирать слабым ударом остаток
+    // очков, и слово прочитывалось бы вполсилы. Премия плоская, а не на очко
+    // хода: это вкус к манере боя, а не плата за потраченный ход. Кого бить,
+    // эти правила не говорят вовсе — за это отвечает attack.
+    case 'strikeOften':
+      if (cand.action === 'weakAttack') return STRIKE_STYLE_BONUS * w;
+      return isAttack(cand.action) ? -STRIKE_STYLE_BONUS * w : 0;
+    case 'strikeHard':
+      if (cand.action === 'attack') return STRIKE_STYLE_BONUS * w;
+      return isAttack(cand.action) ? -STRIKE_STYLE_BONUS * w : 0;
+    case 'strikeDesperate':
+      if (cand.action === 'selflessAttack') return STRIKE_STYLE_BONUS * w;
+      return isAttack(cand.action) ? -STRIKE_STYLE_BONUS * w : 0;
   }
 }
 

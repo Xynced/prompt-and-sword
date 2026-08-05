@@ -139,6 +139,14 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
           // рискованные правила получают штраф веса
           return { ...r, weight: r.weight * 0.7, source: `${r.source} (трус: неохотно)` };
         }
+        if (r.then.kind === 'strikeDesperate') {
+          // отчаянный размен требует смелости — трус хотя бы бьёт в полную силу
+          return {
+            ...r,
+            then: { kind: 'strikeHard' },
+            source: `${r.source} (трус: отчаянно не могу — хотя бы в полную силу)`,
+          };
+        }
         if (r.then.kind === 'standoff') {
           // держать дистанцию — трусу по сердцу: исполняет рьяно
           return { ...r, weight: r.weight * 1.3, source: `${r.source} (трус: дистанция — это святое)` };
@@ -197,7 +205,14 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
                       then: { kind: 'attack', target: 'nearest' },
                       source: `${r.source} (фанатик: щиты — для трусов)`,
                     }
-                  : r,
+                  : r.then.kind === 'strikeOften' || r.then.kind === 'strikeHard'
+                    ? {
+                        // любая манера удара у фанатика — отчаянная
+                        ...r,
+                        then: { kind: 'strikeDesperate' },
+                        source: `${r.source} (фанатик: бить — так со всей ярости)`,
+                      }
+                    : r,
       );
       return {
         rules: out,
@@ -307,7 +322,14 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
 
     case 'hothead': {
       const out: Rule[] = rules.map((r) =>
-        r.then.kind === 'holdPosition'
+        r.then.kind === 'strikeHard'
+          ? {
+              // примеряться к полному замаху — невыносимо долго
+              ...r,
+              then: { kind: 'strikeOften' },
+              source: `${r.source} (горячка: пока примеряешься — я уже трижды ударил)`,
+            }
+          : r.then.kind === 'holdPosition'
           ? {
               ...r,
               then: { kind: 'attack', target: 'nearest' },

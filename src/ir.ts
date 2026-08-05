@@ -18,6 +18,10 @@ import { dist } from './grid.js';
  *   Селекторы: shooter (стрелок), farthest (самый дальний)
  *   Действия:  brace (глухая оборона)
  *   Простр.:   awayFrom (держаться подальше от)
+ * Манера удара (экономика хода):
+ *   Действия:  strikeOften (бить часто), strikeHard (бить наверняка),
+ *              strikeDesperate (бить отчаянно) — говорят, ЧЕМ бить; кого
+ *              бить, по-прежнему решает отдельное правило attack
  */
 
 export type Selector =
@@ -61,7 +65,12 @@ export type Preference =
   | { kind: 'avoidLineOfFire' }
   | { kind: 'chokepoint' }
   | { kind: 'brace' }
-  | { kind: 'awayFrom'; ref: PosRef };
+  | { kind: 'awayFrom'; ref: PosRef }
+  // манера удара: не «кого бить», а «чем бить» — тратится ли ход на много
+  // дешёвых замахов, на один полный или на отчаянный размен
+  | { kind: 'strikeOften' }
+  | { kind: 'strikeHard' }
+  | { kind: 'strikeDesperate' };
 
 export interface Rule {
   when: Condition;
@@ -211,5 +220,11 @@ export function describePreference(p: Preference): string {
       return 'глухая оборона';
     case 'awayFrom':
       return `подальше от(${p.ref.type === 'ally' ? p.ref.id : p.ref.sel})`;
+    case 'strikeOften':
+      return 'бить часто';
+    case 'strikeHard':
+      return 'бить наверняка';
+    case 'strikeDesperate':
+      return 'бить отчаянно';
   }
 }

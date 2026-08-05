@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 4;
+export const PROMPT_VERSION = 5;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -45,9 +45,15 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.surrounded': '{"id":"cond.surrounded"} — условие: меня окружили (двое и больше врагов вплотную)',
   'sel.shooter': '"sel.shooter" — селектор врага: ближайший стрелок (или ближайший враг, если стрелков нет)',
   'sel.farthest': '"sel.farthest" — селектор врага: самый дальний',
-  'act.brace': '{"id":"act.brace"} — глухая оборона: встать и держать удар (входящий урон вдвое меньше)',
+  'act.brace': '{"id":"act.brace"} — глухая оборона: тратить ход на прикрытие, снижая входящий урон',
   'space.awayFrom':
     '{"id":"space.awayFrom","ref":{"ally":"<id>"}|{"enemy":<селектор>}} — предпочитать клетки подальше от якоря',
+  'act.strikeOften':
+    '{"id":"act.strikeOften"} — манера удара: много дешёвых замахов за ход вместо одного полного (кого бить — отдельное правило act.attack)',
+  'act.strikeHard':
+    '{"id":"act.strikeHard"} — манера удара: бить в полную силу, не размениваясь на слабые замахи',
+  'act.strikeDesperate':
+    '{"id":"act.strikeDesperate"} — манера удара: отчаянный размен — бить сильнее обычного ценой того, что до своего следующего хода получаешь больше',
 };
 
 export interface PromptContext {

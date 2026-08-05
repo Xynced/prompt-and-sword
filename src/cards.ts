@@ -79,6 +79,12 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'встаю в глухую оборону, когда до меня могут достать';
     case 'awayFrom':
       return `держусь подальше от ${p.ref.type === 'ally' ? nm(p.ref.id) : SEL_RU[p.ref.sel]}`;
+    case 'strikeOften':
+      return 'бью часто и вполсилы: лучше три замаха, чем один';
+    case 'strikeHard':
+      return 'бью в полную силу, на мелкие замахи не размениваюсь';
+    case 'strikeDesperate':
+      return 'бью отчаянно: сильнее обычного, но открываюсь под ответ';
   }
 }
 

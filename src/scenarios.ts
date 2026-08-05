@@ -43,16 +43,19 @@ export function makeIrSets(): IrSet[] {
   return [
     {
       name: 'rush',
-      desc: 'Раш: все атакуют ближайшего',
+      desc: 'Раш: все атакуют ближайшего, бьют отчаянно',
       party: [
         hero('grom', 'Гром', ['fanatic'], GROM, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'бей ближайшего' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'strikeDesperate' }, weight: 1.5, source: 'бей отчаянно' }),
         ]),
         hero('dart', 'Дарт', ['literalist'], DART, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'бей ближайшего' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'strikeDesperate' }, weight: 1.5, source: 'бей отчаянно' }),
         ]),
         hero('lia', 'Лия', ['coward'], LIA, [
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 2, source: 'бей ближайшего' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'strikeDesperate' }, weight: 1.5, source: 'бей отчаянно' }),
         ]),
       ],
     },
@@ -73,19 +76,22 @@ export function makeIrSets(): IrSet[] {
     },
     {
       name: 'turtle',
-      desc: 'Черепаха: держать позиции, бить кто подойдёт',
+      desc: 'Черепаха: держать позиции, бить наверняка кто подойдёт',
       party: [
         hero('grom', 'Гром', ['fanatic'], GROM, [
           rule({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 2, source: 'держи позицию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1, source: 'бей кто подойдёт' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'strikeHard' }, weight: 1.5, source: 'бей наверняка' }),
         ]),
         hero('dart', 'Дарт', ['literalist'], DART, [
           rule({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 2, source: 'держи позицию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1, source: 'бей кто подойдёт' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'strikeHard' }, weight: 1.5, source: 'бей наверняка' }),
         ]),
         hero('lia', 'Лия', ['coward'], LIA, [
           rule({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 2, source: 'держи позицию' }),
           rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1, source: 'бей кто подойдёт' }),
+          rule({ when: { kind: 'always' }, then: { kind: 'strikeHard' }, weight: 1.5, source: 'бей наверняка' }),
         ]),
       ],
     },
@@ -127,12 +133,14 @@ export function makeIrSets(): IrSet[] {
   ];
 }
 
-/** Набор для теста дивергенции: rush, но Гром переключён на вожака. */
+/** Набор для теста дивергенции: rush, но Гром переключён на вожака (ровно одно правило). */
 export function makeRushVariant(): IrSet {
   const v = makeIrSets()[0]!;
   const grom = v.party[0]!;
-  grom.rules = [
-    rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'leader' }, weight: 2, source: 'бей вожака' }),
-  ];
+  grom.rules = grom.rules.map((r) =>
+    r.then.kind === 'attack'
+      ? rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'leader' }, weight: 2, source: 'бей вожака' })
+      : r,
+  );
   return { ...v, name: 'rush-variant', desc: 'Раш, но Гром фокусит вожака' };
 }
