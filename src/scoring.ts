@@ -21,17 +21,86 @@ import {
   reachableTiles,
 } from './grid.js';
 import type { CombatUnit, Pos } from './types.js';
-import { expectedDamage } from './tuning.js';
+import {
+  AP_PER_TURN,
+  AP_VALUE,
+  COVER,
+  FULL_COVER,
+  SELFLESS_ATK_MULT,
+  SELFLESS_VULN_MULT,
+  WEAK_ATK_MULT,
+  expectedDamage,
+} from './tuning.js';
 
 export interface Fighter extends CombatUnit {
   compiled: CompiledBehavior;
 }
 
-export type ActionKind = 'attack' | 'defend' | 'wait';
+export type ActionKind =
+  | 'move'
+  | 'weakAttack'
+  | 'attack'
+  | 'selflessAttack'
+  | 'cover'
+  | 'fullCover'
+  | 'shieldAlly'
+  | 'wait';
+
+/** Цена действия в очках хода. `wait` бесплатен и завершает ход. */
+export const AP_COST: Record<ActionKind, number> = {
+  move: 1,
+  weakAttack: 1,
+  cover: 1,
+  attack: 2,
+  selflessAttack: 2,
+  shieldAlly: 2,
+  fullCover: 3,
+  wait: 0,
+};
+
+/** Множитель урона по виду атаки; 0 — действие не атака. */
+const ATTACK_MULT: Record<ActionKind, number> = {
+  weakAttack: WEAK_ATK_MULT,
+  attack: 1,
+  selflessAttack: SELFLESS_ATK_MULT,
+  move: 0,
+  cover: 0,
+  fullCover: 0,
+  shieldAlly: 0,
+  wait: 0,
+};
+
+/** Доля снятого входящего урона по виду действия; 0 — действие не прикрывает. */
+const COVER_LEVEL: Record<ActionKind, number> = {
+  cover: COVER,
+  fullCover: FULL_COVER,
+  shieldAlly: COVER,
+  move: 0,
+  weakAttack: 0,
+  attack: 0,
+  selflessAttack: 0,
+  wait: 0,
+};
+
+export const attackMult = (a: ActionKind): number => ATTACK_MULT[a];
+export const isAttack = (a: ActionKind): boolean => ATTACK_MULT[a] > 0;
+export const coverLevelOf = (a: ActionKind): number => COVER_LEVEL[a];
+
+/**
+ * Доля хода, которую съедает действие, в единицах обычного удара.
+ * Премии правил за атаку умножаются на неё: решение принимается по одному
+ * действию за раз, и без нормировки правило платило бы за каждый удар
+ * отдельно — тогда выгоднее всего было бы спамить самый дешёвый удар.
+ * С нормировкой правило платит за потраченный ход, а выбирать между слабым,
+ * обычным и отчаянным ударом остаётся урону и риску.
+ */
+const apShare = (a: ActionKind): number => AP_COST[a] / AP_COST.attack;
 
 export interface Candidate {
+  /** Клетка после действия; у всего, кроме шага, — текущая клетка юнита. */
   to: Pos;
   action: ActionKind;
+  /** Цель атаки — или прикрываемый союзник для `shieldAlly`. */
   targetId?: string;
 }
 
@@ -111,25 +180,69 @@ function canAttackFrom(
   );
 }
 
+/**
+ * Кандидаты на **одно** действие при остатке `ap`. Шаг — отдельное действие,
+ * поэтому атаки и прикрытия считаются из текущей клетки: связку «дойти и
+ * ударить» набирает жадный цикл `decide` по одному действию за раз.
+ */
 export function generateCandidates(
   self: Fighter,
   units: readonly Fighter[],
   blocked: (p: Pos) => boolean = NO_TERRAIN,
+  ap: number = AP_PER_TURN,
 ): Candidate[] {
-  const byUnit = isBlockedBy(units, self);
-  const occupied = (p: Pos): boolean => byUnit(p) || blocked(p);
-  const zoc = zocOf(self, units);
-  const tiles = reachableTiles(self.pos, self.move, occupied, zoc);
-  const enemies = enemiesOf(self, units) as Fighter[];
+  const here = self.pos;
   const out: Candidate[] = [];
-  for (const to of tiles) {
-    for (const e of enemies) {
-      if (canAttackFrom(to, self, e, units, blocked)) out.push({ to, action: 'attack', targetId: e.id });
+
+  if (ap >= AP_COST.move) {
+    const byUnit = isBlockedBy(units, self);
+    const occupied = (p: Pos): boolean => byUnit(p) || blocked(p);
+    const zoc = zocOf(self, units);
+    for (const to of reachableTiles(here, self.move, occupied, zoc)) {
+      if (!posEq(to, here)) out.push({ to, action: 'move' });
     }
-    out.push({ to, action: 'defend' });
   }
-  out.push({ to: self.pos, action: 'wait' });
+
+  for (const e of enemiesOf(self, units) as Fighter[]) {
+    if (!canAttackFrom(here, self, e, units, blocked)) continue;
+    for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
+      if (ap >= AP_COST[action]) out.push({ to: here, action, targetId: e.id });
+    }
+  }
+
+  // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем
+  for (const action of ['cover', 'fullCover'] as const) {
+    if (ap >= AP_COST[action] && coverLevelOf(action) > self.coverLevel) out.push({ to: here, action });
+  }
+  if (ap >= AP_COST.shieldAlly) {
+    for (const a of alliesOf(self, units) as Fighter[]) {
+      if (a.id !== self.id && coverLevelOf('shieldAlly') > a.coverLevel) {
+        out.push({ to: here, action: 'shieldAlly', targetId: a.id });
+      }
+    }
+  }
+
+  out.push({ to: here, action: 'wait' });
   return out;
+}
+
+/**
+ * Радиус, в котором юнит успевает за ход дойти и ударить: шаги на все очки,
+ * кроме одного под слабый удар. Общая мера «до кого я достаю» для угрозы,
+ * приманки и глухой обороны.
+ */
+function strikeReach(u: Fighter): number {
+  return u.move * (AP_PER_TURN - AP_COST.weakAttack) + u.range;
+}
+
+/** Ожидаемый урон конкретного вида атаки по цели с учётом её прикрытия и открытости. */
+function expectedAttackDamage(self: Fighter, action: ActionKind, target: CombatUnit): number {
+  return (
+    expectedDamage(self.atk) *
+    attackMult(action) *
+    (1 - target.coverLevel) *
+    (target.exposed ? SELFLESS_VULN_MULT : 1)
+  );
 }
 
 function nearestEnemyDist(p: Pos, self: Fighter, units: readonly Fighter[]): number {
@@ -156,12 +269,22 @@ function scorePreference(
       // Линейная и достаточно крутая, чтобы правило рулило поверх инстинктов.
       const gap = Math.max(ctx.distTo(target.pos, cand.to) - self.range, 0);
       let s = -0.6 * gap * w;
-      if (cand.action === 'attack' && cand.targetId === target.id) s += 3 * w;
+      // правило говорит, КОГО бить, а не чем: премия за потраченный ход, а не
+      // за факт удара, поэтому вид атаки выбирают урон и риск, а не правило
+      if (isAttack(cand.action) && cand.targetId === target.id) s += 3 * w * apShare(cand.action);
+      // Шаг, из которого цель реально простреливается, — половина дела. Без
+      // этого жадный цикл выбирает клетку по одной лишь тяге `-0.6 × gap`:
+      // гладкий градиент почти не различает соседние цели, и разные правила
+      // «бей X» / «бей Y» сходились бы к одному и тому же маршруту.
+      if (cand.action === 'move' && canAttackFrom(cand.to, self, target as Fighter, units, ctx.blocked)) {
+        s += 1.5 * w;
+      }
       return s;
     }
     case 'protect': {
       const ally = units.find((u) => u.id === pref.ally && u.alive);
       if (!ally) return 0;
+      if (cand.action === 'shieldAlly' && cand.targetId === ally.id) return 2.5 * w;
       let s = -0.4 * dist(cand.to, ally.pos) * w;
       const threat = resolveSelector('nearest', ally as Fighter, units);
       if (
@@ -198,15 +321,15 @@ function scorePreference(
     case 'bait': {
       // приманка: быть досягаемым для врагов (тянуть на себя), но не под ударом прямо сейчас
       const enemies = enemiesOf(self, units) as Fighter[];
-      const reachable = enemies.filter((e) => dist(e.pos, cand.to) <= e.move + e.range).length;
+      const reachable = enemies.filter((e) => dist(e.pos, cand.to) <= strikeReach(e)).length;
       const inRange = enemies.filter((e) => dist(e.pos, cand.to) <= e.range).length;
       return (0.5 * reachable - 0.7 * inRange) * w;
     }
     case 'trade': {
       // размен: жать атаку, если она добивает или снимает много — угрозу перевешивает вес
-      if (cand.action !== 'attack' || !cand.targetId) return 0;
+      if (!isAttack(cand.action) || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
-      const expDmg = Math.min(expectedDamage(self.atk) * (target.defending ? 0.5 : 1), target.hp);
+      const expDmg = Math.min(expectedAttackDamage(self, cand.action, target), target.hp);
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
     }
     case 'standoff': {
@@ -226,6 +349,7 @@ function scorePreference(
           undefined,
         );
       if (!wounded) return 0;
+      if (cand.action === 'shieldAlly' && cand.targetId === wounded.id) return 2.5 * w;
       const threat = resolveSelector('nearest', wounded, units);
       let s = -0.3 * dist(cand.to, wounded.pos) * w;
       if (
@@ -240,12 +364,12 @@ function scorePreference(
     case 'flank': {
       // фланг: премия атакам с фланга; ближники подтягиваются к цели
       let s = 0;
-      if (cand.action === 'attack' && cand.targetId) {
+      if (isAttack(cand.action) && cand.targetId) {
         const target = units.find((u) => u.id === cand.targetId)!;
         const allies = units
           .filter((u) => u.alive && u.side === self.side && u !== self)
           .map((u) => u.pos);
-        if (self.range === 1 && isFlanking(cand.to, target.pos, allies)) s += 2.5 * w;
+        if (self.range === 1 && isFlanking(cand.to, target.pos, allies)) s += 2.5 * w * apShare(cand.action);
       }
       if (self.range === 1) {
         const nearest = resolveSelector('nearest', self, units);
@@ -276,11 +400,12 @@ function scorePreference(
     }
     case 'brace': {
       // глухая оборона: ценна, когда враги реально достают до клетки
-      if (cand.action !== 'defend') return 0;
+      const mit = coverLevelOf(cand.action);
+      if (mit === 0) return 0;
       const reachable = (enemiesOf(self, units) as Fighter[]).filter(
-        (e) => dist(e.pos, cand.to) <= e.move + e.range,
+        (e) => dist(e.pos, cand.to) <= strikeReach(e),
       ).length;
-      return (0.8 + 0.6 * Math.min(reachable, 2)) * w;
+      return (0.8 + 0.6 * Math.min(reachable, 2)) * (mit / COVER) * w;
     }
     case 'awayFrom': {
       const anchor = resolvePosRef(pref.ref, self, units);
@@ -292,7 +417,7 @@ function scorePreference(
 
 function threatAt(p: Pos, self: Fighter, units: readonly Fighter[]): number {
   return (enemiesOf(self, units) as Fighter[])
-    .filter((e) => dist(e.pos, p) <= e.move + e.range)
+    .filter((e) => dist(e.pos, p) <= strikeReach(e))
     .reduce((sum, e) => sum + expectedDamage(e.atk), 0);
 }
 
@@ -306,9 +431,9 @@ export function scoreCandidate(
   const { instincts } = self.compiled;
   const factors: Factor[] = [];
 
-  if (cand.action === 'attack' && cand.targetId) {
+  if (isAttack(cand.action) && cand.targetId) {
     const target = units.find((u) => u.id === cand.targetId)!;
-    const expDmg = Math.min(expectedDamage(self.atk) * (target.defending ? 0.5 : 1), target.hp);
+    const expDmg = Math.min(expectedAttackDamage(self, cand.action, target), target.hp);
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
@@ -323,8 +448,26 @@ export function scoreCandidate(
   if (!instincts.ignoreZoC && zocOf(self, units)(cand.to)) {
     factors.push({ label: 'инстинкт:зона контроля', value: -1.5 * instincts.survival });
   }
-  if (cand.action === 'defend' && threat > 0) {
-    factors.push({ label: 'инстинкт:глухая оборона', value: 1 * instincts.survival });
+
+  // Защитные действия и отчаянный удар оцениваются в той же валюте, что и
+  // агрессия: доля maxHp × 6. Иначе выбор между «ударить сильнее» и «не
+  // подставиться» решался бы не обстановкой, а случайными коэффициентами.
+  const mit = coverLevelOf(cand.action);
+  if (mit > 0 && cand.action !== 'shieldAlly' && threat > 0) {
+    const v = ((threat * mit) / self.maxHp) * 6 * instincts.survival;
+    factors.push({ label: 'инстинкт:прикрытие', value: v });
+  }
+  if (cand.action === 'selflessAttack' && threat > 0) {
+    const v = -((threat * (SELFLESS_VULN_MULT - 1)) / self.maxHp) * 6 * instincts.survival * (2 - hpFrac);
+    factors.push({ label: 'инстинкт:открыться', value: v });
+  }
+  if (cand.action === 'shieldAlly' && cand.targetId) {
+    const ally = units.find((u) => u.id === cand.targetId);
+    if (ally?.alive) {
+      const spared = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel) * COVER;
+      const v = (spared / ally.maxHp) * 6 * instincts.survival;
+      if (v !== 0) factors.push({ label: 'инстинкт:прикрыть своего', value: v });
+    }
   }
 
   for (const rule of firedRules) {
@@ -334,19 +477,35 @@ export function scoreCandidate(
   return factors;
 }
 
-/** Детерминированный выбор действия: max score, тайбрейк — меньше двигаться, потом по порядку. */
+/**
+ * Детерминированный выбор **одного** действия при остатке `ap`.
+ *
+ * Действия разной цены сравниваются по `сумма факторов − AP × AP_VALUE`:
+ * линейная альтернативная стоимость очка хода. Делить на цену нельзя —
+ * оценка бывает отрицательной, и деление переворачивало бы смысл.
+ *
+ * Пас списывает **весь** остаток очков, а не ноль: он завершает ход, и
+ * несделанные действия пропадают. Иначе «постоять» было бы бесплатным и
+ * обыгрывало бы любое действие с небольшой пользой.
+ *
+ * Тайбрейк: меньше двигаться, потом дешевле, потом по порядку генерации.
+ */
 export function decide(
   self: Fighter,
   units: readonly Fighter[],
   round = 1,
   blocked: (p: Pos) => boolean = NO_TERRAIN,
+  ap: number = AP_PER_TURN,
+  ctx: ScoreCtx = makeCtx(blocked),
 ): Decision {
   const fired = self.compiled.rules.filter((r) => evalCondition(r.when, self, units, round));
   const condRules = fired.filter((r) => r.when.kind !== 'always').length;
 
   if (!self.compiled.instincts.gapFill && fired.length === 0) {
+    // буквалисту нечего исполнять — весь ход стоит за щитом, доигрывать нечем
+    const action: ActionKind = ap >= AP_COST.fullCover ? 'fullCover' : 'wait';
     return {
-      chosen: { to: self.pos, action: 'defend' },
+      chosen: { to: self.pos, action },
       score: 0,
       factors: [{ label: 'буквалист: нет правила на ситуацию — защищаюсь', value: 0 }],
       candidateCount: 1,
@@ -354,16 +513,19 @@ export function decide(
     };
   }
 
-  const ctx = makeCtx(blocked);
-  const candidates = generateCandidates(self, units, blocked);
+  const candidates = generateCandidates(self, units, blocked, ap);
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = scoreCandidate(cand, self, units, fired, ctx);
-    const score = factors.reduce((s, f) => s + f.value, 0);
+    const spent = cand.action === 'wait' ? ap : AP_COST[cand.action];
+    const score = factors.reduce((s, f) => s + f.value, 0) - spent * AP_VALUE;
     if (
       !best ||
       score > best.score + 1e-9 ||
-      (Math.abs(score - best.score) <= 1e-9 && dist(cand.to, self.pos) < dist(best.cand.to, self.pos))
+      (Math.abs(score - best.score) <= 1e-9 &&
+        (dist(cand.to, self.pos) < dist(best.cand.to, self.pos) ||
+          (dist(cand.to, self.pos) === dist(best.cand.to, self.pos) &&
+            AP_COST[cand.action] < AP_COST[best.cand.action])))
     ) {
       best = { cand, score, factors };
     }

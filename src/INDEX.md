@@ -10,12 +10,12 @@
 | [rng.ts](rng.ts) | Seeded RNG — единственный источник случайности | `mulberry32`, `shuffle` |
 | [grid.ts](grid.ts) | Сетка 12×12: дистанция (Чебышёв), LoS, фланг, достижимость | `GRID_W/H`, `dist`, `hasLoS`, `isFlanking`, `reachableTiles` |
 | [terrain.ts](terrain.ts) | Схемы камней (блок движения и LoS), выбор от сида | `TERRAIN_LAYOUTS`, `pickTerrain` |
-| [tuning.ts](tuning.ts) | Константы баланса урона | `DMG_SCALE`, `expectedDamage` |
+| [tuning.ts](tuning.ts) | Константы баланса: урон, экономика хода, цены прикрытий | `DMG_SCALE`, `expectedDamage`, `AP_PER_TURN`, `AP_VALUE`, `WEAK_ATK_MULT`, `COVER` |
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», вычисление условий и селекторов | `Rule`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
 | [vocab.ts](vocab.ts) | Словарь концептов: метаданные, стартовый/глубокий/поздний наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
 | [lens.ts](lens.ts) | Линзы характеров — детерминированные трансформации IR (10 в пуле) + инстинкты | `applyLens`, `rollLenses`, `LENS_POOL`, `LENS_RU` |
-| [scoring.ts](scoring.ts) | Utility-скоринг: кандидаты действий, инстинкты + веса правил, топ-3 фактора решения | `generateCandidates`, `Decision`, `Factor`, `makeCtx` |
-| [battle.ts](battle.ts) | Прогон боя: инициатива, ходы, event-sourced лог | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult` |
+| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, топ-3 фактора решения | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `Decision`, `Factor`, `makeCtx` |
+| [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, event-sourced лог | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult` |
 | [metrics.ts](metrics.ts) | Поведенческий отпечаток боя для статистики и сравнения | `fingerprint`, `Fingerprint` |
 
 ## Компиляция принципов (текст → IR → карточка)

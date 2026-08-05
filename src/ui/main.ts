@@ -551,7 +551,9 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       case 'attack': {
         const t = units.get(e.target)!;
         t.hp = e.targetHp;
-        pending?.parts.push(`бьёт ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
+        const verb =
+          e.action === 'weakAttack' ? 'бьёт слабо' : e.action === 'selflessAttack' ? 'бьёт отчаянно' : 'бьёт';
+        pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
         break;
       }
       case 'die': {
@@ -559,8 +561,12 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending?.parts.push(`${nm(e.unit)} падает`);
         break;
       }
-      case 'defend':
-        pending?.parts.push('встал в глухую оборону');
+      case 'cover':
+        pending?.parts.push(
+          e.ally
+            ? `прикрыл ${nm(e.ally)} (−${Math.round(e.level * 100)}% урона)`
+            : `прикрылся (−${Math.round(e.level * 100)}% урона)`,
+        );
         break;
       case 'wait':
         pending?.parts.push('выжидает');

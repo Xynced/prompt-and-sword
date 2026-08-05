@@ -27,7 +27,7 @@ export function grunt(n: number): UnitSpec {
     atk: 5,
     range: 1,
     speed: 4,
-    move: 3,
+    move: 2,
     lenses: ['plain'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, source: 'рубить ближайшего' }),
@@ -44,7 +44,7 @@ export function packLeader(): UnitSpec {
     atk: 7,
     range: 1,
     speed: 5,
-    move: 3,
+    move: 2,
     tags: ['leader'],
     lenses: ['plain'],
     rules: [
@@ -62,7 +62,7 @@ export function archer(n: number): UnitSpec {
     atk: 5,
     range: 4,
     speed: 5,
-    move: 2,
+    move: 1,
     lenses: ['plain'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'лучник: бить раненых' }),
@@ -80,7 +80,7 @@ export function warChief(): UnitSpec {
     atk: 7,
     range: 1,
     speed: 5,
-    move: 3,
+    move: 2,
     tags: ['leader'],
     lenses: ['fanatic'],
     rules: [
@@ -101,7 +101,7 @@ export function shaman(behindId: string): UnitSpec {
     atk: 4,
     range: 4,
     speed: 5,
-    move: 2,
+    move: 1,
     lenses: ['plain'],
     rules: [
       rule({
@@ -124,7 +124,7 @@ export function berserker(n: number): UnitSpec {
     atk: 8,
     range: 1,
     speed: 6,
-    move: 4,
+    move: 3,
     lenses: ['fanatic'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 2, source: 'берсерк: размен всегда выгоден' }),
@@ -142,7 +142,7 @@ export function hunter(n: number): UnitSpec {
     atk: 6,
     range: 5,
     speed: 6,
-    move: 3,
+    move: 2,
     lenses: ['plain'],
     rules: [
       rule({
@@ -169,7 +169,7 @@ export function warlord(): UnitSpec {
     atk: 9,
     range: 1,
     speed: 6,
-    move: 3,
+    move: 2,
     tags: ['leader'],
     lenses: ['fanatic'],
     rules: [
