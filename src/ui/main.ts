@@ -121,6 +121,8 @@ const API_KEY: string | undefined = ENV.VITE_COMPILER_API_KEY ?? ENV.VITE_ANTHRO
 const COMPILER_MODEL: string | undefined = ENV.VITE_COMPILER_MODEL;
 const COMPILER_BASE_URL: string | undefined = ENV.VITE_COMPILER_BASE_URL;
 const textMode: Record<string, boolean> = {};
+/** Свободный текст — режим по умолчанию, когда компилятор доступен; без ключа — только чипсы. */
+const inText = (heroId: string): boolean => textMode[heroId] ?? !!API_KEY;
 const heroText: Record<string, string> = {};
 const heroUncertainty: Record<string, string[]> = {};
 const compiling: Record<string, boolean> = {};
@@ -1131,7 +1133,7 @@ function editorHtml(): string {
     })
     .join('');
 
-  const inTextMode = !!textMode[eh.id];
+  const inTextMode = inText(eh.id);
   // Ворота C: замысел словами до конструктора — уходит в журнал плейтеста.
   // В текстовом режиме сам свободный текст и есть формулировка — блок не нужен.
   const intentBlock = inTextMode
@@ -1563,7 +1565,7 @@ function bind(): void {
         }
         case 'toggle-text': {
           const heroId = el.dataset.hero!;
-          textMode[heroId] = !textMode[heroId];
+          textMode[heroId] = !inText(heroId);
           editError[heroId] = '';
           render();
           break;
