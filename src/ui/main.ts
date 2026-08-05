@@ -441,6 +441,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.chokepoint')) out.push({ value: { id: 'space.chokepoint' }, label: 'вставать в узком месте' });
   if (has('space.highGround')) out.push({ value: { id: 'space.highGround' }, label: 'держать высоту' });
   if (has('space.behindCover')) out.push({ value: { id: 'space.behindCover' }, label: 'держаться за укрытием' });
+  if (has('space.avoidHazard')) out.push({ value: { id: 'space.avoidHazard' }, label: 'обходить опасное' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -560,6 +561,12 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         const verb =
           e.action === 'weakAttack' ? 'бьёт слабо' : e.action === 'selflessAttack' ? 'бьёт отчаянно' : 'бьёт';
         pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
+        break;
+      }
+      case 'hazard': {
+        const u = units.get(e.unit)!;
+        u.hp = e.hp;
+        pending?.parts.push(`${e.kind === 'spikes' ? 'напоролся на шипы' : 'обожжён'}: −${e.dmg}`);
         break;
       }
       case 'die': {

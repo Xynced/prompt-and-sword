@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyLens } from '../src/lens.js';
 import { AP_COST, type Fighter, decide, generateCandidates, makeCtx, rangeAt } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
-import { pickTerrain } from '../src/terrain.js';
+import { ARENA_H, ARENA_W, type Tile, pickTerrain } from '../src/terrain.js';
 import { compilePhrase } from '../src/constructor.js';
 import { CONCEPTS, CORE_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { understandingCard } from '../src/cards.js';
@@ -65,13 +65,17 @@ describe('дальность с высоты', () => {
   it('кандидаты атаки появляются на дальности range+2 только с высоты 2', () => {
     const shooter = fighter('s', 'party', { x: 8, y: 8 }, { range: 4, move: 0 }, [rule({ kind: 'attack', target: 'nearest' })]);
     const target = fighter('e', 'foe', { x: 14, y: 8 });
-    const h2 = (): number => 2;
-    const h1 = (): number => 1;
-    const flat = generateCandidates(shooter, [shooter, target], () => false, 3);
+    // клетка стрелка (8,8) поднимается на нужную высоту
+    const at = (h: 0 | 1 | 2): ReturnType<typeof makeCtx> => {
+      const tiles = Array.from({ length: ARENA_H }, () => Array.from({ length: ARENA_W }, (): Tile => ({})));
+      if (h > 0) tiles[8]![8] = { height: h };
+      return makeCtx(() => false, tiles);
+    };
+    const flat = generateCandidates(shooter, [shooter, target], at(0), 3);
     expect(flat.some((c) => c.action === 'attack')).toBe(false);
-    const onH1 = generateCandidates(shooter, [shooter, target], () => false, 3, h1);
+    const onH1 = generateCandidates(shooter, [shooter, target], at(1), 3);
     expect(onH1.some((c) => c.action === 'attack')).toBe(false);
-    const onH2 = generateCandidates(shooter, [shooter, target], () => false, 3, h2);
+    const onH2 = generateCandidates(shooter, [shooter, target], at(2), 3);
     expect(onH2.some((c) => c.action === 'attack')).toBe(true);
   });
 

@@ -22,7 +22,7 @@ import {
   posKey,
   reachableTiles,
 } from './grid.js';
-import type { Tile } from './terrain.js';
+import type { HazardKind, Tile } from './terrain.js';
 import type { ActionKind, CombatUnit, Pos } from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
@@ -30,6 +30,7 @@ import {
   AP_VALUE,
   COVER,
   FULL_COVER,
+  HAZARD_DMG,
   HIGH_GROUND_DMG,
   SELFLESS_ATK_MULT,
   SELFLESS_VULN_MULT,
@@ -47,6 +48,7 @@ export type { ActionKind };
 /** Цена действия в очках хода. `wait` бесплатен и завершает ход. */
 export const AP_COST: Record<ActionKind, number> = {
   move: 1,
+  carefulStep: 1,
   weakAttack: 1,
   cover: 1,
   attack: 2,
@@ -56,12 +58,22 @@ export const AP_COST: Record<ActionKind, number> = {
   wait: 0,
 };
 
+/**
+ * Цена действия для конкретного юнита. Единственное отклонение от констант:
+ * осторожный шаг медленному (`move: 1`) стоит 2 AP — он не может за ход и
+ * осторожно зайти на шипы, и нормально ударить.
+ */
+export function apCostFor(action: ActionKind, u: CombatUnit): number {
+  return action === 'carefulStep' && u.move <= 1 ? 2 : AP_COST[action];
+}
+
 /** Множитель урона по виду атаки; 0 — действие не атака. */
 const ATTACK_MULT: Record<ActionKind, number> = {
   weakAttack: WEAK_ATK_MULT,
   attack: 1,
   selflessAttack: SELFLESS_ATK_MULT,
   move: 0,
+  carefulStep: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -74,11 +86,15 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   fullCover: FULL_COVER,
   shieldAlly: COVER,
   move: 0,
+  carefulStep: 0,
   weakAttack: 0,
   attack: 0,
   selflessAttack: 0,
   wait: 0,
 };
+
+/** Перемещения: у обоих `to` — новая клетка; осторожный шаг не будит опасность. */
+export const isMovement = (a: ActionKind): boolean => a === 'move' || a === 'carefulStep';
 
 export const attackMult = (a: ActionKind): number => ATTACK_MULT[a];
 export const isAttack = (a: ActionKind): boolean => ATTACK_MULT[a] > 0;
@@ -144,6 +160,8 @@ export interface ScoreCtx {
   coverFrom: (from: Pos, target: Pos) => number;
   /** Цена входа в клетку: бурелом и подъём — 2 очка движения, спуск обычный. */
   entryCost: EntryCost;
+  /** Опасность клетки (шипы/огонь); undefined — клетка безопасна. */
+  hazardAt: (p: Pos) => HazardKind | undefined;
   /** Путевая дистанция p → target по проходимым клеткам (кэш по цели). */
   distTo: (target: Pos, p: Pos) => number;
 }
@@ -170,6 +188,7 @@ export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN, tiles?: reado
     coverFrom: (from, target) =>
       heightAt(from) === 2 ? 0 : hasTerrainCover(from, target, blocked) ? TERRAIN_COVER : 0,
     entryCost,
+    hazardAt: tiles ? (p): HazardKind | undefined => tiles[p.y]?.[p.x]?.hazard : () => undefined,
     distTo(target, p) {
       const key = posKey(target);
       let field = fields.get(key);
@@ -232,28 +251,39 @@ function canAttackFrom(
 export function generateCandidates(
   self: Fighter,
   units: readonly Fighter[],
-  blocked: (p: Pos) => boolean = NO_TERRAIN,
+  ctx: ScoreCtx = makeCtx(),
   ap: number = AP_PER_TURN,
-  heightAt: (p: Pos) => number = FLAT,
-  entryCost: EntryCost = UNIT_COST,
 ): Candidate[] {
   const here = self.pos;
+  const { blocked } = ctx;
   const out: Candidate[] = [];
   // нулевая тяга характера — не «маловероятно», а «никогда»: фанатик за щитом
   // не отсиживается вовсе, и обсуждать этот вариант незачем
   const allowed = (a: ActionKind): boolean => biasFor(self.compiled.instincts, a) !== 0;
 
+  const byUnit = isBlockedBy(units, self);
+  const occupied = (p: Pos): boolean => byUnit(p) || blocked(p);
   if (ap >= AP_COST.move) {
-    const byUnit = isBlockedBy(units, self);
-    const occupied = (p: Pos): boolean => byUnit(p) || blocked(p);
     const zoc = zocOf(self, units);
-    for (const to of reachableTiles(here, self.move, occupied, zoc, entryCost)) {
+    for (const to of reachableTiles(here, self.move, occupied, zoc, ctx.entryCost)) {
       if (!posEq(to, here)) out.push({ to, action: 'move' });
     }
   }
 
+  // осторожный шаг: ровно одна клетка, опасность не срабатывает. Предлагается
+  // только на опасные клетки — на чистых он ничем не лучше обычного шага
+  if (ap >= apCostFor('carefulStep', self) && allowed('carefulStep')) {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const to = { x: here.x + dx, y: here.y + dy };
+        if (ctx.hazardAt(to) && !occupied(to)) out.push({ to, action: 'carefulStep' });
+      }
+    }
+  }
+
   for (const e of enemiesOf(self, units) as Fighter[]) {
-    if (!canAttackFrom(here, self, e, units, blocked, heightAt(here))) continue;
+    if (!canAttackFrom(here, self, e, units, blocked, ctx.heightAt(here))) continue;
     for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
       if (ap >= AP_COST[action] && allowed(action)) out.push({ to: here, action, targetId: e.id });
     }
@@ -372,7 +402,7 @@ function scorePreference(
       // гладкий градиент почти не различает соседние цели, и разные правила
       // «бей X» / «бей Y» сходились бы к одному и тому же маршруту.
       if (
-        cand.action === 'move' &&
+        isMovement(cand.action) &&
         canAttackFrom(cand.to, self, target as Fighter, units, ctx.blocked, ctx.heightAt(cand.to))
       ) {
         s += 1.5 * w * quality;
@@ -546,6 +576,14 @@ function scorePreference(
       const covered = shooters.filter((e) => ctx.coverFrom(e.pos, cand.to) > 0).length;
       return 1.2 * (covered / shooters.length) * w;
     }
+    case 'avoidHazard': {
+      // обходить опасное: сильный штраф шагу на опасную клетку, слабый —
+      // осторожному входу (слово говорит «не лезь», а не «лезь аккуратно»);
+      // стоящему на опасной клетке — премия за уход на чистую
+      if (ctx.hazardAt(cand.to)) return (cand.action === 'carefulStep' ? -1 : -2.2) * w;
+      if (ctx.hazardAt(self.pos) && isMovement(cand.action)) return 1.5 * w;
+      return 0;
+    }
   }
 }
 
@@ -585,6 +623,14 @@ export function scoreCandidate(
   if (threat > 0) {
     const v = -(threat / self.maxHp) * 2 * instincts.survival * (2 - hpFrac);
     factors.push({ label: 'инстинкт:самосохранение', value: v });
+  }
+  // шаг, оконченный на опасной клетке, — гарантированный урон; та же валюта,
+  // что и у агрессии (доля maxHp × 6). Осторожный шаг опасность не будит
+  if (cand.action === 'move' && ctx.hazardAt(cand.to)) {
+    factors.push({
+      label: 'инстинкт:опасная клетка',
+      value: -(HAZARD_DMG / self.maxHp) * 6 * instincts.survival,
+    });
   }
   if (!instincts.ignoreZoC && zocOf(self, units)(cand.to)) {
     factors.push({ label: 'инстинкт:зона контроля', value: -1.5 * instincts.survival });
@@ -654,11 +700,11 @@ export function decide(
     };
   }
 
-  const candidates = generateCandidates(self, units, blocked, ap, ctx.heightAt, ctx.entryCost);
+  const candidates = generateCandidates(self, units, ctx, ap);
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = scoreCandidate(cand, self, units, fired, ctx);
-    const spent = cand.action === 'wait' ? ap : AP_COST[cand.action];
+    const spent = cand.action === 'wait' ? ap : apCostFor(cand.action, self);
     const score = factors.reduce((s, f) => s + f.value, 0) - spent * AP_VALUE;
     if (
       !best ||
@@ -666,7 +712,7 @@ export function decide(
       (Math.abs(score - best.score) <= 1e-9 &&
         (dist(cand.to, self.pos) < dist(best.cand.to, self.pos) ||
           (dist(cand.to, self.pos) === dist(best.cand.to, self.pos) &&
-            AP_COST[cand.action] < AP_COST[best.cand.action])))
+            apCostFor(cand.action, self) < apCostFor(best.cand.action, self))))
     ) {
       best = { cand, score, factors };
     }

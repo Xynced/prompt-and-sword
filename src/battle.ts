@@ -1,20 +1,21 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
-import { AP_PER_TURN, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
+import { AP_PER_TURN, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
 import { dist, isFlanking, posEq } from './grid.js';
-import { type ArenaTag, type Tile, pickTerrain } from './terrain.js';
+import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
 import type { LensId, Pos, Side } from './types.js';
 import {
-  AP_COST,
   type ActionKind,
   type Decision,
   type Fighter,
+  apCostFor,
   attackMult,
   coverLevelOf,
   decide,
   heightDmgBonus,
   isAttack,
+  isMovement,
   makeCtx,
   rangeAt,
 } from './scoring.js';
@@ -49,6 +50,7 @@ export type BattleEvent =
       ap: number;
     })
   | { t: 'move'; unit: string; from: Pos; to: Pos }
+  | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | {
       t: 'attack';
       unit: string;
@@ -158,7 +160,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
       let ap = AP_PER_TURN;
       let over = false;
 
-      while (ap > 0 && !over) {
+      while (ap > 0 && !over && unit.alive) {
         const decision = decide(unit, units, round, blocked, ap, ctx);
         const { to, action, targetId } = decision.chosen;
         events.push({
@@ -172,11 +174,22 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           factors: decision.factors,
           condRules: decision.condRules,
         });
-        ap -= AP_COST[action];
+        ap -= apCostFor(action, unit);
 
-        if (action === 'move') {
+        if (isMovement(action)) {
           events.push({ t: 'move', unit: unit.id, from: { ...unit.pos }, to: { ...to } });
           unit.pos = { ...to };
+          // опасная клетка бьёт закончившего на ней шаг; осторожный шаг не
+          // будит опасность, проход насквозь безопасен. Без rng — фиксированный
+          const hz = action === 'move' ? tiles[to.y]?.[to.x]?.hazard : undefined;
+          if (hz) {
+            unit.hp = Math.max(0, unit.hp - HAZARD_DMG);
+            events.push({ t: 'hazard', unit: unit.id, kind: hz, dmg: HAZARD_DMG, hp: unit.hp });
+            if (unit.hp === 0) {
+              unit.alive = false;
+              events.push({ t: 'die', unit: unit.id });
+            }
+          }
         } else if (isAttack(action) && targetId) {
           if (action === 'selflessAttack') unit.exposed = true;
           const target = units.find((u) => u.id === targetId)!;

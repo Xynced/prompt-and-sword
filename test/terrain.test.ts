@@ -119,7 +119,7 @@ describe('террейн в бою', () => {
   it('камни не входят в достижимые клетки кандидатов', () => {
     const self = fighter('a', 'party', { x: 4, y: 4 });
     const rock = { x: 5, y: 4 };
-    const cands = generateCandidates(self, [self], blockedBy([rock]));
+    const cands = generateCandidates(self, [self], makeCtx(blockedBy([rock])));
     expect(cands.some((c) => posEq(c.to, rock))).toBe(false);
   });
 
@@ -129,7 +129,7 @@ describe('террейн в бою', () => {
     const rock = { x: 5, y: 4 };
     const open = generateCandidates(shooter, [shooter, target]);
     expect(open.some((c) => c.action === 'attack')).toBe(true);
-    const walled = generateCandidates(shooter, [shooter, target], blockedBy([rock]));
+    const walled = generateCandidates(shooter, [shooter, target], makeCtx(blockedBy([rock])));
     expect(walled.some((c) => c.action === 'attack')).toBe(false);
   });
 

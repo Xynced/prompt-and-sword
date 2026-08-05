@@ -42,7 +42,8 @@ export type ConceptId =
   | 'act.strikeDesperate'
   // поле и ландшафт (план поля)
   | 'space.highGround'
-  | 'space.behindCover';
+  | 'space.behindCover'
+  | 'space.avoidHazard';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -88,6 +89,7 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.strikeDesperate': { id: 'act.strikeDesperate', label: 'бить отчаянно', category: 'action' },
   'space.highGround': { id: 'space.highGround', label: 'держать высоту', category: 'space' },
   'space.behindCover': { id: 'space.behindCover', label: 'за укрытием', category: 'space' },
+  'space.avoidHazard': { id: 'space.avoidHazard', label: 'обходить опасное', category: 'space' },
 };
 
 /**
@@ -121,6 +123,8 @@ export const CORE_WORDS: ConceptId[] = [
   // читаются с карты и работают сами по себе (план поля)
   'space.highGround',
   'space.behindCover',
+  // техника безопасности, а не стратегия
+  'space.avoidHazard',
 ];
 
 /** Глубокие слова — качественно новые стратегии; вторая колонка предложений. */
