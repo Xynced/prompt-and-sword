@@ -439,6 +439,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.flank')) out.push({ value: { id: 'space.flank' }, label: 'заходить во фланг' });
   if (has('space.lineOfFire')) out.push({ value: { id: 'space.lineOfFire' }, label: 'держаться вне линии огня' });
   if (has('space.chokepoint')) out.push({ value: { id: 'space.chokepoint' }, label: 'вставать в узком месте' });
+  if (has('space.highGround')) out.push({ value: { id: 'space.highGround' }, label: 'держать высоту' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -1029,7 +1030,9 @@ function terrainHtml(): string {
   const out: string[] = [];
   battle.terrain.tiles.forEach((row, y) =>
     row.forEach((t, x) => {
-      if (t.blocked) out.push(`<div class="rock" style="left:${x * CELL}%;top:${y * CELL}%"></div>`);
+      const at = `style="left:${x * CELL}%;top:${y * CELL}%"`;
+      if (t.blocked) out.push(`<div class="rock" ${at}></div>`);
+      else if (t.height) out.push(`<div class="hgt h${t.height}" ${at}></div>`);
     }),
   );
   return out.join('');

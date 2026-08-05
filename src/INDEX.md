@@ -12,9 +12,9 @@
 | [terrain.ts](terrain.ts) | Поле из клеток со свойствами (камень/высота/опасность/бурелом), 12 арен-сценариев ASCII-схемами, пулы по тегам | `Tile`, `ArenaTag`, `TERRAIN_LAYOUTS`, `pickTerrain` |
 | [tuning.ts](tuning.ts) | Константы баланса: урон, экономика хода, цены прикрытий | `DMG_SCALE`, `expectedDamage`, `AP_PER_TURN`, `AP_VALUE`, `ACTION_BIAS_WEIGHT`, `WEAK_ATK_MULT`, `COVER` |
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», вычисление условий и селекторов | `Rule`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
-| [vocab.ts](vocab.ts) | Словарь концептов (33: условия, селекторы, действия, манера удара), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
+| [vocab.ts](vocab.ts) | Словарь концептов (34: условия, селекторы, действия, манера удара, пространство), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
 | [lens.ts](lens.ts) | Линзы характеров — детерминированные трансформации IR (10 в пуле), инстинкты и тяга к видам действий | `applyLens`, `rollLenses`, `biasFor`, `ActionBias`, `LENS_POOL`, `LENS_RU` |
-| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, топ-3 фактора решения | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `Decision`, `Factor`, `makeCtx` |
+| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота (дальность/урон), топ-3 фактора решения | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `Decision`, `Factor`, `makeCtx`, `rangeAt` |
 | [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, event-sourced лог | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult` |
 | [metrics.ts](metrics.ts) | Поведенческий отпечаток боя для статистики и сравнения | `fingerprint`, `Fingerprint` |
 

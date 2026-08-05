@@ -39,7 +39,9 @@ export type ConceptId =
   // манера удара (экономика хода) — не «кого бить», а «чем бить»
   | 'act.strikeOften'
   | 'act.strikeHard'
-  | 'act.strikeDesperate';
+  | 'act.strikeDesperate'
+  // поле и ландшафт (план поля)
+  | 'space.highGround';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -83,6 +85,7 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.strikeOften': { id: 'act.strikeOften', label: 'бить часто', category: 'action' },
   'act.strikeHard': { id: 'act.strikeHard', label: 'бить наверняка', category: 'action' },
   'act.strikeDesperate': { id: 'act.strikeDesperate', label: 'бить отчаянно', category: 'action' },
+  'space.highGround': { id: 'space.highGround', label: 'держать высоту', category: 'space' },
 };
 
 /**
@@ -113,6 +116,8 @@ export const CORE_WORDS: ConceptId[] = [
   // пара «часто против наверняка» — самый простой вход в экономику хода
   'act.strikeOften',
   'act.strikeHard',
+  // читается с карты и работает сама по себе (план поля)
+  'space.highGround',
 ];
 
 /** Глубокие слова — качественно новые стратегии; вторая колонка предложений. */

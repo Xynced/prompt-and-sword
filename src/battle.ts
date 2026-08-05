@@ -13,8 +13,10 @@ import {
   attackMult,
   coverLevelOf,
   decide,
+  heightDmgBonus,
   isAttack,
   makeCtx,
+  rangeAt,
 } from './scoring.js';
 
 export interface UnitSpec {
@@ -130,6 +132,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
   }
   const terrain = { name: layout.name, scenario: layout.scenario, tiles };
   const blocked = (p: Pos): boolean => tiles[p.y]?.[p.x]?.blocked === true;
+  const heightAt = (p: Pos): number => tiles[p.y]?.[p.x]?.height ?? 0;
   const events: BattleEvent[] = [];
   for (const u of units) {
     events.push({ t: 'spawn', unit: u.id, name: u.name, side: u.side, pos: { ...u.pos }, maxHp: u.maxHp });
@@ -151,7 +154,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
 
       // поля дистанций считаем раз на ход: за ход этого юнита никто, кроме
       // него, не двигается, поэтому кэш ctx остаётся верным для всех действий
-      const ctx = makeCtx(blocked);
+      const ctx = makeCtx(blocked, tiles);
       let ap = AP_PER_TURN;
       let over = false;
 
@@ -177,7 +180,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
         } else if (isAttack(action) && targetId) {
           if (action === 'selflessAttack') unit.exposed = true;
           const target = units.find((u) => u.id === targetId)!;
-          if (target.alive && dist(unit.pos, target.pos) <= unit.range) {
+          if (target.alive && dist(unit.pos, target.pos) <= rangeAt(unit, heightAt(unit.pos))) {
             const allyPositions = units
               .filter((u) => u.alive && u.side === unit.side && u !== unit)
               .map((u) => u.pos);
@@ -185,7 +188,8 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             const raw = rollDamage(unit.atk * attackMult(action) * (flank ? 1.5 : 1), rng);
             const dmg = Math.max(
               1,
-              Math.round(raw * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1)),
+              Math.round(raw * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1)) +
+                heightDmgBonus(unit, heightAt(unit.pos)),
             );
             target.hp = Math.max(0, target.hp - dmg);
             target.lastAttackerId = unit.id;

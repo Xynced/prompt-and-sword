@@ -20,6 +20,7 @@ import {
   posKey,
   reachableTiles,
 } from './grid.js';
+import type { Tile } from './terrain.js';
 import type { ActionKind, CombatUnit, Pos } from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
@@ -27,6 +28,7 @@ import {
   AP_VALUE,
   COVER,
   FULL_COVER,
+  HIGH_GROUND_DMG,
   SELFLESS_ATK_MULT,
   SELFLESS_VULN_MULT,
   WEAK_ATK_MULT,
@@ -118,6 +120,7 @@ const MAX_DIST = Math.max(GRID_W, GRID_H) - 1;
 const UNREACHABLE = GRID_W * GRID_H;
 
 const NO_TERRAIN = (): boolean => false;
+const FLAT = (): number => 0;
 
 /**
  * Контекст решения: террейн боя + кэш BFS-полей дистанций (на одно решение).
@@ -126,14 +129,26 @@ const NO_TERRAIN = (): boolean => false;
  */
 export interface ScoreCtx {
   blocked: (p: Pos) => boolean;
+  /** Высота клетки схемы боя (0 на пустом поле). */
+  heightAt: (p: Pos) => number;
+  /** Клетки с высотой > 0 — тяга «держать высоту» тянет к ближайшей. */
+  highTiles: readonly Pos[];
   /** Путевая дистанция p → target по проходимым клеткам (кэш по цели). */
   distTo: (target: Pos, p: Pos) => number;
 }
 
-export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN): ScoreCtx {
+export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN, tiles?: readonly Tile[][]): ScoreCtx {
   const fields = new Map<string, Map<string, number>>();
+  const highTiles: Pos[] = [];
+  tiles?.forEach((row, y) =>
+    row.forEach((t, x) => {
+      if ((t.height ?? 0) > 0) highTiles.push({ x, y });
+    }),
+  );
   return {
     blocked,
+    heightAt: tiles ? (p): number => tiles[p.y]?.[p.x]?.height ?? 0 : FLAT,
+    highTiles,
     distTo(target, p) {
       const key = posKey(target);
       let field = fields.get(key);
@@ -156,15 +171,26 @@ function zocOf(self: Fighter, units: readonly Fighter[]): (p: Pos) => boolean {
   return (p) => melee.some((e) => dist((e as Fighter).pos, p) === 1);
 }
 
+/** Дальность атаки с учётом высоты клетки: стрелку холм добавляет +height. */
+export function rangeAt(u: CombatUnit, height: number): number {
+  return u.range > 1 ? u.range + height : u.range;
+}
+
+/** Плоский бонус урона стрелка с высоты 2 («бью сверху»). */
+export function heightDmgBonus(u: CombatUnit, height: number): number {
+  return u.range > 1 && height === 2 ? HIGH_GROUND_DMG : 0;
+}
+
 function canAttackFrom(
   from: Pos,
   attacker: Fighter,
   target: Fighter,
   units: readonly Fighter[],
   blocked: (p: Pos) => boolean,
+  height = 0,
 ): boolean {
   const d = dist(from, target.pos);
-  if (d > attacker.range) return false;
+  if (d > rangeAt(attacker, height)) return false;
   if (attacker.range === 1) return d === 1;
   return hasLoS(
     from,
@@ -183,6 +209,7 @@ export function generateCandidates(
   units: readonly Fighter[],
   blocked: (p: Pos) => boolean = NO_TERRAIN,
   ap: number = AP_PER_TURN,
+  heightAt: (p: Pos) => number = FLAT,
 ): Candidate[] {
   const here = self.pos;
   const out: Candidate[] = [];
@@ -200,7 +227,7 @@ export function generateCandidates(
   }
 
   for (const e of enemiesOf(self, units) as Fighter[]) {
-    if (!canAttackFrom(here, self, e, units, blocked)) continue;
+    if (!canAttackFrom(here, self, e, units, blocked, heightAt(here))) continue;
     for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
       if (ap >= AP_COST[action] && allowed(action)) out.push({ to: here, action, targetId: e.id });
     }
@@ -263,12 +290,13 @@ function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
 }
 
 /** Ожидаемый урон конкретного вида атаки по цели с учётом её прикрытия и открытости. */
-function expectedAttackDamage(self: Fighter, action: ActionKind, target: CombatUnit): number {
+function expectedAttackDamage(self: Fighter, action: ActionKind, target: CombatUnit, height = 0): number {
   return (
     expectedDamage(self.atk) *
-    attackMult(action) *
-    (1 - target.coverLevel) *
-    (target.exposed ? SELFLESS_VULN_MULT : 1)
+      attackMult(action) *
+      (1 - target.coverLevel) *
+      (target.exposed ? SELFLESS_VULN_MULT : 1) +
+    heightDmgBonus(self, height)
   );
 }
 
@@ -303,7 +331,10 @@ function scorePreference(
       // этого жадный цикл выбирает клетку по одной лишь тяге `-0.6 × gap`:
       // гладкий градиент почти не различает соседние цели, и разные правила
       // «бей X» / «бей Y» сходились бы к одному и тому же маршруту.
-      if (cand.action === 'move' && canAttackFrom(cand.to, self, target as Fighter, units, ctx.blocked)) {
+      if (
+        cand.action === 'move' &&
+        canAttackFrom(cand.to, self, target as Fighter, units, ctx.blocked, ctx.heightAt(cand.to))
+      ) {
         s += 1.5 * w;
       }
       return s;
@@ -358,7 +389,7 @@ function scorePreference(
       // размен: жать атаку, если она добивает или снимает много — угрозу перевешивает вес
       if (!isAttack(cand.action) || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
-      const expDmg = Math.min(expectedAttackDamage(self, cand.action, target), target.hp);
+      const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx.heightAt(cand.to)), target.hp);
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
     }
     case 'standoff': {
@@ -457,6 +488,15 @@ function scorePreference(
     case 'strikeDesperate':
       if (cand.action === 'selflessAttack') return STRIKE_STYLE_BONUS * w;
       return isAttack(cand.action) ? -STRIKE_STYLE_BONUS * w : 0;
+    case 'highGround': {
+      // держать высоту: премия клетке на холме, тяга к ближайшему холму.
+      // На арене без высот молчит — как узкое место на чистом поле.
+      const h = ctx.heightAt(cand.to);
+      if (h > 0) return (0.7 + 0.7 * h) * w;
+      if (ctx.highTiles.length === 0) return 0;
+      const d = Math.min(...ctx.highTiles.map((t) => dist(cand.to, t)));
+      return -0.35 * Math.min(d, MAX_DIST) * w;
+    }
   }
 }
 
@@ -485,7 +525,7 @@ export function scoreCandidate(
 
   if (isAttack(cand.action) && cand.targetId) {
     const target = units.find((u) => u.id === cand.targetId)!;
-    const expDmg = Math.min(expectedAttackDamage(self, cand.action, target), target.hp);
+    const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx.heightAt(cand.to)), target.hp);
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
@@ -565,7 +605,7 @@ export function decide(
     };
   }
 
-  const candidates = generateCandidates(self, units, blocked, ap);
+  const candidates = generateCandidates(self, units, blocked, ap, ctx.heightAt);
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = scoreCandidate(cand, self, units, fired, ctx);

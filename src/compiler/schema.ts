@@ -47,6 +47,7 @@ const PARAMLESS_PREFERENCES = [
   'act.strikeOften',
   'act.strikeHard',
   'act.strikeDesperate',
+  'space.highGround',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -191,6 +192,8 @@ function validatePreference(
       return vocab.includes('act.strikeHard') ? { id: 'act.strikeHard' } : null;
     case 'act.strikeDesperate':
       return vocab.includes('act.strikeDesperate') ? { id: 'act.strikeDesperate' } : null;
+    case 'space.highGround':
+      return vocab.includes('space.highGround') ? { id: 'space.highGround' } : null;
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {

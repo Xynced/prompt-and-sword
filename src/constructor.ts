@@ -45,7 +45,8 @@ export type PreferenceDraft =
   | { id: 'space.awayFrom'; ref: { ally: string } | { enemy: SelectorDraft } }
   | { id: 'act.strikeOften' }
   | { id: 'act.strikeHard' }
-  | { id: 'act.strikeDesperate' };
+  | { id: 'act.strikeDesperate' }
+  | { id: 'space.highGround' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -115,6 +116,8 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       ? 'бить наверняка'
       : p.id === 'act.strikeDesperate'
       ? 'бить отчаянно'
+      : p.id === 'space.highGround'
+      ? 'держать высоту'
       : p.id === 'act.attack'
       ? `атаковать: ${CONCEPTS[p.target].label}`
       : p.id === 'act.protect'
@@ -185,6 +188,8 @@ export function compilePhrase(
       ? { kind: 'strikeHard' }
       : p.id === 'act.strikeDesperate'
       ? { kind: 'strikeDesperate' }
+      : p.id === 'space.highGround'
+      ? { kind: 'highGround' }
       : p.id === 'act.attack'
       ? { kind: 'attack', target: SELECTOR_MAP[p.target] }
       : p.id === 'act.protect'
