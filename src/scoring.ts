@@ -10,6 +10,7 @@ import {
 } from './ir.js';
 import { type CompiledBehavior, biasFor } from './lens.js';
 import {
+  type EntryCost,
   GRID_H,
   GRID_W,
   dist,
@@ -123,6 +124,7 @@ const UNREACHABLE = GRID_W * GRID_H;
 
 const NO_TERRAIN = (): boolean => false;
 const FLAT = (): number => 0;
+const UNIT_COST: EntryCost = () => 1;
 
 /**
  * Контекст решения: террейн боя + кэш BFS-полей дистанций (на одно решение).
@@ -140,6 +142,8 @@ export interface ScoreCtx {
    * (0 — укрытия нет). Стрелок с высоты 2 бьёт поверх укрытия.
    */
   coverFrom: (from: Pos, target: Pos) => number;
+  /** Цена входа в клетку: бурелом и подъём — 2 очка движения, спуск обычный. */
+  entryCost: EntryCost;
   /** Путевая дистанция p → target по проходимым клеткам (кэш по цели). */
   distTo: (target: Pos, p: Pos) => number;
 }
@@ -153,17 +157,24 @@ export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN, tiles?: reado
     }),
   );
   const heightAt = tiles ? (p: Pos): number => tiles[p.y]?.[p.x]?.height ?? 0 : FLAT;
+  const entryCost: EntryCost = tiles
+    ? (from, to): number => {
+        const t = tiles[to.y]?.[to.x];
+        return t?.rough || (t?.height ?? 0) > heightAt(from) ? 2 : 1;
+      }
+    : UNIT_COST;
   return {
     blocked,
     heightAt,
     highTiles,
     coverFrom: (from, target) =>
       heightAt(from) === 2 ? 0 : hasTerrainCover(from, target, blocked) ? TERRAIN_COVER : 0,
+    entryCost,
     distTo(target, p) {
       const key = posKey(target);
       let field = fields.get(key);
       if (!field) {
-        field = distanceField(target, blocked);
+        field = distanceField(target, blocked, entryCost);
         fields.set(key, field);
       }
       return field.get(posKey(p)) ?? UNREACHABLE;
@@ -224,6 +235,7 @@ export function generateCandidates(
   blocked: (p: Pos) => boolean = NO_TERRAIN,
   ap: number = AP_PER_TURN,
   heightAt: (p: Pos) => number = FLAT,
+  entryCost: EntryCost = UNIT_COST,
 ): Candidate[] {
   const here = self.pos;
   const out: Candidate[] = [];
@@ -235,7 +247,7 @@ export function generateCandidates(
     const byUnit = isBlockedBy(units, self);
     const occupied = (p: Pos): boolean => byUnit(p) || blocked(p);
     const zoc = zocOf(self, units);
-    for (const to of reachableTiles(here, self.move, occupied, zoc)) {
+    for (const to of reachableTiles(here, self.move, occupied, zoc, entryCost)) {
       if (!posEq(to, here)) out.push({ to, action: 'move' });
     }
   }
@@ -642,7 +654,7 @@ export function decide(
     };
   }
 
-  const candidates = generateCandidates(self, units, blocked, ap, ctx.heightAt);
+  const candidates = generateCandidates(self, units, blocked, ap, ctx.heightAt, ctx.entryCost);
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = scoreCandidate(cand, self, units, fired, ctx);

@@ -92,23 +92,42 @@ export function isFlanking(attacker: Pos, target: Pos, allies: readonly Pos[]): 
 }
 
 /**
- * Поле дистанций BFS от точки по проходимым клеткам (обход террейна).
- * Ключ — posKey; заблокированные и отрезанные клетки в карте отсутствуют.
- * На пустом поле совпадает с Чебышёвым — тяга к цели остаётся прежней.
+ * Цена входа в клетку `to` из клетки `from`, в очках движения. По умолчанию
+ * всё по 1; труднопроходимость и подъём делают вход дороже (план поля).
  */
-export function distanceField(from: Pos, isBlocked: (p: Pos) => boolean): Map<string, number> {
+export type EntryCost = (from: Pos, to: Pos) => number;
+const UNIT_COST: EntryCost = () => 1;
+
+/**
+ * Поле дистанций от точки по проходимым клеткам (обход террейна): значение —
+ * цена пути ИЗ клетки К точке `from` в очках движения (юнит идёт к цели, поэтому
+ * при развороте рёбра цена входа считается в направлении юнита — подъём и спуск
+ * несимметричны). Бакетная Дейкстра; при единичных ценах совпадает с BFS.
+ * Ключ — posKey; заблокированные и отрезанные клетки в карте отсутствуют.
+ */
+export function distanceField(
+  from: Pos,
+  isBlocked: (p: Pos) => boolean,
+  entryCost: EntryCost = UNIT_COST,
+): Map<string, number> {
   const field = new Map<string, number>([[posKey(from), 0]]);
-  const queue: Pos[] = [from];
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    const d = field.get(posKey(cur))!;
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        if (dx === 0 && dy === 0) continue;
-        const next = { x: cur.x + dx, y: cur.y + dy };
-        if (!inBounds(next) || field.has(posKey(next)) || isBlocked(next)) continue;
-        field.set(posKey(next), d + 1);
-        queue.push(next);
+  const buckets: Pos[][] = [[from]];
+  for (let d = 0; d < buckets.length; d++) {
+    for (const cur of buckets[d] ?? []) {
+      if (field.get(posKey(cur)) !== d) continue; // устаревшая запись
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const next = { x: cur.x + dx, y: cur.y + dy };
+          if (!inBounds(next) || isBlocked(next)) continue;
+          // юнит шагает next → cur, значит платит за вход в cur со стороны next
+          const nd = d + entryCost(next, cur);
+          const k = posKey(next);
+          const old = field.get(k);
+          if (old !== undefined && old <= nd) continue;
+          field.set(k, nd);
+          (buckets[nd] ??= []).push(next);
+        }
       }
     }
   }
@@ -116,31 +135,46 @@ export function distanceField(from: Pos, isBlocked: (p: Pos) => boolean): Map<st
 }
 
 /**
- * Достижимые клетки BFS: нельзя входить в занятые; вход в зону контроля (ZoC)
- * останавливает движение — сквозь ZoC не пройти, но остановиться в ней можно.
+ * Достижимые за один шаг клетки (взвешенно): нельзя входить в занятые; вход в
+ * зону контроля (ZoC) останавливает движение — сквозь ZoC не пройти, но
+ * остановиться в ней можно. Гарантия минимального шага: соседняя клетка
+ * достижима всегда, даже если вход дороже всего запаса, — но съедает его
+ * целиком (юнит с move: 1 всё равно проходит свою одну клетку бурелома).
  */
 export function reachableTiles(
   from: Pos,
   move: number,
   isOccupied: (p: Pos) => boolean,
   isZoC: (p: Pos) => boolean,
+  entryCost: EntryCost = UNIT_COST,
 ): Pos[] {
-  const visited = new Map<string, number>([[posKey(from), 0]]);
-  const queue: Pos[] = [from];
+  const best = new Map<string, number>([[posKey(from), 0]]);
   const out: Pos[] = [from];
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    const d = visited.get(posKey(cur))!;
-    if (d >= move) continue;
-    if (isZoC(cur) && !posEq(cur, from)) continue; // зашёл в ZoC — дальше нельзя
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        if (dx === 0 && dy === 0) continue;
-        const next = { x: cur.x + dx, y: cur.y + dy };
-        if (!inBounds(next) || visited.has(posKey(next)) || isOccupied(next)) continue;
-        visited.set(posKey(next), d + 1);
-        queue.push(next);
-        out.push(next);
+  const inOut = new Set<string>([posKey(from)]);
+  const buckets: Pos[][] = [[from]];
+  for (let d = 0; d < buckets.length; d++) {
+    for (const cur of buckets[d] ?? []) {
+      if (best.get(posKey(cur)) !== d) continue; // устаревшая запись
+      if (d >= move) continue; // очки движения кончились
+      if (isZoC(cur) && !posEq(cur, from)) continue; // зашёл в ZoC — дальше нельзя
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const next = { x: cur.x + dx, y: cur.y + dy };
+          if (!inBounds(next) || isOccupied(next)) continue;
+          // гарантия минимального шага — цена первого входа не выше запаса
+          const nd = posEq(cur, from) ? Math.min(d + entryCost(cur, next), move) : d + entryCost(cur, next);
+          if (nd > move) continue;
+          const k = posKey(next);
+          const old = best.get(k);
+          if (old !== undefined && old <= nd) continue;
+          best.set(k, nd);
+          (buckets[nd] ??= []).push(next);
+          if (!inOut.has(k)) {
+            inOut.add(k);
+            out.push(next);
+          }
+        }
       }
     }
   }
