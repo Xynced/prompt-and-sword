@@ -26,7 +26,8 @@ function unit(id: string, side: 'party' | 'foe', pos: Pos, over: Partial<CombatU
     pos,
     startPos: { ...pos },
     alive: true,
-    defending: false,
+    coverLevel: 0,
+    exposed: false,
     tags: [],
     lenses: ['plain'],
     ...over,
@@ -94,12 +95,12 @@ describe('скоринг глубоких предпочтений', () => {
     const foe = fighter('e1', 'foe', { x: 5, y: 3 }, { move: 3, range: 1 });
     const units = [self, foe];
     const r = rule({ kind: 'brace' });
-    const braced = ruleFactor({ to: self.pos, action: 'defend' }, self, units, r);
+    const braced = ruleFactor({ to: self.pos, action: 'cover' }, self, units, r);
     const idle = ruleFactor({ to: self.pos, action: 'wait' }, self, units, r);
     expect(braced).toBeGreaterThan(0);
     expect(idle).toBe(0);
-    // вне досягаемости оборона дешевле, чем под ударом
-    const far = ruleFactor({ to: { x: 0, y: 7 }, action: 'defend' }, self, units, r);
+    // вне досягаемости оборона дешевле, чем под ударом (враг за ход достаёт на move×2+range)
+    const far = ruleFactor({ to: { x: 0, y: 11 }, action: 'cover' }, self, units, r);
     expect(braced).toBeGreaterThan(far);
   });
 

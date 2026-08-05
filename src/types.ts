@@ -5,6 +5,17 @@ export interface Pos {
   y: number;
 }
 
+/** Что юнит может сделать за очко хода. Цены — `AP_COST` в scoring.ts. */
+export type ActionKind =
+  | 'move'
+  | 'weakAttack'
+  | 'attack'
+  | 'selflessAttack'
+  | 'cover'
+  | 'fullCover'
+  | 'shieldAlly'
+  | 'wait';
+
 export type LensId =
   | 'plain'
   | 'coward'
@@ -33,7 +44,10 @@ export interface CombatUnit {
   pos: Pos;
   startPos: Pos;
   alive: boolean;
-  defending: boolean;
+  /** Доля снятого входящего урона (0, COVER, FULL_COVER); держится до своего следующего хода. */
+  coverLevel: number;
+  /** Отчаянный удар открыл: входящий урон ×SELFLESS_VULN_MULT до своего следующего хода. */
+  exposed: boolean;
   tags: string[];
   /** Линзы характера в порядке применения (1–3 у героев). */
   lenses: LensId[];

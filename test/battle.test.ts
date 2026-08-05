@@ -108,7 +108,8 @@ describe('буквалист без сработавшего правила', ()
     expect(litDecisions.length).toBeGreaterThan(0);
     for (const d of litDecisions) {
       if (d.t !== 'decision') continue;
-      expect(d.action).toBe('defend');
+      // нет правила на ситуацию — весь ход за щитом, отсебятины никакой
+      expect(d.action).toBe('fullCover');
       // буквалист стоит на месте
       expect(d.to).toEqual({ x: 1, y: 3 });
     }

@@ -439,6 +439,9 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.lineOfFire')) out.push({ value: { id: 'space.lineOfFire' }, label: 'держаться вне линии огня' });
   if (has('space.chokepoint')) out.push({ value: { id: 'space.chokepoint' }, label: 'вставать в узком месте' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
+  if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
+  if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
+  if (has('act.strikeDesperate')) out.push({ value: { id: 'act.strikeDesperate' }, label: 'бить отчаянно' });
   for (const space of ['space.nearTo', 'space.behind', 'space.awayFrom'] as const) {
     if (!has(space)) continue;
     const verb =
@@ -551,7 +554,9 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       case 'attack': {
         const t = units.get(e.target)!;
         t.hp = e.targetHp;
-        pending?.parts.push(`бьёт ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
+        const verb =
+          e.action === 'weakAttack' ? 'бьёт слабо' : e.action === 'selflessAttack' ? 'бьёт отчаянно' : 'бьёт';
+        pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
         break;
       }
       case 'die': {
@@ -559,8 +564,12 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending?.parts.push(`${nm(e.unit)} падает`);
         break;
       }
-      case 'defend':
-        pending?.parts.push('встал в глухую оборону');
+      case 'cover':
+        pending?.parts.push(
+          e.ally
+            ? `прикрыл ${nm(e.ally)} (−${Math.round(e.level * 100)}% урона)`
+            : `прикрылся (−${Math.round(e.level * 100)}% урона)`,
+        );
         break;
       case 'wait':
         pending?.parts.push('выжидает');

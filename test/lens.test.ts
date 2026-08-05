@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Rule } from '../src/ir.js';
 import { LENS_POOL, applyLens, rollLenses } from '../src/lens.js';
 import { mulberry32 } from '../src/rng.js';
+import { type UnitSpec, runBattle } from '../src/battle.js';
+import type { LensId } from '../src/types.js';
 
 const attack = (w = 2): Rule => ({
   when: { kind: 'always' },
@@ -209,7 +211,13 @@ describe('композиция линз', () => {
     const rules = [attack(), retreat()];
     const c = applyLens([], rules);
     expect(c.rules).toEqual(rules);
-    expect(c.instincts).toEqual({ aggression: 1, survival: 1, ignoreZoC: false, gapFill: true });
+    expect(c.instincts).toEqual({
+      aggression: 1,
+      survival: 1,
+      ignoreZoC: false,
+      gapFill: true,
+      actionBias: {},
+    });
   });
 
   it('множители перемножаются, флаги складываются', () => {
@@ -242,6 +250,64 @@ describe('rollLenses', () => {
 
   it('детерминирован сидом', () => {
     expect(rollLenses(mulberry32(7))).toEqual(rollLenses(mulberry32(7)));
+  });
+});
+
+describe('характер выбирает действие', () => {
+  /**
+   * Доли действий бойца с одним и тем же приказом, но разным характером.
+   * `ally` добавляет в партию хилого союзника под ударом — иначе прикрыть
+   * собой некого и тяга наседки не проявляется.
+   */
+  function actionMix(lenses: LensId[], ally = false): Record<string, number> {
+    const counts = new Map<string, number>();
+    let total = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      const hero: UnitSpec = {
+        id: 'h', name: 'Боец', side: 'party', maxHp: 60, atk: 8, range: 1,
+        speed: 5, move: 2, lenses, rules: [attack()], spawn: { x: 4, y: 5 },
+      };
+      const mate: UnitSpec = {
+        id: 'm', name: 'Хиляк', side: 'party', maxHp: 16, atk: 3, range: 1,
+        speed: 1, move: 1, lenses: ['plain'], rules: [attack()], spawn: { x: 5, y: 5 },
+      };
+      const foes: UnitSpec[] = [1, 2].map((i) => ({
+        id: `f${i}`, name: `Враг ${i}`, side: 'foe', maxHp: 40, atk: 6, range: 1,
+        speed: 4, move: 2, lenses: ['plain'], rules: [attack()], spawn: { x: 6, y: 4 + i },
+      }));
+      const party = ally ? [hero, mate] : [hero];
+      for (const e of runBattle(seed, [...party, ...foes]).events) {
+        if (e.t !== 'decision' || e.unit !== 'h') continue;
+        counts.set(e.action, (counts.get(e.action) ?? 0) + 1);
+        total++;
+      }
+    }
+    return Object.fromEntries([...counts].map(([k, v]) => [k, v / total]));
+  }
+
+  const plain = actionMix(['plain']);
+
+  it('трус прикрывается, фанатик не прикрывается вовсе', () => {
+    const shield = (m: Record<string, number>): number => (m.cover ?? 0) + (m.fullCover ?? 0);
+    expect(shield(actionMix(['coward']))).toBeGreaterThan(shield(plain));
+    // «щиты — для трусов»: нулевая тяга — это запрет, а не редкость
+    expect(shield(actionMix(['fanatic']))).toBe(0);
+  });
+
+  it('фанатик бьёт отчаянно чаще обычного, трус — реже', () => {
+    expect(actionMix(['fanatic']).selflessAttack ?? 0).toBeGreaterThan(plain.selflessAttack ?? 0);
+    expect(actionMix(['coward']).selflessAttack ?? 0).toBeLessThan(plain.selflessAttack ?? 0);
+  });
+
+  it('горячка бьёт вполсилы чаще, дуэлянт — реже', () => {
+    expect(actionMix(['hothead']).weakAttack ?? 0).toBeGreaterThan(plain.weakAttack ?? 0);
+    expect(actionMix(['duelist']).weakAttack ?? 0).toBeLessThan(plain.weakAttack ?? 0);
+  });
+
+  it('наседка закрывает союзника собой, обычный боец — нет', () => {
+    expect(actionMix(['guardian'], true).shieldAlly ?? 0).toBeGreaterThan(
+      actionMix(['plain'], true).shieldAlly ?? 0,
+    );
   });
 });
 

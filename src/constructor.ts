@@ -42,7 +42,10 @@ export type PreferenceDraft =
   | { id: 'space.lineOfFire' }
   | { id: 'space.chokepoint' }
   | { id: 'act.brace' }
-  | { id: 'space.awayFrom'; ref: { ally: string } | { enemy: SelectorDraft } };
+  | { id: 'space.awayFrom'; ref: { ally: string } | { enemy: SelectorDraft } }
+  | { id: 'act.strikeOften' }
+  | { id: 'act.strikeHard' }
+  | { id: 'act.strikeDesperate' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -106,7 +109,13 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
   const refText = (ref: { ally: string } | { enemy: SelectorDraft }): string =>
     'ally' in ref ? nm(ref.ally) : CONCEPTS[ref.enemy].label;
   const prefText =
-    p.id === 'act.attack'
+    p.id === 'act.strikeOften'
+      ? 'бить часто'
+      : p.id === 'act.strikeHard'
+      ? 'бить наверняка'
+      : p.id === 'act.strikeDesperate'
+      ? 'бить отчаянно'
+      : p.id === 'act.attack'
       ? `атаковать: ${CONCEPTS[p.target].label}`
       : p.id === 'act.protect'
         ? `защищать ${nm(p.ally)}`
@@ -170,7 +179,13 @@ export function compilePhrase(
     'ally' in ref ? { type: 'ally', id: ref.ally } : { type: 'enemy', sel: SELECTOR_MAP[ref.enemy] };
 
   const then: Rule['then'] =
-    p.id === 'act.attack'
+    p.id === 'act.strikeOften'
+      ? { kind: 'strikeOften' }
+      : p.id === 'act.strikeHard'
+      ? { kind: 'strikeHard' }
+      : p.id === 'act.strikeDesperate'
+      ? { kind: 'strikeDesperate' }
+      : p.id === 'act.attack'
       ? { kind: 'attack', target: SELECTOR_MAP[p.target] }
       : p.id === 'act.protect'
         ? { kind: 'protect', ally: p.ally }

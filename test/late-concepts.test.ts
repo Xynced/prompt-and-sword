@@ -27,7 +27,8 @@ function unit(id: string, side: 'party' | 'foe', pos: Pos, over: Partial<CombatU
     pos,
     startPos: { ...pos },
     alive: true,
-    defending: false,
+    coverLevel: 0,
+    exposed: false,
     tags: [],
     lenses: ['plain'],
     ...over,
@@ -175,7 +176,7 @@ describe('скоринг поздних предпочтений', () => {
     const chip = ruleFactor({ to: self.pos, action: 'attack', targetId: 'e2' }, self, units, r);
     expect(lethal).toBeGreaterThan(chip);
     expect(chip).toBeGreaterThan(0);
-    expect(ruleFactor({ to: self.pos, action: 'defend' }, self, units, r)).toBe(0);
+    expect(ruleFactor({ to: self.pos, action: 'cover' }, self, units, r)).toBe(0);
   });
 
   it('flank: атака с фланга ценнее атаки в лоб', () => {
@@ -197,9 +198,9 @@ describe('скоринг поздних предпочтений', () => {
     const foe = fighter('e1', 'foe', { x: 4, y: 0 }, { move: 3, range: 1 });
     const units = [self, foe];
     const r = rule({ kind: 'bait' });
-    const tease = ruleFactor({ to: { x: 1, y: 0 }, action: 'wait' }, self, units, r); // досягаем (3+1)
+    const tease = ruleFactor({ to: { x: 1, y: 0 }, action: 'wait' }, self, units, r); // досягаем (3×2+1)
     const exposed = ruleFactor({ to: { x: 3, y: 0 }, action: 'wait' }, self, units, r); // под ударом
-    const hiding = ruleFactor({ to: { x: 0, y: 7 }, action: 'wait' }, self, units, r); // вне игры
+    const hiding = ruleFactor({ to: { x: 0, y: 11 }, action: 'wait' }, self, units, r); // вне игры
     expect(tease).toBeGreaterThan(exposed);
     expect(tease).toBeGreaterThan(hiding);
   });

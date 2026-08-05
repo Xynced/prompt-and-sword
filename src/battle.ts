@@ -1,11 +1,21 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
-import { expectedDamage } from './tuning.js';
+import { AP_PER_TURN, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
 import { dist, isFlanking, posEq, posKey } from './grid.js';
 import { pickTerrain } from './terrain.js';
 import type { LensId, Pos, Side } from './types.js';
-import { type Decision, type Fighter, decide } from './scoring.js';
+import {
+  AP_COST,
+  type ActionKind,
+  type Decision,
+  type Fighter,
+  attackMult,
+  coverLevelOf,
+  decide,
+  isAttack,
+  makeCtx,
+} from './scoring.js';
 
 export interface UnitSpec {
   id: string;
@@ -31,12 +41,22 @@ export type BattleEvent =
   | { t: 'round'; n: number }
   | ({ t: 'decision'; unit: string; round: number } & Pick<Decision, 'factors' | 'condRules'> & {
       to: Pos;
-      action: string;
+      action: ActionKind;
       target?: string;
+      /** Очков хода на момент решения (до списания цены действия). */
+      ap: number;
     })
   | { t: 'move'; unit: string; from: Pos; to: Pos }
-  | { t: 'attack'; unit: string; target: string; dmg: number; flank: boolean; targetHp: number }
-  | { t: 'defend'; unit: string }
+  | {
+      t: 'attack';
+      unit: string;
+      action: ActionKind;
+      target: string;
+      dmg: number;
+      flank: boolean;
+      targetHp: number;
+    }
+  | { t: 'cover'; unit: string; level: number; ally?: string }
   | { t: 'wait'; unit: string }
   | { t: 'die'; unit: string }
   | { t: 'end'; winner: Side | 'draw'; rounds: number };
@@ -67,7 +87,8 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     pos: { ...pos },
     startPos: { ...pos },
     alive: true,
-    defending: false,
+    coverLevel: 0,
+    exposed: false,
     tags: spec.tags ?? [],
     lenses: spec.lenses,
     compiled: applyLens(spec.lenses, spec.rules),
@@ -120,61 +141,83 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
 
     for (const unit of order) {
       if (!unit.alive) continue;
-      unit.defending = false;
+      // прикрытие и открытость держатся до своего следующего хода
+      unit.coverLevel = 0;
+      unit.exposed = false;
 
-      const decision = decide(unit, units, round, blocked);
-      const { to, action, targetId } = decision.chosen;
-      events.push({
-        t: 'decision',
-        unit: unit.id,
-        round,
-        to,
-        action,
-        ...(targetId ? { target: targetId } : {}),
-        factors: decision.factors,
-        condRules: decision.condRules,
-      });
+      // поля дистанций считаем раз на ход: за ход этого юнита никто, кроме
+      // него, не двигается, поэтому кэш ctx остаётся верным для всех действий
+      const ctx = makeCtx(blocked);
+      let ap = AP_PER_TURN;
+      let over = false;
 
-      if (!posEq(to, unit.pos)) {
-        events.push({ t: 'move', unit: unit.id, from: { ...unit.pos }, to: { ...to } });
-        unit.pos = { ...to };
-      }
+      while (ap > 0 && !over) {
+        const decision = decide(unit, units, round, blocked, ap, ctx);
+        const { to, action, targetId } = decision.chosen;
+        events.push({
+          t: 'decision',
+          unit: unit.id,
+          round,
+          to,
+          action,
+          ...(targetId ? { target: targetId } : {}),
+          ap,
+          factors: decision.factors,
+          condRules: decision.condRules,
+        });
+        ap -= AP_COST[action];
 
-      if (action === 'attack' && targetId) {
-        const target = units.find((u) => u.id === targetId)!;
-        if (target.alive && dist(unit.pos, target.pos) <= unit.range) {
-          const allyPositions = units
-            .filter((u) => u.alive && u.side === unit.side && u !== unit)
-            .map((u) => u.pos);
-          const flank = unit.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
-          let dmg = rollDamage(unit.atk * (flank ? 1.5 : 1), rng);
-          if (target.defending) dmg = Math.max(1, Math.floor(dmg * 0.5));
-          target.hp = Math.max(0, target.hp - dmg);
-          target.lastAttackerId = unit.id;
-          events.push({
-            t: 'attack',
-            unit: unit.id,
-            target: target.id,
-            dmg,
-            flank,
-            targetHp: target.hp,
-          });
-          if (target.hp === 0) {
-            target.alive = false;
-            events.push({ t: 'die', unit: target.id });
+        if (action === 'move') {
+          events.push({ t: 'move', unit: unit.id, from: { ...unit.pos }, to: { ...to } });
+          unit.pos = { ...to };
+        } else if (isAttack(action) && targetId) {
+          if (action === 'selflessAttack') unit.exposed = true;
+          const target = units.find((u) => u.id === targetId)!;
+          if (target.alive && dist(unit.pos, target.pos) <= unit.range) {
+            const allyPositions = units
+              .filter((u) => u.alive && u.side === unit.side && u !== unit)
+              .map((u) => u.pos);
+            const flank = unit.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
+            const raw = rollDamage(unit.atk * attackMult(action) * (flank ? 1.5 : 1), rng);
+            const dmg = Math.max(
+              1,
+              Math.round(raw * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1)),
+            );
+            target.hp = Math.max(0, target.hp - dmg);
+            target.lastAttackerId = unit.id;
+            events.push({
+              t: 'attack',
+              unit: unit.id,
+              action,
+              target: target.id,
+              dmg,
+              flank,
+              targetHp: target.hp,
+            });
+            if (target.hp === 0) {
+              target.alive = false;
+              events.push({ t: 'die', unit: target.id });
+            }
           }
+        } else if (action === 'shieldAlly' && targetId) {
+          const ally = units.find((u) => u.id === targetId)!;
+          if (ally.alive) {
+            ally.coverLevel = Math.max(ally.coverLevel, coverLevelOf(action));
+            events.push({ t: 'cover', unit: unit.id, level: ally.coverLevel, ally: ally.id });
+          }
+        } else if (coverLevelOf(action) > 0) {
+          unit.coverLevel = Math.max(unit.coverLevel, coverLevelOf(action));
+          events.push({ t: 'cover', unit: unit.id, level: unit.coverLevel });
+        } else {
+          events.push({ t: 'wait', unit: unit.id });
+          over = true; // пас завершает ход: тратить остаток очков не на что
         }
-      } else if (action === 'defend') {
-        unit.defending = true;
-        events.push({ t: 'defend', unit: unit.id });
-      } else {
-        events.push({ t: 'wait', unit: unit.id });
-      }
 
-      const w = winnerOf(units);
-      if (w) {
-        events.push({ t: 'end', winner: w, rounds: round });
-        return { winner: w, rounds: round, events, units, terrain };
+        const w = winnerOf(units);
+        if (w) {
+          events.push({ t: 'end', winner: w, rounds: round });
+          return { winner: w, rounds: round, events, units, terrain };
+        }
       }
     }
   }

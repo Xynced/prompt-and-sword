@@ -44,6 +44,9 @@ const PARAMLESS_PREFERENCES = [
   'space.flank',
   'space.lineOfFire',
   'space.chokepoint',
+  'act.strikeOften',
+  'act.strikeHard',
+  'act.strikeDesperate',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -182,6 +185,12 @@ function validatePreference(
       return vocab.includes('space.chokepoint') ? { id: 'space.chokepoint' } : null;
     case 'act.brace':
       return vocab.includes('act.brace') ? { id: 'act.brace' } : null;
+    case 'act.strikeOften':
+      return vocab.includes('act.strikeOften') ? { id: 'act.strikeOften' } : null;
+    case 'act.strikeHard':
+      return vocab.includes('act.strikeHard') ? { id: 'act.strikeHard' } : null;
+    case 'act.strikeDesperate':
+      return vocab.includes('act.strikeDesperate') ? { id: 'act.strikeDesperate' } : null;
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {
