@@ -439,6 +439,9 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.lineOfFire')) out.push({ value: { id: 'space.lineOfFire' }, label: 'держаться вне линии огня' });
   if (has('space.chokepoint')) out.push({ value: { id: 'space.chokepoint' }, label: 'вставать в узком месте' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
+  if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
+  if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
+  if (has('act.strikeDesperate')) out.push({ value: { id: 'act.strikeDesperate' }, label: 'бить отчаянно' });
   for (const space of ['space.nearTo', 'space.behind', 'space.awayFrom'] as const) {
     if (!has(space)) continue;
     const verb =
