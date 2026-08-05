@@ -15,6 +15,7 @@ import {
   dist,
   distanceField,
   hasLoS,
+  hasTerrainCover,
   isFlanking,
   posEq,
   posKey,
@@ -31,6 +32,7 @@ import {
   HIGH_GROUND_DMG,
   SELFLESS_ATK_MULT,
   SELFLESS_VULN_MULT,
+  TERRAIN_COVER,
   WEAK_ATK_MULT,
   expectedDamage,
 } from './tuning.js';
@@ -133,6 +135,11 @@ export interface ScoreCtx {
   heightAt: (p: Pos) => number;
   /** Клетки с высотой > 0 — тяга «держать высоту» тянет к ближайшей. */
   highTiles: readonly Pos[];
+  /**
+   * Доля урона, снятая каменным укрытием цели при выстреле from → target
+   * (0 — укрытия нет). Стрелок с высоты 2 бьёт поверх укрытия.
+   */
+  coverFrom: (from: Pos, target: Pos) => number;
   /** Путевая дистанция p → target по проходимым клеткам (кэш по цели). */
   distTo: (target: Pos, p: Pos) => number;
 }
@@ -145,10 +152,13 @@ export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN, tiles?: reado
       if ((t.height ?? 0) > 0) highTiles.push({ x, y });
     }),
   );
+  const heightAt = tiles ? (p: Pos): number => tiles[p.y]?.[p.x]?.height ?? 0 : FLAT;
   return {
     blocked,
-    heightAt: tiles ? (p): number => tiles[p.y]?.[p.x]?.height ?? 0 : FLAT,
+    heightAt,
     highTiles,
+    coverFrom: (from, target) =>
+      heightAt(from) === 2 ? 0 : hasTerrainCover(from, target, blocked) ? TERRAIN_COVER : 0,
     distTo(target, p) {
       const key = posKey(target);
       let field = fields.get(key);
@@ -192,10 +202,14 @@ function canAttackFrom(
   const d = dist(from, target.pos);
   if (d > rangeAt(attacker, height)) return false;
   if (attacker.range === 1) return d === 1;
+  // камень, смежный цели, — не стена, а укрытие (гибрид Q-2): выстрел проходит,
+  // урон режет coverFrom; тела по-прежнему заслоняют полностью
   return hasLoS(
     from,
     target.pos,
-    (p) => blocked(p) || units.some((u) => u.alive && u !== attacker && u !== target && posEq(u.pos, p)),
+    (p) =>
+      (blocked(p) && dist(p, target.pos) > 1) ||
+      units.some((u) => u.alive && u !== attacker && u !== target && posEq(u.pos, p)),
   );
 }
 
@@ -289,14 +303,24 @@ function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
 }
 
-/** Ожидаемый урон конкретного вида атаки по цели с учётом её прикрытия и открытости. */
-function expectedAttackDamage(self: Fighter, action: ActionKind, target: CombatUnit, height = 0): number {
+/**
+ * Ожидаемый урон конкретного вида атаки по цели с учётом её прикрытия,
+ * каменного укрытия (максимум, не сумма) и открытости; из клетки from.
+ */
+function expectedAttackDamage(
+  self: Fighter,
+  action: ActionKind,
+  target: CombatUnit,
+  ctx: ScoreCtx,
+  from: Pos,
+): number {
+  const mitigation = Math.max(target.coverLevel, ctx.coverFrom(from, target.pos));
   return (
     expectedDamage(self.atk) *
       attackMult(action) *
-      (1 - target.coverLevel) *
+      (1 - mitigation) *
       (target.exposed ? SELFLESS_VULN_MULT : 1) +
-    heightDmgBonus(self, height)
+    heightDmgBonus(self, ctx.heightAt(from))
   );
 }
 
@@ -324,9 +348,13 @@ function scorePreference(
       // Линейная и достаточно крутая, чтобы правило рулило поверх инстинктов.
       const gap = Math.max(ctx.distTo(target.pos, cand.to) - self.range, 0);
       let s = -0.6 * gap * w;
+      // выстрел в укрытую цель — полдела, и премия правила скалируется
+      // качеством выстрела: клетка с чистым углом обыгрывает стрельбу в камень,
+      // стрелок меняет позицию, а не стоит (ближнему боя укрытие не мешает)
+      const quality = 1 - ctx.coverFrom(cand.to, target.pos);
       // правило говорит, КОГО бить, а не чем: премия за потраченный ход, а не
       // за факт удара, поэтому вид атаки выбирают урон и риск, а не правило
-      if (isAttack(cand.action) && cand.targetId === target.id) s += 3 * w * apShare(cand.action);
+      if (isAttack(cand.action) && cand.targetId === target.id) s += 3 * w * apShare(cand.action) * quality;
       // Шаг, из которого цель реально простреливается, — половина дела. Без
       // этого жадный цикл выбирает клетку по одной лишь тяге `-0.6 × gap`:
       // гладкий градиент почти не различает соседние цели, и разные правила
@@ -335,7 +363,7 @@ function scorePreference(
         cand.action === 'move' &&
         canAttackFrom(cand.to, self, target as Fighter, units, ctx.blocked, ctx.heightAt(cand.to))
       ) {
-        s += 1.5 * w;
+        s += 1.5 * w * quality;
       }
       return s;
     }
@@ -389,7 +417,7 @@ function scorePreference(
       // размен: жать атаку, если она добивает или снимает много — угрозу перевешивает вес
       if (!isAttack(cand.action) || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
-      const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx.heightAt(cand.to)), target.hp);
+      const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx, cand.to), target.hp);
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
     }
     case 'standoff': {
@@ -497,6 +525,15 @@ function scorePreference(
       const d = Math.min(...ctx.highTiles.map((t) => dist(cand.to, t)));
       return -0.35 * Math.min(d, MAX_DIST) * w;
     }
+    case 'behindCover': {
+      // за укрытием: премия клеткам, где от вражеских стрелков закрывает
+      // камень. Без стрелков (или на арене без камней) слово молчит; против
+      // стрелка на высоте 2 камень не спасает — coverFrom это уже знает.
+      const shooters = (enemiesOf(self, units) as Fighter[]).filter((e) => e.range > 1);
+      if (shooters.length === 0) return 0;
+      const covered = shooters.filter((e) => ctx.coverFrom(e.pos, cand.to) > 0).length;
+      return 1.2 * (covered / shooters.length) * w;
+    }
   }
 }
 
@@ -525,7 +562,7 @@ export function scoreCandidate(
 
   if (isAttack(cand.action) && cand.targetId) {
     const target = units.find((u) => u.id === cand.targetId)!;
-    const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx.heightAt(cand.to)), target.hp);
+    const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx, cand.to), target.hp);
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });

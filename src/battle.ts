@@ -186,9 +186,11 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
               .map((u) => u.pos);
             const flank = unit.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
             const raw = rollDamage(unit.atk * attackMult(action) * (flank ? 1.5 : 1), rng);
+            // каменное укрытие цели не складывается с прикрытием — берётся максимум
+            const mitigation = Math.max(target.coverLevel, ctx.coverFrom(unit.pos, target.pos));
             const dmg = Math.max(
               1,
-              Math.round(raw * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1)) +
+              Math.round(raw * (1 - mitigation) * (target.exposed ? SELFLESS_VULN_MULT : 1)) +
                 heightDmgBonus(unit, heightAt(unit.pos)),
             );
             target.hp = Math.max(0, target.hp - dmg);

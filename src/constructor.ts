@@ -46,7 +46,8 @@ export type PreferenceDraft =
   | { id: 'act.strikeOften' }
   | { id: 'act.strikeHard' }
   | { id: 'act.strikeDesperate' }
-  | { id: 'space.highGround' };
+  | { id: 'space.highGround' }
+  | { id: 'space.behindCover' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -118,6 +119,8 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       ? 'бить отчаянно'
       : p.id === 'space.highGround'
       ? 'держать высоту'
+      : p.id === 'space.behindCover'
+      ? 'держаться за укрытием'
       : p.id === 'act.attack'
       ? `атаковать: ${CONCEPTS[p.target].label}`
       : p.id === 'act.protect'
@@ -190,6 +193,8 @@ export function compilePhrase(
       ? { kind: 'strikeDesperate' }
       : p.id === 'space.highGround'
       ? { kind: 'highGround' }
+      : p.id === 'space.behindCover'
+      ? { kind: 'behindCover' }
       : p.id === 'act.attack'
       ? { kind: 'attack', target: SELECTOR_MAP[p.target] }
       : p.id === 'act.protect'

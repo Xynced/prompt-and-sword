@@ -52,6 +52,32 @@ export function hasLoS(a: Pos, b: Pos, isBlocked: (p: Pos) => boolean): boolean 
 }
 
 /**
+ * Каменное укрытие (гибрид): камень даёт цели укрытие от выстрела, если он
+ * смежен цели и лежит со стороны стрелка (скалярное произведение направлений
+ * > 0); камень, смежный и стрелку, и цели, — всегда укрытие (он же латает
+ * диагональную щель Брезенхэма). Вплотную (дист ≤ 1) укрытия нет.
+ *
+ * Согласовано с LoS: камень, смежный цели, для выстрела не стена, а укрытие
+ * (см. canAttackFrom) — любой «мягкий» камень на линии обязан давать укрытие,
+ * иначе выстрел сквозь него шёл бы в полную силу.
+ */
+export function hasTerrainCover(shooter: Pos, target: Pos, isBlocked: (p: Pos) => boolean): boolean {
+  if (dist(shooter, target) <= 1) return false;
+  const vx = shooter.x - target.x;
+  const vy = shooter.y - target.y;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const rock = { x: target.x + dx, y: target.y + dy };
+      if (!isBlocked(rock)) continue;
+      if (dist(rock, shooter) === 1) return true; // смежен обоим
+      if (dx * vx + dy * vy > 0) return true; // со стороны стрелка
+    }
+  }
+  return false;
+}
+
+/**
  * Фланг: атакующий смежен с целью, и есть союзник атакующего, тоже смежный с целью,
  * с противоположной стороны (скалярное произведение направлений ≤ 0).
  */

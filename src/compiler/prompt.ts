@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 6;
+export const PROMPT_VERSION = 7;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -56,6 +56,8 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
     '{"id":"act.strikeDesperate"} — манера удара: отчаянный размен — бить сильнее обычного ценой того, что до своего следующего хода получаешь больше',
   'space.highGround':
     '{"id":"space.highGround"} — держать высоту: предпочитать холмы; стрелку высота добавляет дальность, а с самой высокой точки — и урон',
+  'space.behindCover':
+    '{"id":"space.behindCover"} — за укрытием: предпочитать клетки, где от вражеских стрелков закрывает камень (выстрел в укрытую цель слабее вдвое)',
 };
 
 export interface PromptContext {

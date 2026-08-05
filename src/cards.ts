@@ -87,6 +87,8 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'бью отчаянно: сильнее обычного, но открываюсь под ответ';
     case 'highGround':
       return 'держу высоту: забираюсь на холм — с него дальше видно и больнее бить';
+    case 'behindCover':
+      return 'держусь за укрытием: прячусь за камнем от вражеских стрелков';
   }
 }
 
