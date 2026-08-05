@@ -1,6 +1,9 @@
 import type { Rule } from './ir.js';
-import type { LensId } from './types.js';
+import type { ActionKind, LensId } from './types.js';
 import { type Rng, shuffle } from './rng.js';
+
+/** Множители на привлекательность конкретных действий; отсутствующий ключ = 1. */
+export type ActionBias = Partial<Record<ActionKind, number>>;
 
 /** Базовые инстинкты: множители на слагаемые utility-скоринга. */
 export interface Instincts {
@@ -10,6 +13,13 @@ export interface Instincts {
   ignoreZoC: boolean;
   /** Буквалист не достраивает пропуски: нет сработавшего правила → защищается на месте. */
   gapFill: boolean;
+  /**
+   * На что характер охотнее тратит очки хода. Правило говорит, кого бить и
+   * куда идти, — а чем именно бить и прикрываться ли, решает эта таблица.
+   * Множится на «тягу» действия, но не на его цену: трус боится открыться
+   * ровно так же, как все, он просто реже хочет.
+   */
+  actionBias: ActionBias;
 }
 
 export interface CompiledBehavior {
@@ -17,7 +27,18 @@ export interface CompiledBehavior {
   instincts: Instincts;
 }
 
-const BASE: Instincts = { aggression: 1, survival: 1, ignoreZoC: false, gapFill: true };
+const BASE: Instincts = {
+  aggression: 1,
+  survival: 1,
+  ignoreZoC: false,
+  gapFill: true,
+  actionBias: {},
+};
+
+/** Тяга характера к действию; 1 — как у всех. */
+export function biasFor(instincts: Instincts, action: ActionKind): number {
+  return instincts.actionBias[action] ?? 1;
+}
 
 /** Короткие русские имена линз — для карточек, интела и пометок в source. */
 export const LENS_RU: Record<LensId, string> = {
@@ -60,6 +81,7 @@ interface InstinctMods {
   survival?: number;
   ignoreZoC?: true;
   gapFill?: false;
+  actionBias?: ActionBias;
 }
 
 /**
@@ -72,7 +94,9 @@ interface InstinctMods {
  */
 export function applyLens(lenses: readonly LensId[], rules: Rule[]): CompiledBehavior {
   let out = rules.slice();
-  const instincts: Instincts = { ...BASE };
+  // actionBias копируем отдельно: без этого все вызовы делили бы один объект
+  // с BASE и накапливали в нём тягу каждой применённой линзы навсегда
+  const instincts: Instincts = { ...BASE, actionBias: { ...BASE.actionBias } };
   for (const lens of lenses) {
     const step = applyOne(lens, out);
     out = step.rules;
@@ -80,6 +104,10 @@ export function applyLens(lenses: readonly LensId[], rules: Rule[]): CompiledBeh
     instincts.survival *= step.mods.survival ?? 1;
     if (step.mods.ignoreZoC) instincts.ignoreZoC = true;
     if (step.mods.gapFill === false) instincts.gapFill = false;
+    for (const [action, mult] of Object.entries(step.mods.actionBias ?? {})) {
+      const a = action as ActionKind;
+      instincts.actionBias[a] = (instincts.actionBias[a] ?? 1) * mult;
+    }
   }
   return { rules: out, instincts };
 }
@@ -125,7 +153,15 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         scope: 'self',
         source: 'инстинкт труса: бежать при hp<30%',
       });
-      return { rules: out, mods: { aggression: 0.7, survival: 2.2 } };
+      return {
+        rules: out,
+        mods: {
+          aggression: 0.7,
+          survival: 2.2,
+          // за щитом отсидеться — первое, что приходит в голову; открыться — последнее
+          actionBias: { cover: 1.5, fullCover: 1.2, selflessAttack: 0.2 },
+        },
+      };
     }
 
     case 'fanatic': {
@@ -163,7 +199,16 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
                     }
                   : r,
       );
-      return { rules: out, mods: { aggression: 1.6, survival: 0.4, ignoreZoC: true } };
+      return {
+        rules: out,
+        mods: {
+          aggression: 1.6,
+          survival: 0.4,
+          ignoreZoC: true,
+          // щиты — для трусов: глухая защита исключена вовсе, размен ран — норма
+          actionBias: { selflessAttack: 2.5, cover: 0.3, fullCover: 0 },
+        },
+      };
     }
 
     case 'literalist':
@@ -203,7 +248,8 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         }
         return r;
       });
-      return { rules: out, mods: { aggression: 1.1 } };
+      // вполсилы не бьёт — это оскорбление противника
+      return { rules: out, mods: { aggression: 1.1, actionBias: { weakAttack: 0.7 } } };
     }
 
     case 'gloryhound': {
@@ -233,7 +279,15 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         scope: 'self',
         source: 'инстинкт наседки: прикрывать самого раненого',
       });
-      return { rules: out, mods: { aggression: 0.85, survival: 1.2 } };
+      return {
+        rules: out,
+        mods: {
+          aggression: 0.85,
+          survival: 1.2,
+          // закрыть своего собой — самый понятный наседке способ потратить ход
+          actionBias: { shieldAlly: 3 },
+        },
+      };
     }
 
     case 'paranoid': {
@@ -245,7 +299,10 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         scope: 'self',
         source: 'инстинкт параноика: везде мерещатся стрелки',
       });
-      return { rules: out, mods: { aggression: 0.85, survival: 1.5 } };
+      return {
+        rules: out,
+        mods: { aggression: 0.85, survival: 1.5, actionBias: { cover: 1.8 } },
+      };
     }
 
     case 'hothead': {
@@ -270,7 +327,15 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
                 }
               : r,
       );
-      return { rules: out, mods: { aggression: 1.35, survival: 0.75 } };
+      return {
+        rules: out,
+        mods: {
+          aggression: 1.35,
+          survival: 0.75,
+          // бьёт сразу и часто, примеряться и прикрываться некогда
+          actionBias: { weakAttack: 3, cover: 0.5 },
+        },
+      };
     }
 
     case 'showman': {
@@ -286,7 +351,11 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         scope: 'self',
         source: 'инстинкт позёра: красоваться перед строем врага',
       });
-      return { rules: out, mods: { aggression: 1.1, survival: 0.9 } };
+      // широкий жест на публику дороже расчёта
+      return {
+        rules: out,
+        mods: { aggression: 1.1, survival: 0.9, actionBias: { selflessAttack: 1.5 } },
+      };
     }
   }
 }

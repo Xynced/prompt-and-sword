@@ -5,6 +5,17 @@ export interface Pos {
   y: number;
 }
 
+/** Что юнит может сделать за очко хода. Цены — `AP_COST` в scoring.ts. */
+export type ActionKind =
+  | 'move'
+  | 'weakAttack'
+  | 'attack'
+  | 'selflessAttack'
+  | 'cover'
+  | 'fullCover'
+  | 'shieldAlly'
+  | 'wait';
+
 export type LensId =
   | 'plain'
   | 'coward'

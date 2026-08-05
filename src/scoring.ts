@@ -8,7 +8,7 @@ import {
   resolvePosRef,
   resolveSelector,
 } from './ir.js';
-import type { CompiledBehavior } from './lens.js';
+import { type CompiledBehavior, biasFor } from './lens.js';
 import {
   GRID_H,
   GRID_W,
@@ -20,8 +20,9 @@ import {
   posKey,
   reachableTiles,
 } from './grid.js';
-import type { CombatUnit, Pos } from './types.js';
+import type { ActionKind, CombatUnit, Pos } from './types.js';
 import {
+  ACTION_BIAS_WEIGHT,
   AP_PER_TURN,
   AP_VALUE,
   COVER,
@@ -36,15 +37,7 @@ export interface Fighter extends CombatUnit {
   compiled: CompiledBehavior;
 }
 
-export type ActionKind =
-  | 'move'
-  | 'weakAttack'
-  | 'attack'
-  | 'selflessAttack'
-  | 'cover'
-  | 'fullCover'
-  | 'shieldAlly'
-  | 'wait';
+export type { ActionKind };
 
 /** Цена действия в очках хода. `wait` бесплатен и завершает ход. */
 export const AP_COST: Record<ActionKind, number> = {
@@ -193,6 +186,9 @@ export function generateCandidates(
 ): Candidate[] {
   const here = self.pos;
   const out: Candidate[] = [];
+  // нулевая тяга характера — не «маловероятно», а «никогда»: фанатик за щитом
+  // не отсиживается вовсе, и обсуждать этот вариант незачем
+  const allowed = (a: ActionKind): boolean => biasFor(self.compiled.instincts, a) !== 0;
 
   if (ap >= AP_COST.move) {
     const byUnit = isBlockedBy(units, self);
@@ -206,15 +202,17 @@ export function generateCandidates(
   for (const e of enemiesOf(self, units) as Fighter[]) {
     if (!canAttackFrom(here, self, e, units, blocked)) continue;
     for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
-      if (ap >= AP_COST[action]) out.push({ to: here, action, targetId: e.id });
+      if (ap >= AP_COST[action] && allowed(action)) out.push({ to: here, action, targetId: e.id });
     }
   }
 
   // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем
   for (const action of ['cover', 'fullCover'] as const) {
-    if (ap >= AP_COST[action] && coverLevelOf(action) > self.coverLevel) out.push({ to: here, action });
+    if (ap >= AP_COST[action] && allowed(action) && coverLevelOf(action) > self.coverLevel) {
+      out.push({ to: here, action });
+    }
   }
-  if (ap >= AP_COST.shieldAlly) {
+  if (ap >= AP_COST.shieldAlly && allowed('shieldAlly')) {
     for (const a of alliesOf(self, units) as Fighter[]) {
       if (a.id !== self.id && coverLevelOf('shieldAlly') > a.coverLevel) {
         out.push({ to: here, action: 'shieldAlly', targetId: a.id });
@@ -233,6 +231,19 @@ export function generateCandidates(
  */
 function strikeReach(u: Fighter): number {
   return u.move * (AP_PER_TURN - AP_COST.weakAttack) + u.range;
+}
+
+/**
+ * Насколько подопечному сейчас нужен щит: доля его hp под угрозой, срезанная
+ * по SHIELD_FULL_RISK. Правило «прикрывай X» тратит на щит два очка хода,
+ * поэтому платить полную премию за прикрытие того, кому никто не грозит,
+ * нельзя: телохранитель перестаёт драться и партия проигрывает бой.
+ */
+const SHIELD_FULL_RISK = 0.3;
+
+function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
+  const risk = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel);
+  return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
 }
 
 /** Ожидаемый урон конкретного вида атаки по цели с учётом её прикрытия и открытости. */
@@ -284,7 +295,9 @@ function scorePreference(
     case 'protect': {
       const ally = units.find((u) => u.id === pref.ally && u.alive);
       if (!ally) return 0;
-      if (cand.action === 'shieldAlly' && cand.targetId === ally.id) return 2.5 * w;
+      if (cand.action === 'shieldAlly' && cand.targetId === ally.id) {
+        return 2.5 * w * shieldNeed(ally as Fighter, units);
+      }
       let s = -0.4 * dist(cand.to, ally.pos) * w;
       const threat = resolveSelector('nearest', ally as Fighter, units);
       if (
@@ -349,7 +362,9 @@ function scorePreference(
           undefined,
         );
       if (!wounded) return 0;
-      if (cand.action === 'shieldAlly' && cand.targetId === wounded.id) return 2.5 * w;
+      if (cand.action === 'shieldAlly' && cand.targetId === wounded.id) {
+        return 2.5 * w * shieldNeed(wounded, units);
+      }
       const threat = resolveSelector('nearest', wounded, units);
       let s = -0.3 * dist(cand.to, wounded.pos) * w;
       if (
@@ -431,6 +446,13 @@ export function scoreCandidate(
   const { instincts } = self.compiled;
   const factors: Factor[] = [];
 
+  // тяга характера к самому действию — независимо от того, насколько оно
+  // выгодно здесь и сейчас (нулевая тяга отсекается ещё в кандидатах)
+  const bias = biasFor(instincts, cand.action);
+  if (bias !== 1) {
+    factors.push({ label: 'характер:тяга', value: (bias - 1) * ACTION_BIAS_WEIGHT });
+  }
+
   if (isAttack(cand.action) && cand.targetId) {
     const target = units.find((u) => u.id === cand.targetId)!;
     const expDmg = Math.min(expectedAttackDamage(self, cand.action, target), target.hp);
@@ -455,7 +477,7 @@ export function scoreCandidate(
   const mit = coverLevelOf(cand.action);
   if (mit > 0 && cand.action !== 'shieldAlly' && threat > 0) {
     const v = ((threat * mit) / self.maxHp) * 6 * instincts.survival;
-    factors.push({ label: 'инстинкт:прикрытие', value: v });
+    if (v !== 0) factors.push({ label: 'инстинкт:прикрытие', value: v });
   }
   if (cand.action === 'selflessAttack' && threat > 0) {
     const v = -((threat * (SELFLESS_VULN_MULT - 1)) / self.maxHp) * 6 * instincts.survival * (2 - hpFrac);
