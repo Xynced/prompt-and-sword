@@ -50,6 +50,7 @@ const PARAMLESS_PREFERENCES = [
   'space.highGround',
   'space.behindCover',
   'space.avoidHazard',
+  'act.shove',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -200,6 +201,8 @@ function validatePreference(
       return vocab.includes('space.behindCover') ? { id: 'space.behindCover' } : null;
     case 'space.avoidHazard':
       return vocab.includes('space.avoidHazard') ? { id: 'space.avoidHazard' } : null;
+    case 'act.shove':
+      return vocab.includes('act.shove') ? { id: 'act.shove' } : null;
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {

@@ -25,6 +25,7 @@ import { dist } from './grid.js';
  * План поля:
  *   Простр.:   highGround (держать высоту), behindCover (за укрытием),
  *              avoidHazard (обходить опасное)
+ *   Действия:  shove (толкать — в шипы, в огонь, из строя)
  */
 
 export type Selector =
@@ -76,7 +77,8 @@ export type Preference =
   | { kind: 'strikeDesperate' }
   | { kind: 'highGround' }
   | { kind: 'behindCover' }
-  | { kind: 'avoidHazard' };
+  | { kind: 'avoidHazard' }
+  | { kind: 'shove' };
 
 export interface Rule {
   when: Condition;
@@ -238,5 +240,7 @@ export function describePreference(p: Preference): string {
       return 'за укрытием';
     case 'avoidHazard':
       return 'обходить опасное';
+    case 'shove':
+      return 'толкать';
   }
 }

@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 8;
+export const PROMPT_VERSION = 9;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -60,6 +60,8 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
     '{"id":"space.behindCover"} — за укрытием: предпочитать клетки, где от вражеских стрелков закрывает камень (выстрел в укрытую цель слабее вдвое)',
   'space.avoidHazard':
     '{"id":"space.avoidHazard"} — обходить опасное: не заканчивать шаг на шипах и в огне, а оказавшись там — уходить',
+  'act.shove':
+    '{"id":"act.shove"} — толкать: сдвигать смежного врага на клетку от себя; тем ценнее, чем опаснее клетка за его спиной (шипы, огонь)',
 };
 
 export interface PromptContext {

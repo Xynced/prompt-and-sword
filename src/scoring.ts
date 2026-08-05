@@ -17,6 +17,7 @@ import {
   distanceField,
   hasLoS,
   hasTerrainCover,
+  inBounds,
   isFlanking,
   posEq,
   posKey,
@@ -50,6 +51,9 @@ export const AP_COST: Record<ActionKind, number> = {
   move: 1,
   carefulStep: 1,
   weakAttack: 1,
+  // за 2 AP толчок конкурировал бы с полным ударом и был бы мёртв вне шипов;
+  // за 1 AP «сдвинуть и добить» — нормальный ход
+  shove: 1,
   cover: 1,
   attack: 2,
   selflessAttack: 2,
@@ -74,6 +78,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   selflessAttack: SELFLESS_ATK_MULT,
   move: 0,
   carefulStep: 0,
+  shove: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -90,8 +95,17 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   weakAttack: 0,
   attack: 0,
   selflessAttack: 0,
+  shove: 0,
   wait: 0,
 };
+
+/** Клетка, куда толчок сдвигает цель: ровно на 1 строго от толкающего. */
+export function shoveDest(pusher: Pos, target: Pos): Pos {
+  return {
+    x: target.x + Math.sign(target.x - pusher.x),
+    y: target.y + Math.sign(target.y - pusher.y),
+  };
+}
 
 /** Перемещения: у обоих `to` — новая клетка; осторожный шаг не будит опасность. */
 export const isMovement = (a: ActionKind): boolean => a === 'move' || a === 'carefulStep';
@@ -286,6 +300,24 @@ export function generateCandidates(
     if (!canAttackFrom(here, self, e, units, blocked, ctx.heightAt(here))) continue;
     for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
       if (ap >= AP_COST[action] && allowed(action)) out.push({ to: here, action, targetId: e.id });
+    }
+  }
+
+  // толчок: цель смежна, сдвиг строго от толкающего; в стену / в занятое /
+  // за край не проходит и в кандидаты не попадает вовсе — скоринг не учится
+  // «толкаться в стену». Инстинкты толчка не знают: без слова «толкать» в
+  // правилах кандидатов нет — иначе поле начало бы играть само
+  if (
+    ap >= AP_COST.shove &&
+    allowed('shove') &&
+    self.compiled.rules.some((r) => r.then.kind === 'shove')
+  ) {
+    for (const e of enemiesOf(self, units) as Fighter[]) {
+      if (dist(here, e.pos) !== 1) continue;
+      const dest = shoveDest(here, e.pos);
+      if (inBounds(dest) && !blocked(dest) && !units.some((u) => u.alive && posEq(u.pos, dest))) {
+        out.push({ to: here, action: 'shove', targetId: e.id });
+      }
     }
   }
 
@@ -583,6 +615,15 @@ function scorePreference(
       if (ctx.hazardAt(cand.to)) return (cand.action === 'carefulStep' ? -1 : -2.2) * w;
       if (ctx.hazardAt(self.pos) && isMovement(cand.action)) return 1.5 * w;
       return 0;
+    }
+    case 'shove': {
+      // толкать: тем ценнее, чем опаснее клетка назначения. В шипы — сильнее
+      // полного удара (гарантированный урон + сбитая позиция); на чистую
+      // клетку — мелкая выгода, соперник слабого удара, а не полного
+      if (cand.action !== 'shove' || !cand.targetId) return 0;
+      const target = units.find((u) => u.id === cand.targetId)!;
+      const dest = shoveDest(self.pos, target.pos);
+      return (ctx.hazardAt(dest) ? 3.5 : 0.8) * w;
     }
   }
 }

@@ -43,7 +43,8 @@ export type ConceptId =
   // поле и ландшафт (план поля)
   | 'space.highGround'
   | 'space.behindCover'
-  | 'space.avoidHazard';
+  | 'space.avoidHazard'
+  | 'act.shove';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -90,6 +91,7 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'space.highGround': { id: 'space.highGround', label: 'держать высоту', category: 'space' },
   'space.behindCover': { id: 'space.behindCover', label: 'за укрытием', category: 'space' },
   'space.avoidHazard': { id: 'space.avoidHazard', label: 'обходить опасное', category: 'space' },
+  'act.shove': { id: 'act.shove', label: 'толкать', category: 'action' },
 };
 
 /**
@@ -149,6 +151,8 @@ export const DEEP_WORDS: ConceptId[] = [
   'space.awayFrom',
   // размен «сильнее бью — больнее получаю» стоит понимать до того, как взял
   'act.strikeDesperate',
+  // окупается только в связке с полем: без опасных клеток почти мёртвое слово
+  'act.shove',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */

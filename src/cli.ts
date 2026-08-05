@@ -178,6 +178,9 @@ function verboseRun(setName: string, seed: number): void {
       case 'hazard':
         console.log(`  ${nm(e.unit)} ${e.kind === 'spikes' ? 'напоролся на шипы' : 'обожжён'}: ${e.dmg} урона, hp=${e.hp}`);
         break;
+      case 'shove':
+        console.log(`  ${nm(e.unit)} толкает ${nm(e.target)} в ${fmtPos(e.to)}`);
+        break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);
         break;

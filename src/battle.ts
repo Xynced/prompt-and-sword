@@ -2,7 +2,7 @@ import { type Rng, mulberry32, shuffle } from './rng.js';
 import { AP_PER_TURN, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
-import { dist, isFlanking, posEq } from './grid.js';
+import { dist, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
 import type { LensId, Pos, Side } from './types.js';
 import {
@@ -18,6 +18,7 @@ import {
   isMovement,
   makeCtx,
   rangeAt,
+  shoveDest,
 } from './scoring.js';
 
 export interface UnitSpec {
@@ -51,6 +52,7 @@ export type BattleEvent =
     })
   | { t: 'move'; unit: string; from: Pos; to: Pos }
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
+  | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
   | {
       t: 'attack';
       unit: string;
@@ -220,6 +222,30 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             if (target.hp === 0) {
               target.alive = false;
               events.push({ t: 'die', unit: target.id });
+            }
+          }
+        } else if (action === 'shove' && targetId) {
+          const target = units.find((u) => u.id === targetId)!;
+          const dest = shoveDest(unit.pos, target.pos);
+          if (
+            target.alive &&
+            dist(unit.pos, target.pos) === 1 &&
+            inBounds(dest) &&
+            !blocked(dest) &&
+            !units.some((u) => u.alive && posEq(u.pos, dest))
+          ) {
+            events.push({ t: 'shove', unit: unit.id, target: target.id, from: { ...target.pos }, to: { ...dest } });
+            target.pos = { ...dest };
+            // опасность на клетке назначения срабатывает немедленно — иначе весь смысл
+            const hz = tiles[dest.y]?.[dest.x]?.hazard;
+            if (hz) {
+              target.hp = Math.max(0, target.hp - HAZARD_DMG);
+              target.lastAttackerId = unit.id; // мститель запомнит толкнувшего
+              events.push({ t: 'hazard', unit: target.id, kind: hz, dmg: HAZARD_DMG, hp: target.hp });
+              if (target.hp === 0) {
+                target.alive = false;
+                events.push({ t: 'die', unit: target.id });
+              }
             }
           }
         } else if (action === 'shieldAlly' && targetId) {

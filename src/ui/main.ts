@@ -442,6 +442,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.highGround')) out.push({ value: { id: 'space.highGround' }, label: 'держать высоту' });
   if (has('space.behindCover')) out.push({ value: { id: 'space.behindCover' }, label: 'держаться за укрытием' });
   if (has('space.avoidHazard')) out.push({ value: { id: 'space.avoidHazard' }, label: 'обходить опасное' });
+  if (has('act.shove')) out.push({ value: { id: 'act.shove' }, label: 'толкать' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -567,6 +568,13 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         const u = units.get(e.unit)!;
         u.hp = e.hp;
         pending?.parts.push(`${e.kind === 'spikes' ? 'напоролся на шипы' : 'обожжён'}: −${e.dmg}`);
+        break;
+      }
+      case 'shove': {
+        const t = units.get(e.target)!;
+        t.x = e.to.x;
+        t.y = e.to.y;
+        pending?.parts.push(`толкает ${nm(e.target)} в ${cellName(e.to.x, e.to.y)}`);
         break;
       }
       case 'die': {

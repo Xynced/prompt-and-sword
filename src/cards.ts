@@ -91,6 +91,8 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'держусь за укрытием: прячусь за камнем от вражеских стрелков';
     case 'avoidHazard':
       return 'обхожу опасное: на шипы и в огонь не встаю, а встав — ухожу';
+    case 'shove':
+      return 'толкаю: сбиваю врага с места — в шипы, в огонь, из строя';
   }
 }
 

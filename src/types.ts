@@ -12,6 +12,7 @@ export type ActionKind =
   | 'weakAttack'
   | 'attack'
   | 'selflessAttack'
+  | 'shove'
   | 'cover'
   | 'fullCover'
   | 'shieldAlly'
