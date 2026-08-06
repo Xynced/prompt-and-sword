@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
-import { bonesetter, foeIntel, raider, rat, sergeant, slinger, soldier, wolf } from '../src/foes.js';
+import { bonesetter, foeIntel, ogre, pyro, raider, rat, sergeant, shaman, slinger, soldier, wolf } from '../src/foes.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
 import type { Rule } from '../src/ir.js';
 import { posEq } from '../src/grid.js';
@@ -215,6 +215,45 @@ describe('ближники + лекарь: налётчики и костопр�
       'late',
     );
     expect(chop.hpFrac).toBeGreaterThan(pick.hpFrac); // добивание вязнет в перелечке
+  });
+});
+
+describe('танк + кастеры: огр и поджигатель', () => {
+  const crew = () => [ogre(), pyro(1), shaman('ogre')];
+  const spread = r({ when: { kind: 'always' }, then: { kind: 'spread' }, weight: 1.5, source: 'держи интервал' });
+
+  it('спеки: огр-пробка (проход, туша, вышвырнуть), поджигатель-стекло за его спиной', () => {
+    const og = ogre();
+    expect(og.maxHp).toBe(100);
+    expect(og.rules.some((rl) => rl.then.kind === 'chokepoint')).toBe(true);
+    expect(og.rules.some((rl) => rl.then.kind === 'shove')).toBe(true);
+    const py = pyro(1);
+    expect(py.weapons![0]!.aoe?.blast).toBeDefined();
+    expect(py.rules.some((rl) => rl.then.kind === 'barrage')).toBe(true);
+    expect(py.rules.some((rl) => rl.then.kind === 'behind')).toBe(true);
+  });
+
+  it('смоук: залпы жгут кучную партию, «держать интервал» бережёт и глушит касты', () => {
+    let hpNaive = 0;
+    let hpSpread = 0;
+    let castsNaive = 0;
+    let castsSpread = 0;
+    for (let s = 1; s <= 20; s++) {
+      const seed = s * 17 + 3;
+      const n = runBattle(seed, [...partyWith([]), ...crew()], 'elite');
+      const sp = runBattle(seed, [...partyWith([spread]), ...crew()], 'elite');
+      const frac = (res: typeof n): number => {
+        const pu = res.units.filter((u) => u.side === 'party');
+        return pu.reduce((a, u) => a + (u.alive ? u.hp : 0), 0) / pu.reduce((a, u) => a + u.maxHp, 0);
+      };
+      hpNaive += frac(n);
+      hpSpread += frac(sp);
+      castsNaive += n.events.filter((e) => e.t === 'aoeCast').length;
+      castsSpread += sp.events.filter((e) => e.t === 'aoeCast').length;
+    }
+    expect(hpNaive / 20).toBeLessThan(0.45); // артиллерия за пробкой — дорогой бой
+    expect(hpSpread).toBeGreaterThan(hpNaive); // интервал бережёт
+    expect(castsSpread).toBeLessThan(castsNaive); // и обесценивает залпы
   });
 });
 

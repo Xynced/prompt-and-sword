@@ -379,6 +379,61 @@ export function bonesetter(behindId: string): UnitSpec {
   };
 }
 
+/**
+ * Танк + кастеры: огр (Ogre Warrior) — стена мяса на пути к артиллерии:
+ * медленный, закрывает проход телом, вышвыривает тех, кто протискивается.
+ * «Руби ближайшего» упирается в его 100 hp, пока сзади жгут.
+ */
+export function ogre(): UnitSpec {
+  return {
+    id: 'ogre',
+    name: 'Огр',
+    side: 'foe',
+    maxHp: 100,
+    weapons: [{ name: 'дубина-бревно', dmg: 11, range: 1 }],
+    speed: 2,
+    move: 1,
+    lenses: ['plain'],
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'chokepoint' }, weight: 1.2, source: 'огр: закрыть проход тушей' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.8, source: 'огр: крушить ближайшего' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'shove' }, weight: 1.0, source: 'огр: вышвырнуть с дороги' }),
+    ],
+  };
+}
+
+/**
+ * Поджигатель (Goblin Pyro) — стеклянная артиллерия за спиной огра: жжёт
+ * залпом каждое скопление (blast без лимита, канал шамана). Пока огр-пробка
+ * жив, до поджигателя не дотянуться — держи интервал или прорывайся.
+ */
+export function pyro(n: number): UnitSpec {
+  return {
+    id: `pyro${n}`,
+    name: `Поджигатель ${n}`,
+    side: 'foe',
+    maxHp: 18,
+    weapons: [{
+      name: 'горшки с огнём',
+      dmg: 5,
+      range: 4,
+      aoe: { blast: { range: 4, mult: 0.8 } },
+    }],
+    speed: 6,
+    move: 2,
+    lenses: ['plain'],
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'barrage' }, weight: 1.5, source: 'поджигатель: горшком по скоплению' }),
+      rule({
+        when: { kind: 'always' },
+        then: { kind: 'behind', ref: { type: 'ally', id: 'ogre' } },
+        weight: 1.2,
+        source: 'поджигатель: прятаться за огром',
+      }),
+    ],
+  };
+}
+
 /** Финальный босс забега. Ходит со свитой (шаман за спиной, охотник в тылу). */
 export function warlord(): UnitSpec {
   return {

@@ -3,7 +3,7 @@ import { type PhraseDraft, compilePhrase } from './constructor.js';
 import { CORE_WORDS, type ConceptId, DEEP_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
-import { archer, berserker, bonesetter, grunt, hunter, packLeader, raider, rat, sergeant, shaman, slinger, soldier, warChief, warlord, wolf } from './foes.js';
+import { archer, berserker, bonesetter, grunt, hunter, ogre, packLeader, pyro, raider, rat, sergeant, shaman, slinger, soldier, warlord, wolf } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
 import { ARENA_H, type ArenaTag, PARTY_ZONE_MAX_X, pickTerrain, tileAt } from './terrain.js';
@@ -161,7 +161,7 @@ export function foesForNode(node: MapNode): UnitSpec[] {
     case 'elite':
       return node.layer <= 3
         ? [soldier(1, 'soldier2'), soldier(2, 'soldier1'), sergeant()] // умная элита: порядок целей решает
-        : [warChief(), shaman('chief'), archer(1)];
+        : [ogre(), pyro(1), shaman('ogre')]; // танк + кастеры: интервал или прорыв
     case 'boss':
       // подобрано симом: 4-й враг делает бой нерешаемым (экономика действий);
       // охотник вместо берсерка — свита достаёт и кайтящих стрелков (после
