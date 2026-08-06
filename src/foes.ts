@@ -8,14 +8,26 @@ const rule = (r: Omit<Rule, 'scope'>): Rule => ({ ...r, scope: 'self' });
 
 /**
  * Разведка: видимые принципы врагов (после линзы характера — то, как враг
- * БУДЕТ себя вести). Показывается перед боем у элиток и босса: бой становится
- * задачей на контр-формулировку.
+ * БУДЕТ себя вести) + площадное оружие носителя АОЕ. Показывается перед боем
+ * у элиток и босса: бой становится задачей на контр-формулировку.
  */
 export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: string[] }[] {
-  return specs.map((s) => ({
-    name: s.name,
-    lines: applyLens(s.lenses, s.rules).rules.map((r) => r.source),
-  }));
+  return specs.map((s) => {
+    const lines = applyLens(s.lenses, s.rules).rules.map((r) => r.source);
+    const w: string[] = [];
+    if (s.aoe?.blast) w.push(`заряд 3×3 (дальность ${s.aoe.blast.range})`);
+    if (s.aoe?.line) w.push(`волна 1×${s.aoe.line.len}`);
+    if (s.aoe?.ritual) {
+      const limit = s.aoe.ritual.cooldown
+        ? `, раз в ${s.aoe.ritual.cooldown} раунда`
+        : s.aoe.ritual.usesPerBattle
+          ? `, ${s.aoe.ritual.usesPerBattle} на бой`
+          : '';
+      w.push(`ритуал 5×5 (замах виден за ход${limit})`);
+    }
+    if (w.length > 0) lines.push(`оружие: ${w.join(' · ')}`);
+    return { name: s.name, lines };
+  });
 }
 
 export function grunt(n: number): UnitSpec {

@@ -505,6 +505,8 @@ interface Frame {
   text: string;
   factors: { label: string; value: number }[];
   units: FrameUnit[];
+  /** Центры висящих зон замаха (5×5) — от телеграфа до залпа или смерти кастера. */
+  zones: { x: number; y: number }[];
   callout?: string;
 }
 
@@ -517,6 +519,8 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
   const units = new Map<string, FrameUnit>();
   const nm = (id: string): string => units.get(id)?.name ?? id;
   const snap = (): FrameUnit[] => [...units.values()].map((u) => ({ ...u }));
+  // висящие зоны замаха по кастерам: от телеграфа до залпа или смерти кастера
+  const activeZones = new Map<string, { x: number; y: number }>();
   const out: Frame[] = [];
   let round = 0;
   let pending: { actorId: string; factors: Frame['factors']; parts: string[] } | null = null;
@@ -530,6 +534,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       text: pending.parts.length ? pending.parts.join(', ') : 'медлит',
       factors: pending.factors,
       units: snap(),
+      zones: [...activeZones.values()].map((z) => ({ ...z })),
     });
     pending = null;
   };
@@ -586,6 +591,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         break;
       }
       case 'telegraph':
+        activeZones.set(e.unit, { x: e.at.x, y: e.at.y });
         pending?.parts.push(`начинает замах: накроет 5×5 у ${cellName(e.at.x, e.at.y)}`);
         break;
       case 'aoeCast':
@@ -593,6 +599,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
           // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр
           flush();
           pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`] };
+          activeZones.delete(e.unit);
         } else if (e.form === 'line') {
           pending?.parts.push(`рубит волной в сторону ${cellName(e.at.x, e.at.y)}`);
         } else {
@@ -607,6 +614,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       }
       case 'die': {
         units.get(e.unit)!.alive = false;
+        activeZones.delete(e.unit); // зона умирает вместе с кастером
         pending?.parts.push(`${nm(e.unit)} падает`);
         break;
       }
@@ -634,6 +642,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
     text: '',
     factors: [],
     units: out.length ? out[0]!.units.map((u) => ({ ...u, hp: u.maxHp, alive: true })) : snap(),
+    zones: [],
     callout: 'приказы скомпилированы — дальше арифметика',
   };
   // позиции стартового кадра — из событий spawn, а не первого решения
@@ -1122,6 +1131,26 @@ function tokensHtml(): string {
     .join('');
 }
 
+/** Висящие зоны замаха текущего кадра: клетки 5×5 вокруг центров. */
+function zonesHtml(): string {
+  const f = frames[frameIdx];
+  if (!f || f.zones.length === 0) return '';
+  const out: string[] = [];
+  for (const z of f.zones) {
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const x = z.x + dx;
+        const y = z.y + dy;
+        if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
+        out.push(
+          `<div class="zone" style="left:${x * CELL}%;top:${y * CELL}%" title="зона замаха — ударит в начале хода кастера"></div>`,
+        );
+      }
+    }
+  }
+  return out.join('');
+}
+
 function tilesLayerHtml(tiles: readonly Tile[][]): string {
   const out: string[] = [];
   tiles.forEach((row, y) =>
@@ -1157,6 +1186,7 @@ function battleScreenHtml(): string {
       </div>
       <div class="bfield" id="bfield" style="--cell:${CELL}%">
         ${terrainHtml()}
+        <div class="zones-layer" id="zoneslayer">${zonesHtml()}</div>
         ${tokensHtml()}
         <span class="callout" id="callout" style="left:24%;top:90%">${esc(f.callout ?? '')}</span>
       </div>
@@ -1214,6 +1244,8 @@ function syncBattleFrame(): void {
   set('turnlabel', `ход ${f.round}`);
   set('framelabel', `${frameIdx}/${frames.length - 1}`);
   set('callout', f.callout ?? '');
+  const zl = document.getElementById('zoneslayer');
+  if (zl) zl.innerHTML = zonesHtml();
   const play = document.getElementById('playbtn');
   if (play) play.textContent = playing ? '❙❙' : '▶';
   const bar = document.getElementById('progressbar');
