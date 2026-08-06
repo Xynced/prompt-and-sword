@@ -975,7 +975,13 @@ function scorePreference(
         const allies = units
           .filter((u) => u.alive && u.side === self.side && u !== self)
           .map((u) => u.pos);
-        if (self.range === 1 && isFlanking(cand.to, target.pos, allies)) s += 2.5 * w * apShare(cand.action);
+        // строй ломает фланги: премии за невозможный фланг не бывает
+        const targetAllies = units
+          .filter((u) => u.alive && u.side === target.side && u !== target)
+          .map((u) => u.pos);
+        if (self.range === 1 && isFlanking(cand.to, target.pos, allies, targetAllies)) {
+          s += 2.5 * w * apShare(cand.action);
+        }
       }
       if (self.range === 1) {
         const nearest = resolveSelector('nearest', self, units);

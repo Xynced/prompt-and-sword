@@ -320,7 +320,12 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             const allyPositions = units
               .filter((u) => u.alive && u.side === unit.side && u !== unit)
               .map((u) => u.pos);
-            const flank = weapon.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
+            // строй ломает фланги: смежный с целью союзник прикрывает ей спину
+            const targetAllyPositions = units
+              .filter((u) => u.alive && u.side === target.side && u !== target)
+              .map((u) => u.pos);
+            const flank =
+              weapon.range === 1 && isFlanking(unit.pos, target.pos, allyPositions, targetAllyPositions);
             // фланговый множитель: у плута «в спину» — свой, острее общего
             const flankMult = flank ? unit.passives?.sneak?.flankMult ?? 1.5 : 1;
             const raw = rollDamage(
