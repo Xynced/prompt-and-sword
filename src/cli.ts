@@ -218,6 +218,9 @@ function verboseRun(setName: string, seed: number): void {
       case 'intercept':
         console.log(`  ${nm(e.unit)} принимает удар, предназначенный ${nm(e.target)}`);
         break;
+      case 'riposte':
+        console.log(`  ${nm(e.unit)} напарывается на рипост ${nm(e.by)}: −${e.dmg}, hp=${e.hp}`);
+        break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);
         break;

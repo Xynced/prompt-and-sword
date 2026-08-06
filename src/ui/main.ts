@@ -668,6 +668,12 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       case 'intercept':
         pending?.parts.push(`${nm(e.unit)} принимает удар, предназначенный ${nm(e.target)}`);
         break;
+      case 'riposte': {
+        const u = units.get(e.unit)!;
+        u.hp = e.hp;
+        pending?.parts.push(`напарывается на рипост ${nm(e.by)}: −${e.dmg}`);
+        break;
+      }
       case 'cover':
         pending?.parts.push(
           e.ally

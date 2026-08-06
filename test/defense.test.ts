@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { isFlanking } from '../src/grid.js';
-import { thug, wolf } from '../src/foes.js';
+import { duelist, soldier, thug, wolf } from '../src/foes.js';
+import { RIPOSTE_DMG } from '../src/tuning.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
 import type { Rule } from '../src/ir.js';
 
@@ -185,5 +186,56 @@ describe('перехват телохранителя', () => {
     }
     expect(intercepts).toBeGreaterThanOrEqual(8); // телохранитель реально ловит удары
     expect(hpPair).toBeGreaterThan(hpNaive); // связка бережёт против охоты на тыл
+  });
+});
+
+describe('рипост глухой обороны', () => {
+  const brace = r({ when: { kind: 'always' }, then: { kind: 'brace' }, weight: 5, source: 'глухая оборона' });
+  const scene = (attacker: Partial<UnitSpec>): UnitSpec[] => [
+    // защитник быстрее: сначала встаёт в глухую оборону, потом его бьют
+    { id: 'def', name: 'def', side: 'party', maxHp: 600, atk: 5, range: 1, speed: 8, move: 0, lenses: ['plain'], rules: [brace], spawn: { x: 5, y: 8 } },
+    { id: 'atk', name: 'atk', side: 'foe', maxHp: 600, atk: 6, range: 1, speed: 7, move: 0, lenses: ['fanatic'], rules: [atkNearest], spawn: { x: 6, y: 8 }, ...attacker },
+  ];
+  const ripostes = (events: readonly BattleEvent[]): Extract<BattleEvent, { t: 'riposte' }>[] =>
+    events.filter((e): e is Extract<BattleEvent, { t: 'riposte' }> => e.t === 'riposte');
+
+  it('ближний удар по глухой обороне ранит бьющего на фиксированные очки', () => {
+    const res = runBattle(5, scene({}));
+    const first = ripostes(res.events)[0]!;
+    expect(first.unit).toBe('atk');
+    expect(first.by).toBe('def');
+    expect(first.dmg).toBe(RIPOSTE_DMG);
+    expect(first.hp).toBe(600 - RIPOSTE_DMG);
+  });
+
+  it('стрела рипост не ловит', () => {
+    const res = runBattle(5, scene({ atk: 6, range: 4, spawn: { x: 9, y: 8 } }));
+    expect(ripostes(res.events)).toEqual([]);
+  });
+
+  it('рипост добивает: настойчивый умирает об оборону', () => {
+    const res = runBattle(5, scene({ maxHp: 3 }));
+    const rp = ripostes(res.events)[0];
+    expect(rp).toBeDefined();
+    expect(rp!.hp).toBe(0);
+    expect(res.events.some((e) => e.t === 'die' && e.unit === 'atk')).toBe(true);
+  });
+
+  it('смоук: Гром в глухой обороне делает дуэлянта дороже для него самого', () => {
+    const duel = () => [duelist(), soldier(1, 'soldier2'), soldier(2, 'soldier1')];
+    const braceRule = r({ when: { kind: 'hpBelow', who: 'self', frac: 0.6 }, then: { kind: 'brace' }, weight: 2, source: 'ранен — глухая оборона' });
+    let duelistRiposteHp = 0;
+    let gromDeadNaive = 0;
+    let gromDeadBrace = 0;
+    for (let s = 1; s <= 20; s++) {
+      const seed = s * 17 + 3;
+      const naive = runBattle(seed, [hero('grom', 0, [atkNearest]), hero('lia', 1, [atkNearest]), hero('zhalo', 2, [atkNearest]), ...duel()], 'elite');
+      const braced = runBattle(seed, [hero('grom', 0, [atkNearest, braceRule]), hero('lia', 1, [atkNearest]), hero('zhalo', 2, [atkNearest]), ...duel()], 'elite');
+      duelistRiposteHp += ripostes(braced.events).filter((e) => e.unit === 'duelist').reduce((a, e) => a + e.dmg, 0);
+      if (!naive.units.find((u) => u.id === 'grom')!.alive) gromDeadNaive++;
+      if (!braced.units.find((u) => u.id === 'grom')!.alive) gromDeadBrace++;
+    }
+    expect(duelistRiposteHp).toBeGreaterThan(0); // настойчивость дуэлянта теперь стоит крови
+    expect(gromDeadBrace).toBeLessThanOrEqual(gromDeadNaive); // и керри в обороне гибнет не чаще
   });
 });

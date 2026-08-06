@@ -1,5 +1,5 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
-import { AP_PER_TURN, COVER, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
+import { AP_PER_TURN, COVER, FULL_COVER, HAZARD_DMG, RIPOSTE_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import { type Rule, evalCondition } from './ir.js';
 import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
@@ -100,6 +100,8 @@ export type BattleEvent =
   | { t: 'feint'; unit: string; target: string }
   /** Перехват: телохранитель принимает удар, предназначенный подопечному. */
   | { t: 'intercept'; unit: string; target: string }
+  /** Рипост: ближний удар по глухой обороне ранит бьющего (`unit`); by — оборонявшийся. */
+  | { t: 'riposte'; unit: string; by: string; dmg: number; hp: number }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
@@ -399,6 +401,17 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
               }
               target.tags.push('marked');
               events.push({ t: 'mark', unit: unit.id, target: target.id });
+            }
+            // рипост (план защиты): ближний удар по живому в глухой обороне
+            // ранит бьющего — фиксированно, без rng (прецедент шипов)
+            if (weapon.range === 1 && target.alive && target.coverLevel >= FULL_COVER) {
+              unit.hp = Math.max(0, unit.hp - RIPOSTE_DMG);
+              unit.lastAttackerId = target.id;
+              events.push({ t: 'riposte', unit: unit.id, by: target.id, dmg: RIPOSTE_DMG, hp: unit.hp });
+              if (unit.hp === 0) {
+                unit.alive = false;
+                events.push({ t: 'die', unit: unit.id });
+              }
             }
           }
         } else if (action === 'shove' && targetId) {
