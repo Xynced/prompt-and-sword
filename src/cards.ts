@@ -1,4 +1,4 @@
-import type { Condition, Preference, Rule } from './ir.js';
+import type { Condition, LensMark, Preference, Rule } from './ir.js';
 import { applyLens } from './lens.js';
 import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponSpec } from './types.js';
 
@@ -197,6 +197,62 @@ function lensMark(rule: Rule): string {
   if (rule.marks?.some((m) => m.kind === 'instinct')) return ' ⚠ инстинкт';
   if (rule.source.startsWith('способность')) return ' · способность';
   return '';
+}
+
+/**
+ * Реплика персонажа от первого лица — раскрытие искажения в журнале боя
+ * (план линз). Имя линзы не называет: игрок выводит характер сам, полные
+ * подписи — в debug. Реплика строится по последней пометке правила.
+ */
+export function lensQuip(m: LensMark, names: Record<string, string> = {}): string {
+  const nm = (id: string): string => names[id] ?? id;
+  const from = m.kind === 'reword' ? m.from.kind : undefined;
+  switch (m.lens) {
+    case 'plain':
+      return 'Понял как написано.';
+    case 'coward':
+      if (m.kind === 'instinct') return 'Всё, с меня хватит — я отсюда.';
+      if (m.kind === 'reweight')
+        return m.mult < 1 ? 'Нападать? Иду… но без охоты.' : 'Дистанция — это святое.';
+      if (m.kind === 'reword' && m.from.kind === 'protect')
+        return `Прикрывать ${nm(m.from.ally)}? Постою за спиной — оттуда тоже всё видно.`;
+      if (from === 'bait') return 'Приманкой пусть смелые работают. Я просто отойду.';
+      if (from === 'strikeDesperate') return 'Отчаянно не могу. В полную силу — куда ни шло.';
+      if (from === 'rage') return 'В ярость? Уж лучше в глухую оборону.';
+      break;
+    case 'fanatic':
+      if (m.kind === 'recondition') return 'Ярость не ждёт повода.';
+      if (from === 'retreat') return 'Отступать? Отступлю, когда все лягут.';
+      if (from === 'coverRetreat') return 'Отход не прикрывают — добивают!';
+      if (from === 'avoidLineOfFire') return 'Под огонь — так под огонь. Вперёд!';
+      if (from === 'standoff') return 'Моя дистанция — длина клинка.';
+      if (from === 'brace') return 'Щиты — для трусов.';
+      if (from === 'strikeOften' || from === 'strikeHard') return 'Бить — так со всей ярости!';
+      break;
+    case 'literalist':
+      return 'Правила на это нет. Стою и защищаюсь.';
+    case 'avenger':
+      return 'Кто меня ударил — тот умрёт.';
+    case 'duelist':
+      if (from === 'attack') return 'Слабых не добиваю. Вызываю сильнейшего.';
+      if (from === 'flank') return 'В спину не бью — только лицом к лицу.';
+      break;
+    case 'gloryhound':
+      return 'Достойная цель — только вожак.';
+    case 'guardian':
+      return m.kind === 'instinct' ? 'Самый раненый из наших — за мной.' : 'Своих не бросаю.';
+    case 'paranoid':
+      return 'Стрелки. Везде стрелки. Я — в сторонку.';
+    case 'hothead':
+      if (from === 'strikeHard') return 'Пока ты примеряешься — я уже трижды ударил.';
+      if (from === 'holdPosition') return 'Стоять на месте? Невыносимо.';
+      if (from === 'bait') return 'Приманивать? Просто нападу.';
+      if (from === 'brace') return 'Отсиживаться за щитом? Невыносимо.';
+      break;
+    case 'showman':
+      return m.kind === 'instinct' ? 'Пусть весь их строй смотрит на меня.' : 'Эффектный заход — это по мне.';
+  }
+  return 'Понял по-своему.';
 }
 
 /**

@@ -23,7 +23,7 @@
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
 | [constructor.ts](constructor.ts) | Конструктор фраз: `PhraseDraft` (чипсы словаря) → IR без LLM; закрытый концепт — ошибка | `compilePhrase`, `PhraseDraft`, `CompileResult` |
-| [cards.ts](cards.ts) | Обратный перевод IR после линзы → карточка «как понял» (искажения ⚠ по пометкам marks); описания оружия, активов и пассивов для разведки и карточек | `understandingCard`, `ruleRu`, `describeWeapon`, `describeWeapons`, `describeActive`, `describePassives` |
+| [cards.ts](cards.ts) | Обратный перевод IR после линзы → карточка-эхо «как понял» (факт искажения до боя, полная карточка в debug) и реплики раскрытия для журнала боя | `understandingCard`, `lensQuip`, `ruleRu`, `describeWeapon`, `describeWeapons`, `describeActive`, `describePassives` |
 | [compiler/schema.ts](compiler/schema.ts) | JSON-схема tool use из **открытого** словаря + программная валидация выхода | `buildCompileSchema`, `validateOutput`, `CompilerOutput` |
 | [compiler/prompt.ts](compiler/prompt.ts) | Системный промпт компилятора (версионируется для ключа кэша) | `buildSystemPrompt`, `PROMPT_VERSION` |
 | [compiler/compile.ts](compiler/compile.ts) | LLM-вызов: свободный текст → `PhraseDraft`, гейт через `compilePhrase` | `compileFreeText`, `anthropicModelCall`, `DEFAULT_MODEL` |

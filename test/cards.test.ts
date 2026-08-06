@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { understandingCard } from '../src/cards.js';
+import { lensQuip, understandingCard } from '../src/cards.js';
 import type { Rule } from '../src/ir.js';
 
 const names = { lia: 'Лия' };
@@ -63,5 +63,27 @@ describe('understandingCard (карточка-эхо: до боя виден т�
     const a = understandingCard({ name: 'Тень', lenses: ['coward'] }, [protect()], names);
     const b = understandingCard({ name: 'Тень', lenses: ['coward'] }, [protect()], names);
     expect(a).toEqual(b);
+  });
+});
+
+describe('lensQuip (реплики раскрытия в журнале боя)', () => {
+  it('трус про «прикрывать»: голос персонажа, имя подопечного есть, имени линзы нет', () => {
+    const q = lensQuip({ lens: 'coward', kind: 'reword', from: { kind: 'protect', ally: 'lia' } }, names);
+    expect(q).toContain('Лия');
+    expect(q).toContain('за спиной');
+    expect(q.toLowerCase()).not.toContain('трус');
+  });
+
+  it('фанатик про отступление', () => {
+    const q = lensQuip({ lens: 'fanatic', kind: 'reword', from: { kind: 'retreat' } });
+    expect(q).toContain('когда все лягут');
+  });
+
+  it('инстинкт мстителя', () => {
+    expect(lensQuip({ lens: 'avenger', kind: 'instinct' })).toContain('тот умрёт');
+  });
+
+  it('непокрытое сочетание — безопасный фолбэк', () => {
+    expect(lensQuip({ lens: 'duelist', kind: 'reweight', mult: 0.85 })).toBe('Понял по-своему.');
   });
 });

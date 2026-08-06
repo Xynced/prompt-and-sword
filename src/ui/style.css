@@ -629,6 +629,19 @@ textarea.intent-text:focus { outline: none; border-color: var(--red); }
   border-top: 1px dotted rgba(31, 27, 22, 0.35);
   padding-top: 8px;
 }
+/* разбор после боя (план линз): реплики характеров, раскрывшиеся в бою */
+.aftermath .a-debrief {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px dotted rgba(31, 27, 22, 0.35);
+  padding-top: 8px;
+  font: 400 13px/1.4 var(--hand);
+}
+.aftermath .a-debrief .why {
+  font: 400 10.5px/1.4 var(--mono);
+  color: rgba(31, 27, 22, 0.55);
+}
 
 /* ---- разведка числом, карточка юнита, свиток боя ---- */
 .foe-list {

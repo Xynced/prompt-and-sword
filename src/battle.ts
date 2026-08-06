@@ -72,7 +72,7 @@ export interface UnitSpec {
 export type BattleEvent =
   | { t: 'spawn'; unit: string; name: string; side: Side; pos: Pos; maxHp: number }
   | { t: 'round'; n: number }
-  | ({ t: 'decision'; unit: string; round: number } & Pick<Decision, 'factors' | 'condRules'> & {
+  | ({ t: 'decision'; unit: string; round: number } & Pick<Decision, 'factors' | 'condRules' | 'firedCount'> & {
       to: Pos;
       action: ActionKind;
       target?: string;
@@ -296,6 +296,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           ap,
           factors: decision.factors,
           condRules: decision.condRules,
+          firedCount: decision.firedCount,
         });
         ap -= apCostFor(action, unit);
 

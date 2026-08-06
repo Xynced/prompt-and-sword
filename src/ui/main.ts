@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { describeActive, describePassives, describeWeapons, understandingCard } from '../cards.js';
+import { describeActive, describePassives, describeWeapons, lensQuip, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -44,7 +44,7 @@ import { foeIntel } from '../foes.js';
 import { heroArchetype } from '../heroes.js';
 import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../playtest.js';
 import { exportBuild, importBuild } from '../share.js';
-import { LENS_RU } from '../lens.js';
+import { LENS_RU, applyLens } from '../lens.js';
 import type { LensId, Side, WeaponSpec } from '../types.js';
 
 /**
@@ -78,6 +78,8 @@ let tactician = false;
 let editorOpen = false;
 let editHero = run.heroes[0]!.id;
 let aftermathOpen = false;
+/** Реплики характеров, раскрывшиеся в текущем бою, — для разбора после боя. */
+let battleReveals: Reveal[] = [];
 /** Оверлей «свиток боя» — полный лог решений. */
 let logOpen = false;
 /** Карточка юнита (герой или враг) — по клику на фишку или имя в реестре. */
@@ -555,7 +557,21 @@ const CELL = 100 / GRID_W;
 
 const cellName = (x: number, y: number): string => String.fromCharCode(97 + x) + (GRID_H - y);
 
-function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
+/** Раскрытая в бою реплика характера — для колаута и разбора после боя. */
+interface Reveal {
+  unit: string;
+  name: string;
+  side: Side;
+  lens: LensId;
+  quip: string;
+}
+
+function buildFrames(
+  result: BattleResult,
+  leaderIds: Set<string>,
+  specs: readonly UnitSpec[],
+  names: Record<string, string>,
+): { frames: Frame[]; reveals: Reveal[] } {
   const units = new Map<string, FrameUnit>();
   const nm = (id: string): string => units.get(id)?.name ?? id;
   const snap = (): FrameUnit[] => [...units.values()].map((u) => ({ ...u }));
@@ -563,7 +579,27 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
   const activeZones = new Map<string, { x: number; y: number }>();
   const out: Frame[] = [];
   let round = 0;
-  let pending: { actorId: string; factors: Frame['factors']; parts: string[] } | null = null;
+  let pending: { actorId: string; factors: Frame['factors']; parts: string[]; callout?: string } | null = null;
+
+  // искажённые линзами правила по юнитам: source → правило с пометками;
+  // реплика раскрывается при первом срабатывании (правило вошло в топ-факторы)
+  const twistedByUnit = new Map<string, Map<string, Rule>>();
+  const lensesByUnit = new Map<string, readonly LensId[]>();
+  for (const s of specs) {
+    lensesByUnit.set(s.id, s.lenses);
+    const bySource = new Map<string, Rule>();
+    for (const r of applyLens(s.lenses, s.rules).rules) {
+      if (r.marks?.length && !bySource.has(r.source)) bySource.set(r.source, r);
+    }
+    if (bySource.size) twistedByUnit.set(s.id, bySource);
+  }
+  const revealed = new Set<string>();
+  const reveals: Reveal[] = [];
+  const reveal = (unitId: string, lens: LensId, quip: string): void => {
+    const u = units.get(unitId)!;
+    reveals.push({ unit: unitId, name: u.name, side: u.side, lens, quip });
+    if (pending && pending.callout === undefined) pending.callout = `${u.name}: «${quip}»`;
+  };
 
   const flush = (): void => {
     if (!pending) return;
@@ -575,6 +611,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       factors: pending.factors,
       units: snap(),
       zones: [...activeZones.values()].map((z) => ({ ...z })),
+      ...(pending.callout !== undefined ? { callout: pending.callout } : {}),
     });
     pending = null;
   };
@@ -598,10 +635,35 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         flush();
         round = e.n;
         break;
-      case 'decision':
+      case 'decision': {
         flush();
         pending = { actorId: e.unit, factors: e.factors, parts: [] };
+        // раскрытие характера: искажённое правило впервые вошло в топ-факторы
+        const twisted = twistedByUnit.get(e.unit);
+        for (const f of e.factors) {
+          if (!twisted || !f.label.startsWith('правило:')) continue;
+          const r = twisted.get(f.label.slice('правило:'.length));
+          if (!r || revealed.has(`${e.unit}:${r.source}`)) continue;
+          revealed.add(`${e.unit}:${r.source}`);
+          // из нескольких пометок озвучиваем последнее переписывание смысла;
+          // сдвиг веса — только если смысл никто не тронул
+          const marks = r.marks!;
+          const mark = marks.filter((m) => m.kind === 'reword' || m.kind === 'recondition').at(-1) ?? marks.at(-1)!;
+          reveal(e.unit, mark.lens, lensQuip(mark, names));
+          break; // одна реплика на кадр
+        }
+        // достройка пропусков: ни одно правило не сработало — герой решает сам
+        if (e.firedCount === 0 && !revealed.has(`${e.unit}:gap`)) {
+          revealed.add(`${e.unit}:gap`);
+          const literalist = lensesByUnit.get(e.unit)?.includes('literalist') ?? false;
+          reveal(
+            e.unit,
+            literalist ? 'literalist' : 'plain',
+            literalist ? 'Правила на это нет. Стою и защищаюсь.' : 'Приказов на такое нет — решаю сам.',
+          );
+        }
         break;
+      }
       case 'move': {
         const u = units.get(e.unit)!;
         u.x = e.to.x;
@@ -738,7 +800,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
     }
   }
   first.units = [...spawned.values()];
-  return [first, ...out];
+  return { frames: [first, ...out], reveals };
 }
 
 function glyphOf(name: string): string {
@@ -756,7 +818,8 @@ function startBattle(): void {
   // foeSpecs — с применённой меткой: бой на экране и бой в забеге (playFight) — один бой
   const foes = foeSpecs(run);
   const leaderIds = new Set(foes.filter((f) => f.tags?.includes('leader')).map((f) => f.id));
-  battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foes], arenaForNode(node));
+  const specs = [...heroSpecs(run), ...foes];
+  battle = runBattle(battleSeed(run), specs, arenaForNode(node));
   recordEvent({
     t: 'battle',
     node: node.kind,
@@ -768,7 +831,7 @@ function startBattle(): void {
   fightsAtNode++;
   rewroteSinceBattle = false;
   deployPick = null;
-  frames = buildFrames(battle, leaderIds);
+  ({ frames, reveals: battleReveals } = buildFrames(battle, leaderIds, specs, heroNames(run)));
   frameIdx = 0;
   playing = true;
   aftermathOpen = false;
@@ -1473,6 +1536,20 @@ function aftermathHtml(): string {
     !won && node.kind === 'lesson'
       ? `<div>это ничего не стоило: урок прощает — перепиши приказ и переиграй</div>`
       : '';
+  // разбор (план линз): только то, что реально сработало в этом бою —
+  // непроявившиеся прочтения остаются загадкой на следующий
+  const partyReveals = battleReveals.filter((r) => r.side === 'party');
+  const debrief = partyReveals.length
+    ? `<div class="a-debrief">
+        <span class="kicker">разбор — как они тебя поняли</span>
+        ${partyReveals
+          .map(
+            (r) =>
+              `<div><b>${esc(r.name)}</b> — «${esc(r.quip)}»${debugLenses ? ` <span class="why">(${LENS_RU[r.lens]})</span>` : ''}</div>`,
+          )
+          .join('')}
+      </div>`
+    : '';
   return `<div class="overlay">
     <div class="modal aftermath ${won ? '' : 'loss'}">
       <div class="a-title">${title}</div>
@@ -1483,6 +1560,7 @@ function aftermathHtml(): string {
         ${lessonLine}
         <div>перепиши одну фразу и переиграй тот же бой — в этом вся игра</div>
       </div>
+      ${debrief}
       <div class="btn-row" style="margin-top:4px">
         <button data-action="open-editor">переписать приказы</button>
         <button data-action="sparring">↻ те же кости</button>
