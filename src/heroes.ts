@@ -22,8 +22,8 @@ export type HeroRole = 'front' | 'melee' | 'ranged';
 export interface HeroArchetype {
   id: string;
   name: string;
-  /** Класс pf2e и вариант («воин-щитоносец») — видны в карточках UI. */
-  klass: string;
+  /** Базовый класс pf2e («воин», «следопыт»…) — виден в карточках UI. */
+  class: string;
   role: HeroRole;
   stats: { maxHp: number; speed: number; move: number };
   /** Оружие варианта класса; у мастера — несколько, выбирает по ситуации. */
@@ -44,7 +44,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // воин-щитоносец: щит любит бить наверняка и не любит открываться
     id: 'grom',
     name: 'Гром',
-    klass: 'воин-щитоносец',
+    class: 'воин',
     role: 'front',
     stats: { maxHp: 80, speed: 5, move: 2 },
     weapons: [{ name: 'меч и щит', dmg: 8, range: 1, affinity: { attack: 1, selflessAttack: -1 } }],
@@ -61,7 +61,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // следопыт-охотник
     id: 'dart',
     name: 'Дарт',
-    klass: 'следопыт-охотник',
+    class: 'следопыт',
     role: 'ranged',
     stats: { maxHp: 48, speed: 6, move: 2 },
     weapons: [{ name: 'длинный лук', dmg: 6, range: 5 }],
@@ -76,7 +76,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
   {
     id: 'lia',
     name: 'Лия',
-    klass: 'волшебница-эвокер',
+    class: 'волшебница',
     role: 'ranged',
     stats: { maxHp: 40, speed: 4, move: 1 },
     // волшебница-эвокер: залп и ритуал — оба раз в бой; без слова «накрыть
@@ -108,7 +108,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // паладин-бастион
     id: 'skala',
     name: 'Скала',
-    klass: 'паладин-бастион',
+    class: 'паладин',
     role: 'front',
     stats: { maxHp: 96, speed: 3, move: 1 },
     weapons: [{ name: 'щит-башня', dmg: 5, range: 1 }],
@@ -122,7 +122,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // плут «в спину»: кинжалы любят частые уколы
     id: 'tessa',
     name: 'Тесса',
-    klass: 'плутовка «в спину»',
+    class: 'плутовка',
     role: 'melee',
     stats: { maxHp: 44, speed: 7, move: 3 },
     weapons: [{ name: 'кинжалы', dmg: 7, range: 1, affinity: { weakAttack: 1 } }],
@@ -137,7 +137,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // всегда, но без слова «накрыть скопление» волна не случается
     id: 'zhalo',
     name: 'Жало',
-    klass: 'монах-копейщик',
+    class: 'монах',
     role: 'melee',
     stats: { maxHp: 60, speed: 5, move: 2 },
     weapons: [{ name: 'копьё ци', dmg: 6, range: 2, aoe: { line: { len: 4, mult: 0.75 } } }],
@@ -152,7 +152,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // позволяет игроку выбрать момент раньше и лучше
     id: 'ulv',
     name: 'Ульв',
-    klass: 'варвар-ярость',
+    class: 'варвар',
     role: 'front',
     stats: { maxHp: 68, speed: 6, move: 2 },
     weapons: [{ name: 'секира', dmg: 9, range: 1 }],
@@ -171,7 +171,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // следопыт-тень: тяжёлый арбалет бьёт наверняка, частить им не выйдет
     id: 'mara',
     name: 'Мара',
-    klass: 'следопыт-тень',
+    class: 'следопыт',
     role: 'ranged',
     stats: { maxHp: 36, speed: 6, move: 1 },
     weapons: [{ name: 'тяжёлый арбалет', dmg: 7, range: 6, affinity: { attack: 1, weakAttack: -1 } }],
@@ -187,7 +187,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // условить («если врагов больше — лечи») и усилить весом
     id: 'iva',
     name: 'Ива',
-    klass: 'жрица-целительница',
+    class: 'жрица',
     role: 'ranged',
     stats: { maxHp: 44, speed: 5, move: 2 },
     weapons: [{ name: 'ясеневый посох', dmg: 5, range: 3 }],
@@ -203,7 +203,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // words) — жмётся врождённым правилом, цель выбирает скоринг
     id: 'radim',
     name: 'Радим',
-    klass: 'боевой жрец',
+    class: 'жрец',
     role: 'front',
     stats: { maxHp: 72, speed: 4, move: 2 },
     weapons: [{ name: 'молот-благовест', dmg: 7, range: 1, affinity: { attack: 1 } }],
@@ -219,7 +219,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // скопление», как у Жала. Тяжёлое железо не для мелких замахов
     id: 'ryk',
     name: 'Рык',
-    klass: 'варвар-секироносец',
+    class: 'варвар',
     role: 'front',
     stats: { maxHp: 64, speed: 5, move: 2 },
     weapons: [
@@ -242,7 +242,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // жмётся врождённым правилом, цену выбора несёт скоринг
     id: 'lisa',
     name: 'Лиса',
-    klass: 'плутовка-трюкачка',
+    class: 'плутовка',
     role: 'melee',
     stats: { maxHp: 42, speed: 8, move: 3 },
     weapons: [{ name: 'парные ножи', dmg: 6, range: 1, affinity: { weakAttack: 1 } }],
@@ -258,7 +258,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // пространства, а не разовый урон. Гейт теми же словами каста
     id: 'vesta',
     name: 'Веста',
-    klass: 'волшебница-контролёр',
+    class: 'волшебница',
     role: 'ranged',
     stats: { maxHp: 38, speed: 5, move: 2 },
     weapons: [
@@ -284,7 +284,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // (0.55 против 0.45) — волюм-боец, которому «бить часто» родной язык
     id: 'yuna',
     name: 'Юна',
-    klass: 'монахиня-шквал',
+    class: 'монахиня',
     role: 'melee',
     stats: { maxHp: 52, speed: 7, move: 3 },
     weapons: [{ name: 'кулаки бури', dmg: 7, range: 1, weakMult: 0.55, affinity: { weakAttack: 1 } }],
@@ -298,7 +298,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // поднял руку на её своих (канал lastAttackerId); врождённо мстит и за себя
     id: 'zarya',
     name: 'Заря',
-    klass: 'паладин-карательница',
+    class: 'паладин',
     role: 'front',
     stats: { maxHp: 68, speed: 5, move: 2 },
     weapons: [{ name: 'клинок зари', dmg: 8, range: 1, affinity: { attack: 1 } }],
@@ -313,7 +313,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // строй на расстоянии, меч частит, молот ломает наверняка
     id: 'yar',
     name: 'Яр',
-    klass: 'воин-мастер оружия',
+    class: 'воин',
     role: 'front',
     stats: { maxHp: 56, speed: 5, move: 2 },
     weapons: [

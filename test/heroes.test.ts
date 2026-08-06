@@ -16,12 +16,12 @@ describe('пул героев', () => {
   });
 
   it('у каждого героя есть класс; 8 базовых классов представлены по два варианта', () => {
-    for (const h of HERO_POOL) expect(h.klass.length).toBeGreaterThan(0);
+    for (const h of HERO_POOL) expect(h.class.length).toBeGreaterThan(0);
     expect(HERO_POOL.length).toBe(16);
     // класс пары различим по общему корню ярлыка (воин, варвар, плут…)
     const roots = ['воин', 'варвар', 'следопыт', 'плут', 'волшебниц', 'жр', 'монах', 'паладин'];
     for (const root of roots) {
-      expect(HERO_POOL.filter((h) => h.klass.includes(root)).length).toBe(2);
+      expect(HERO_POOL.filter((h) => h.class.includes(root)).length).toBe(2);
     }
   });
 
