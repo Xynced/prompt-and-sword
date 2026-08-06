@@ -1,6 +1,6 @@
 import type { Rule } from './ir.js';
 import type { UnitSpec } from './battle.js';
-import { describeAoe } from './cards.js';
+import { describeAoe, describeWeapons } from './cards.js';
 import { applyLens } from './lens.js';
 
 /** Фабрики врагов. Новый враг = новый набор правил, не новый арт. */
@@ -15,7 +15,8 @@ const rule = (r: Omit<Rule, 'scope'>): Rule => ({ ...r, scope: 'self' });
 export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: string[] }[] {
   return specs.map((s) => {
     const lines = applyLens(s.lenses, s.rules).rules.map((r) => r.source);
-    if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
+    if (s.weapons?.length) lines.push(`оружие: ${describeWeapons(s.weapons)}`);
+    else if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
     return { name: s.name, lines };
   });
 }
@@ -26,8 +27,7 @@ export function grunt(n: number): UnitSpec {
     name: `Рубака ${n}`,
     side: 'foe',
     maxHp: 36,
-    atk: 5,
-    range: 1,
+    weapons: [{ name: 'ржавый тесак', dmg: 5, range: 1 }],
     speed: 4,
     move: 2,
     lenses: ['plain'],
@@ -43,8 +43,7 @@ export function packLeader(): UnitSpec {
     name: 'Вожак',
     side: 'foe',
     maxHp: 56,
-    atk: 7,
-    range: 1,
+    weapons: [{ name: 'зазубренный топор', dmg: 7, range: 1 }],
     speed: 5,
     move: 2,
     tags: ['leader'],
@@ -61,8 +60,7 @@ export function archer(n: number): UnitSpec {
     name: `Лучник ${n}`,
     side: 'foe',
     maxHp: 28,
-    atk: 5,
-    range: 4,
+    weapons: [{ name: 'короткий лук', dmg: 5, range: 4 }],
     speed: 5,
     move: 1,
     lenses: ['plain'],
@@ -79,8 +77,7 @@ export function warChief(): UnitSpec {
     name: 'Вождь',
     side: 'foe',
     maxHp: 68,
-    atk: 7,
-    range: 1,
+    weapons: [{ name: 'топор вождя', dmg: 7, range: 1 }],
     speed: 5,
     move: 2,
     tags: ['leader'],
@@ -100,14 +97,17 @@ export function shaman(behindId: string): UnitSpec {
     name: 'Шаман',
     side: 'foe',
     maxHp: 32,
-    atk: 4,
-    range: 4,
+    // носитель АОЕ: залп 3×3 — первая причина держать интервал; ритуал 5×5
+    // с перезарядкой 3 — телеграфированный, из него выходят или прикрываются
+    weapons: [{
+      name: 'посох духов',
+      dmg: 4,
+      range: 4,
+      aoe: { blast: { range: 4, mult: 0.75 }, ritual: { range: 4, mult: 1.2, cooldown: 3 } },
+    }],
     speed: 5,
     move: 1,
     lenses: ['plain'],
-    // носитель АОЕ: залп 3×3 — первая причина держать интервал; ритуал 5×5
-    // с перезарядкой 3 — телеграфированный, из него выходят или прикрываются
-    aoe: { blast: { range: 4, mult: 0.75 }, ritual: { range: 4, mult: 1.2, cooldown: 3 } },
     rules: [
       rule({
         when: { kind: 'always' },
@@ -126,8 +126,7 @@ export function berserker(n: number): UnitSpec {
     name: `Берсерк ${n}`,
     side: 'foe',
     maxHp: 44,
-    atk: 8,
-    range: 1,
+    weapons: [{ name: 'шипастый цеп', dmg: 8, range: 1 }],
     speed: 6,
     move: 3,
     lenses: ['fanatic'],
@@ -144,8 +143,7 @@ export function hunter(n: number): UnitSpec {
     name: `Охотник ${n}`,
     side: 'foe',
     maxHp: 30,
-    atk: 6,
-    range: 5,
+    weapons: [{ name: 'костяной лук', dmg: 6, range: 5 }],
     speed: 6,
     move: 2,
     lenses: ['plain'],
@@ -170,20 +168,23 @@ export function warlord(): UnitSpec {
     // 132 (было 120): ритуал съедает треть его ходов, а фанатик жжёт и свою
     // свиту — без компенсации узел босса мягчел с 43 до ~55% (план АОЕ, шаг 8)
     maxHp: 132,
-    // hp 60 / atk 9: с пулом героев и способностями (партия сильнее
-    // фиксированной тройки фазы 5) наив на 52/8 добрался до ~46% —
-    // босс переставал быть задачей на контр-формулировку; здесь наив ~35%
-    atk: 9,
-    range: 1,
+    // dmg 9: с пулом героев и способностями (партия сильнее фиксированной
+    // тройки фазы 5) наив на 52/8 добрался до ~46% — босс переставал быть
+    // задачей на контр-формулировку; здесь наив ~35%.
+    // Ритуал «дыхание орды»: рейд-механика финала — замах виден за ход, из
+    // зоны выходят, медленные прикрываются; перезарядка 3 задаёт ритм боя.
+    // mult 2.0: телеграфированный удар обязан быть страшным — при 1.2 босс
+    // менял треть своих ходов на щекотку и мягчел (замер шага 5 плана АОЕ)
+    weapons: [{
+      name: 'обсидиановый топор',
+      dmg: 9,
+      range: 1,
+      aoe: { ritual: { range: 4, mult: 2.0, cooldown: 3 } },
+    }],
     speed: 6,
     move: 2,
     tags: ['leader'],
     lenses: ['fanatic'],
-    // ритуал «дыхание орды»: рейд-механика финала — замах виден за ход, из
-    // зоны выходят, медленные прикрываются; перезарядка 3 задаёт ритм боя.
-    // mult 2.0: телеграфированный удар обязан быть страшным — при 1.2 босс
-    // менял треть своих ходов на щекотку и мягчел (замер шага 5)
-    aoe: { ritual: { range: 4, mult: 2.0, cooldown: 3 } },
     rules: [
       rule({
         when: { kind: 'always' },

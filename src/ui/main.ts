@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { describeAoe, understandingCard } from '../cards.js';
+import { describeWeapons, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -45,7 +45,7 @@ import { heroArchetype } from '../heroes.js';
 import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../playtest.js';
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU } from '../lens.js';
-import type { LensId, Side } from '../types.js';
+import type { LensId, Side, WeaponSpec } from '../types.js';
 
 /**
  * UI по дизайн-прототипу «Prompt & Sword - Prototype.dc.html» (разворот кодекса,
@@ -295,23 +295,29 @@ function lensTag(lenses: readonly LensId[]): string {
   return lenses.map((l) => LENS_RU[l]).join('+');
 }
 
-/** Строка параметров юнита: hp текущее/макс, удар, дальность, инициатива, шаг. */
+/**
+ * Строка параметров юнита: hp текущее/макс, оружие (урон/дальность — на нём,
+ * план классов), инициатива, шаг. Шортхенд atk/range — для юнитов без спеки
+ * оружия.
+ */
 function statLine(
-  s: { maxHp: number; atk: number; range: number; speed: number; move: number },
+  s: { maxHp: number; atk?: number; range?: number; weapons?: readonly WeaponSpec[]; speed: number; move: number },
   hp?: number,
 ): string {
   const hpTxt = hp === undefined ? `${s.maxHp}` : `${hp}/${s.maxHp}`;
-  return `hp ${hpTxt} · удар ${s.atk} · даль ${s.range} · иниц ${s.speed} · шаг ${s.move}`;
+  const arms = s.weapons?.length
+    ? s.weapons.map((w) => `${w.name} ${w.dmg}/${w.range}`).join(' · ')
+    : `удар ${s.atk} · даль ${s.range}`;
+  return `hp ${hpTxt} · ${arms} · иниц ${s.speed} · шаг ${s.move}`;
 }
 
-/** Строка способности архетипа героя; у носителя АОЕ — плюс его оружие. */
+/** Строка способности архетипа героя + его оружие. */
 function abilityLine(archetypeId: string): string {
   const arch = heroArchetype(archetypeId);
   const a = arch.ability;
   // оружие видно всегда, даже до слова «накрыть скопление»: слово берут
   // осознанно, зная, есть ли в партии кому им махать
-  const weapon = arch.aoe ? ` · оружие: ${describeAoe(arch.aoe)}` : '';
-  return `${a.name} — ${a.desc}${weapon}`;
+  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {
@@ -1284,7 +1290,7 @@ function editorHtml(): string {
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
         <div class="nm"><span>${esc(h.name)}</span><span class="ch">${lensTag(h.lenses)}</span></div>
-        <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine(h.stats, h.hp)}</div>
+        <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine({ ...h.stats, weapons: heroArchetype(h.archetypeId).weapons }, h.hp)}</div>
         <div class="sub ability">${esc(abilityLine(h.archetypeId))}</div>
       </div>`;
     })
@@ -1440,7 +1446,7 @@ function unitCardHtml(id: string): string {
         <span class="r-tag ${hero.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(hero.lenses)}</span>
         <span class="meta">${live?.alive === false || !hero.alive ? 'пал(а)' : 'наш отряд'}</span>
       </div>
-      <div class="stat-line">${statLine(hero.stats, live?.hp)}</div>
+      <div class="stat-line">${statLine({ ...hero.stats, weapons: heroArchetype(hero.archetypeId).weapons }, live?.hp)}</div>
       <div class="ability-note">способность · ${esc(abilityLine(hero.archetypeId))}</div>
       <div class="card-block">
         <span class="kicker">приказы</span>

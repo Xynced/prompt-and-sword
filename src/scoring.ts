@@ -24,9 +24,10 @@ import {
   reachableTiles,
 } from './grid.js';
 import type { HazardKind, Tile } from './terrain.js';
-import type { ActionKind, CombatUnit, Pos } from './types.js';
+import type { ActionKind, CombatUnit, Pos, WeaponSpec } from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
+  WEAPON_AFFINITY_BONUS,
   AP_PER_TURN,
   AP_VALUE,
   COVER,
@@ -108,6 +109,18 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   aoeRitual: 0,
   wait: 0,
 };
+
+/**
+ * Оружия юнита: явный список — или неявное оружие из atk/range («голые»
+ * юниты тестов и сценариев Ворот A). Кандидат атаки несёт индекс оружия
+ * (`Candidate.weapon`) — урон и дальность атака считает по своему оружию,
+ * а производные atk/range юнита (максимумы) остаются мерой угрозы.
+ */
+export function weaponsOf(u: CombatUnit): WeaponSpec[] {
+  return u.weapons && u.weapons.length > 0
+    ? u.weapons
+    : [{ name: '', dmg: u.atk, range: u.range, aoe: u.aoe }];
+}
 
 /** Клетка, куда толчок сдвигает цель: ровно на 1 строго от толкающего. */
 export function shoveDest(pusher: Pos, target: Pos): Pos {
@@ -279,6 +292,8 @@ export interface Candidate {
   targetId?: string;
   /** Центр зоны площадного каста (`aoeBlast`). */
   at?: Pos;
+  /** Индекс оружия атаки в `weaponsOf` — у мастера трёх оружий их несколько. */
+  weapon?: number;
 }
 
 export interface Factor {
@@ -375,13 +390,13 @@ function zocOf(self: Fighter, units: readonly Fighter[]): (p: Pos) => boolean {
 }
 
 /** Дальность атаки с учётом высоты клетки: стрелку холм добавляет +height. */
-export function rangeAt(u: CombatUnit, height: number): number {
-  return u.range > 1 ? u.range + height : u.range;
+export function rangeAt(u: CombatUnit, height: number, wRange: number = u.range): number {
+  return wRange > 1 ? wRange + height : wRange;
 }
 
 /** Плоский бонус урона стрелка с высоты 2 («бью сверху»). */
-export function heightDmgBonus(u: CombatUnit, height: number): number {
-  return u.range > 1 && height === 2 ? HIGH_GROUND_DMG : 0;
+export function heightDmgBonus(u: CombatUnit, height: number, wRange: number = u.range): number {
+  return wRange > 1 && height === 2 ? HIGH_GROUND_DMG : 0;
 }
 
 function canAttackFrom(
@@ -391,10 +406,13 @@ function canAttackFrom(
   units: readonly Fighter[],
   blocked: (p: Pos) => boolean,
   height = 0,
+  // дальность конкретного оружия; по умолчанию — производный максимум юнита
+  // (проверки «докуда вообще достаёт», например премия шагу под выстрел)
+  wRange: number = attacker.range,
 ): boolean {
   const d = dist(from, target.pos);
-  if (d > rangeAt(attacker, height)) return false;
-  if (attacker.range === 1) return d === 1;
+  if (d > rangeAt(attacker, height, wRange)) return false;
+  if (wRange === 1) return d === 1;
   // камень, смежный цели, — не стена, а укрытие (гибрид Q-2): выстрел проходит,
   // урон режет coverFrom; тела по-прежнему заслоняют полностью
   return hasLoS(
@@ -450,10 +468,17 @@ export function generateCandidates(
     }
   }
 
+  // атаки — на каждое оружие: мастер трёх оружий сам выбирает копьё против
+  // строя и молот в упор; у юнита с одним оружием кандидаты те же, что раньше
+  const weapons = weaponsOf(self);
   for (const e of enemiesOf(self, units) as Fighter[]) {
-    if (!canAttackFrom(here, self, e, units, blocked, ctx.heightAt(here))) continue;
-    for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
-      if (ap >= AP_COST[action] && allowed(action)) out.push({ to: here, action, targetId: e.id });
+    for (let wi = 0; wi < weapons.length; wi++) {
+      if (!canAttackFrom(here, self, e, units, blocked, ctx.heightAt(here), weapons[wi]!.range)) continue;
+      for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
+        if (ap >= AP_COST[action] && allowed(action)) {
+          out.push({ to: here, action, targetId: e.id, ...(weapons.length > 1 ? { weapon: wi } : {}) });
+        }
+      }
     }
   }
 
@@ -588,6 +613,7 @@ function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
 /**
  * Ожидаемый урон конкретного вида атаки по цели с учётом её прикрытия,
  * каменного укрытия (максимум, не сумма) и открытости; из клетки from.
+ * Урон и «стрелковость» (бонус высоты) — по оружию атаки.
  */
 function expectedAttackDamage(
   self: Fighter,
@@ -595,16 +621,20 @@ function expectedAttackDamage(
   target: CombatUnit,
   ctx: ScoreCtx,
   from: Pos,
+  weapon: WeaponSpec = weaponsOf(self)[0]!,
 ): number {
   const mitigation = Math.max(target.coverLevel, ctx.coverFrom(from, target.pos));
   return (
-    expectedDamage(self.atk) *
+    expectedDamage(weapon.dmg) *
       attackMult(action) *
       (1 - mitigation) *
       (target.exposed ? SELFLESS_VULN_MULT : 1) +
-    heightDmgBonus(self, ctx.heightAt(from))
+    heightDmgBonus(self, ctx.heightAt(from), weapon.range)
   );
 }
+
+/** Оружие кандидата-атаки; у не-атак и одиночного оружия — первое. */
+const candWeapon = (self: Fighter, cand: Candidate): WeaponSpec => weaponsOf(self)[cand.weapon ?? 0]!;
 
 function nearestEnemyDist(p: Pos, self: Fighter, units: readonly Fighter[]): number {
   const es = enemiesOf(self, units);
@@ -699,7 +729,10 @@ function scorePreference(
       // размен: жать атаку, если она добивает или снимает много — угрозу перевешивает вес
       if (!isAttack(cand.action) || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
-      const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx, cand.to), target.hp);
+      const expDmg = Math.min(
+        expectedAttackDamage(self, cand.action, target, ctx, cand.to, candWeapon(self, cand)),
+        target.hp,
+      );
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
     }
     case 'standoff': {
@@ -917,11 +950,18 @@ export function scoreCandidate(
   }
 
   if (isAttack(cand.action) && cand.targetId) {
+    const weapon = candWeapon(self, cand);
     const target = units.find((u) => u.id === cand.targetId)!;
-    const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx, cand.to), target.hp);
+    const expDmg = Math.min(
+      expectedAttackDamage(self, cand.action, target, ctx, cand.to, weapon),
+      target.hp,
+    );
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
+    // аффинность оружия к манере: мягкий вкус, слово игрока (±2.5) перебивает
+    const aff = weapon.affinity?.[cand.action as 'weakAttack' | 'attack' | 'selflessAttack'];
+    if (aff) factors.push({ label: 'оружие:манера', value: aff * WEAPON_AFFINITY_BONUS });
   }
 
   // площадной каст: та же валюта, что у агрессии, но суммой по накрытым.

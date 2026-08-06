@@ -1,16 +1,20 @@
 import type { Rule } from './ir.js';
 import type { PhraseDraft } from './constructor.js';
-import type { AoeSpec, Pos } from './types.js';
+import type { Pos, WeaponSpec } from './types.js';
 import { type Rng, shuffle } from './rng.js';
 
 /**
  * Пул героев забега. Партия из 3 выбирается детерминированно сидом:
- * 1 передовой (range 1, якорь строя) + 2 любых других — каждый забег
+ * 1 передовой (якорь строя) + 2 любых других — каждый забег
  * читает приказы другой состав.
  *
  * Способность — врождённое правило архетипа. Добавляется к приказам ДО линз,
  * поэтому характер искажает и её (у фанатика «Чутьё» Лии превращается
  * в «не отступать»). В карточке «как понял» помечается «· способность».
+ *
+ * План классов: герой = вариант класса pf2e; урон и дальность живут на
+ * оружии (`weapons`, 1–3 штуки), у героя остаются hp/инициатива/шаг.
+ * Площадные формы — в `WeaponSpec.aoe`; каст гейтится словом.
  */
 
 export type HeroRole = 'front' | 'melee' | 'ranged';
@@ -19,32 +23,36 @@ export interface HeroArchetype {
   id: string;
   name: string;
   role: HeroRole;
-  stats: { maxHp: number; atk: number; range: number; speed: number; move: number };
+  stats: { maxHp: number; speed: number; move: number };
+  /** Оружие варианта класса; у мастера — несколько, выбирает по ситуации. */
+  weapons: WeaponSpec[];
   ability: { name: string; desc: string };
   /** Врождённые правила способности; в source — префикс «способность:». */
   innate: Rule[];
-  /** Площадное оружие носителя (план АОЕ); использование гейтится словом «накрыть скопление». */
-  aoe?: AoeSpec;
 }
 
 const r = (rule: Omit<Rule, 'scope'>): Rule => ({ ...rule, scope: 'self' });
 
 export const HERO_POOL: readonly HeroArchetype[] = [
   {
+    // воин-щитоносец: щит любит бить наверняка и не любит открываться
     id: 'grom',
     name: 'Гром',
     role: 'front',
-    stats: { maxHp: 80, atk: 8, range: 1, speed: 5, move: 2 },
+    stats: { maxHp: 80, speed: 5, move: 2 },
+    weapons: [{ name: 'меч и щит', dmg: 8, range: 1, affinity: { attack: 1, selflessAttack: -1 } }],
     ability: { name: 'Оплот', desc: 'сам встаёт между врагом и самым раненым из своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'coverRetreat' }, weight: 0.9, source: 'способность: Оплот' }),
     ],
   },
   {
+    // следопыт-охотник
     id: 'dart',
     name: 'Дарт',
     role: 'ranged',
-    stats: { maxHp: 48, atk: 6, range: 5, speed: 6, move: 2 },
+    stats: { maxHp: 48, speed: 6, move: 2 },
+    weapons: [{ name: 'длинный лук', dmg: 6, range: 5 }],
     ability: { name: 'Подранок', desc: 'не может не добить раненого' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 0.8, source: 'способность: Подранок' }),
@@ -54,7 +62,22 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     id: 'lia',
     name: 'Лия',
     role: 'ranged',
-    stats: { maxHp: 40, atk: 8, range: 4, speed: 4, move: 1 },
+    stats: { maxHp: 40, speed: 4, move: 1 },
+    // волшебница-эвокер: залп и ритуал — оба раз в бой; без слова «накрыть
+    // скопление» оружие молчит. Дальность ритуала 6 (не 4): с move 1 Лия
+    // кастует по бегущим издали, и центр должен дотягиваться до скопления,
+    // а не цеплять его краем зоны
+    weapons: [
+      {
+        name: 'жезл',
+        dmg: 8,
+        range: 4,
+        aoe: {
+          blast: { range: 4, mult: 0.75, usesPerBattle: 1 },
+          ritual: { range: 6, mult: 1.2, usesPerBattle: 1 },
+        },
+      },
+    ],
     ability: { name: 'Чутьё', desc: 'отходит сама, когда дело пахнет жареным' },
     innate: [
       r({
@@ -64,53 +87,51 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         source: 'способность: Чутьё',
       }),
     ],
-    // боевой маг: залп и ритуал — оба раз в бой; без слова «накрыть скопление»
-    // оружие молчит. Дальность ритуала 6 (не 4): с move 1 Лия кастует по
-    // бегущим издали, и центр должен дотягиваться до скопления, а не цеплять
-    // его краем зоны
-    aoe: {
-      blast: { range: 4, mult: 0.75, usesPerBattle: 1 },
-      ritual: { range: 6, mult: 1.2, usesPerBattle: 1 },
-    },
   },
   {
+    // паладин-бастион
     id: 'skala',
     name: 'Скала',
     role: 'front',
-    stats: { maxHp: 96, atk: 5, range: 1, speed: 3, move: 1 },
+    stats: { maxHp: 96, speed: 3, move: 1 },
+    weapons: [{ name: 'щит-башня', dmg: 5, range: 1 }],
     ability: { name: 'Глыба', desc: 'где поставили — там и стоит' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 0.8, source: 'способность: Глыба' }),
     ],
   },
   {
+    // плут «в спину»: кинжалы любят частые уколы
     id: 'tessa',
     name: 'Тесса',
     role: 'melee',
-    stats: { maxHp: 44, atk: 7, range: 1, speed: 7, move: 3 },
+    stats: { maxHp: 44, speed: 7, move: 3 },
+    weapons: [{ name: 'кинжалы', dmg: 7, range: 1, affinity: { weakAttack: 1 } }],
     ability: { name: 'Из-за спины', desc: 'заходит сбоку и бьёт вдвоём' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.2, source: 'способность: Из-за спины' }),
     ],
   },
   {
+    // монах-копейщик: длинное копьё умеет бить волной по линии — оружие есть
+    // всегда, но без слова «накрыть скопление» волна не случается
     id: 'zhalo',
     name: 'Жало',
     role: 'melee',
-    stats: { maxHp: 60, atk: 6, range: 2, speed: 5, move: 2 },
+    stats: { maxHp: 60, speed: 5, move: 2 },
+    weapons: [{ name: 'копьё ци', dmg: 6, range: 2, aoe: { line: { len: 4, mult: 0.75 } } }],
     ability: { name: 'Выпад', desc: 'колет в размен, когда укол того стоит' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 0.9, source: 'способность: Выпад' }),
     ],
-    // спеллблейд: длинное копьё умеет бить волной по линии — оружие есть
-    // всегда, но без слова «накрыть скопление» волна не случается
-    aoe: { line: { len: 4, mult: 0.75 } },
   },
   {
+    // варвар
     id: 'ulv',
     name: 'Ульв',
     role: 'front',
-    stats: { maxHp: 68, atk: 9, range: 1, speed: 6, move: 2 },
+    stats: { maxHp: 68, speed: 6, move: 2 },
+    weapons: [{ name: 'секира', dmg: 9, range: 1 }],
     ability: { name: 'Ярость', desc: 'если бой затянулся — бросается на ближайшего' },
     innate: [
       r({
@@ -122,20 +143,29 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     ],
   },
   {
+    // следопыт-тень: тяжёлый арбалет бьёт наверняка, частить им не выйдет
     id: 'mara',
     name: 'Мара',
     role: 'ranged',
-    stats: { maxHp: 36, atk: 7, range: 6, speed: 6, move: 1 },
+    stats: { maxHp: 36, speed: 6, move: 1 },
+    weapons: [{ name: 'тяжёлый арбалет', dmg: 7, range: 6, affinity: { attack: 1, weakAttack: -1 } }],
     ability: { name: 'Скрадывание', desc: 'не выходит на линию вражеского выстрела' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'avoidLineOfFire' }, weight: 1, source: 'способность: Скрадывание' }),
     ],
   },
   {
+    // воин-мастер оружия: три оружия, выбирает по ситуации — копьё держит
+    // строй на расстоянии, меч частит, молот ломает наверняка
     id: 'yar',
     name: 'Яр',
     role: 'front',
-    stats: { maxHp: 56, atk: 7, range: 1, speed: 5, move: 2 },
+    stats: { maxHp: 56, speed: 5, move: 2 },
+    weapons: [
+      { name: 'копьё', dmg: 6, range: 2 },
+      { name: 'меч', dmg: 7, range: 1, affinity: { weakAttack: 1 } },
+      { name: 'молот', dmg: 8, range: 1, affinity: { weakAttack: -1 } },
+    ],
     ability: { name: 'Вызов', desc: 'признаёт только самого опасного противника' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'mostDangerous' }, weight: 0.9, source: 'способность: Вызов' }),

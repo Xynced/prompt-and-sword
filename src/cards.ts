@@ -1,6 +1,6 @@
 import type { Condition, Preference, Rule } from './ir.js';
 import { LENS_RU, applyLens } from './lens.js';
-import type { AoeSpec, LensId } from './types.js';
+import type { AoeSpec, LensId, WeaponSpec } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -127,6 +127,22 @@ export function describeAoe(aoe: AoeSpec): string {
     w.push(`ритуал 5×5 (замах виден за ход${limit})`);
   }
   return w.join(' · ');
+}
+
+/**
+ * Строка одного оружия (план классов) — для разведки врага и карточки героя:
+ * имя, урон, дальность, площадные формы. Игрок видит оружие до того, как
+ * возьмёт слова под него («накрыть скопление» берут, зная носителя).
+ */
+export function describeWeapon(w: WeaponSpec): string {
+  const range = w.range > 1 ? `, даль ${w.range}` : '';
+  const aoe = w.aoe ? ` · ${describeAoe(w.aoe)}` : '';
+  return `${w.name} (удар ${w.dmg}${range})${aoe}`;
+}
+
+/** Строка оружейного набора: у мастера несколько — через «;». */
+export function describeWeapons(weapons: readonly WeaponSpec[]): string {
+  return weapons.map(describeWeapon).join('; ');
 }
 
 /** Помечена ли строка искажением линзы (по аннотации source). */

@@ -4,7 +4,7 @@ import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
 import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
-import type { AoeSpec, LensId, Pos, Side } from './types.js';
+import type { AoeSpec, LensId, Pos, Side, WeaponSpec } from './types.js';
 import {
   type ActionKind,
   type Decision,
@@ -25,6 +25,7 @@ import {
   makeCtx,
   rangeAt,
   shoveDest,
+  weaponsOf,
 } from './scoring.js';
 
 export interface UnitSpec {
@@ -34,15 +35,21 @@ export interface UnitSpec {
   maxHp: number;
   /** Стартовое hp боя (перенос между боями забега); по умолчанию maxHp. */
   hp?: number;
-  atk: number;
-  range: number;
+  /**
+   * Оружие юнита (план классов) — носитель урона и дальности. Шортхенд для
+   * тестов и сценариев: вместо weapons можно задать atk/range — соберётся
+   * неявное безымянное оружие.
+   */
+  weapons?: WeaponSpec[];
+  atk?: number;
+  range?: number;
   speed: number;
   move: number;
   tags?: string[];
   /** Линзы характера в порядке применения. */
   lenses: LensId[];
   rules: Rule[];
-  /** Площадное оружие носителя АОЕ (план АОЕ). */
+  /** Площадное оружие носителя АОЕ (план АОЕ); в норме живёт в weapons[].aoe. */
   aoe?: AoeSpec;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
@@ -94,14 +101,21 @@ const MAX_ROUNDS = 30;
 const FOE_SPAWN_SLOTS: Pos[] = [3, 6, 8, 11, 14].map((y) => ({ x: 15, y }));
 
 function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
+  // atk/range юнита — производные максимумы по оружию: мера угрозы для
+  // threatAt и селекторов; урон конкретной атаки считает её оружие
+  const weapons = spec.weapons;
+  if (!weapons?.length && spec.atk === undefined) {
+    throw new Error(`У юнита ${spec.id} нет ни weapons, ни atk/range`);
+  }
   return {
     id: spec.id,
     name: spec.name,
     side: spec.side,
     maxHp: spec.maxHp,
     hp: Math.min(spec.hp ?? spec.maxHp, spec.maxHp),
-    atk: spec.atk,
-    range: spec.range,
+    weapons,
+    atk: weapons?.length ? Math.max(...weapons.map((w) => w.dmg)) : spec.atk!,
+    range: weapons?.length ? Math.max(...weapons.map((w) => w.range)) : spec.range!,
     speed: spec.speed,
     move: spec.move,
     pos: { ...pos },
@@ -111,7 +125,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     exposed: false,
     tags: spec.tags ?? [],
     lenses: spec.lenses,
-    aoe: spec.aoe,
+    aoe: spec.aoe ?? weapons?.find((w) => w.aoe)?.aoe,
     compiled: applyLens(spec.lenses, spec.rules),
   };
 }
@@ -254,18 +268,23 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
         } else if (isAttack(action) && targetId) {
           if (action === 'selflessAttack') unit.exposed = true;
           const target = units.find((u) => u.id === targetId)!;
-          if (target.alive && dist(unit.pos, target.pos) <= rangeAt(unit, heightAt(unit.pos))) {
+          // урон, дальность и «стрелковость» — по оружию кандидата
+          const weapon: WeaponSpec = weaponsOf(unit)[decision.chosen.weapon ?? 0]!;
+          if (
+            target.alive &&
+            dist(unit.pos, target.pos) <= rangeAt(unit, heightAt(unit.pos), weapon.range)
+          ) {
             const allyPositions = units
               .filter((u) => u.alive && u.side === unit.side && u !== unit)
               .map((u) => u.pos);
-            const flank = unit.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
-            const raw = rollDamage(unit.atk * attackMult(action) * (flank ? 1.5 : 1), rng);
+            const flank = weapon.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
+            const raw = rollDamage(weapon.dmg * attackMult(action) * (flank ? 1.5 : 1), rng);
             // каменное укрытие цели не складывается с прикрытием — берётся максимум
             const mitigation = Math.max(target.coverLevel, ctx.coverFrom(unit.pos, target.pos));
             const dmg = Math.max(
               1,
               Math.round(raw * (1 - mitigation) * (target.exposed ? SELFLESS_VULN_MULT : 1)) +
-                heightDmgBonus(unit, heightAt(unit.pos)),
+                heightDmgBonus(unit, heightAt(unit.pos), weapon.range),
             );
             target.hp = Math.max(0, target.hp - dmg);
             target.lastAttackerId = unit.id;

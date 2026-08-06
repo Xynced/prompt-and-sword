@@ -21,6 +21,7 @@ import {
   startRun,
 } from '../src/run.js';
 import { CORE_WORDS, DEEP_WORDS, STARTING_VOCAB } from '../src/vocab.js';
+import { heroArchetype } from '../src/heroes.js';
 import { runBattle } from '../src/battle.js';
 
 /** Кайт-переформулировка (после поражения в уроке слово «держать дистанцию» открыто). */
@@ -30,7 +31,7 @@ function lessonRewrite(state: RunState): void {
     setPhrases(
       state,
       h.id,
-      h.stats.range === 1
+      heroArchetype(h.archetypeId).weapons.every((w) => w.range <= 2)
         ? [{ condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.nearest' }, weight: 2 }]
         : [
             { condition: { id: 'always' }, preference: { id: 'act.standoff' } },

@@ -26,7 +26,8 @@ export interface HeroState {
   name: string;
   /** 1–3 случайные линзы характера — выпадают при генерации забега. */
   lenses: LensId[];
-  stats: { maxHp: number; atk: number; range: number; speed: number; move: number; spawn: Pos };
+  /** Урон и дальность живут на оружии архетипа (план классов), не в статах. */
+  stats: { maxHp: number; speed: number; move: number; spawn: Pos };
   alive: boolean;
   /** Текущее hp — переносится между боями; лечится на привале и перевязкой после победы. */
   hp: number;
@@ -276,7 +277,7 @@ export function heroSpecs(state: RunState): UnitSpec[] {
       rules: [...compileHero(state, h), ...heroArchetype(h.archetypeId).innate],
       hp: h.hp,
       ...h.stats,
-      aoe: heroArchetype(h.archetypeId).aoe,
+      weapons: heroArchetype(h.archetypeId).weapons,
       spawn: { ...deployedSpawn(state, h) },
     }));
 }
