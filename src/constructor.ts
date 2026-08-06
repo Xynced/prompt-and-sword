@@ -15,7 +15,8 @@ export type ConditionDraft =
   | { id: 'cond.battleDrags' }
   | { id: 'cond.initiativeEdge' }
   | { id: 'cond.allyFallen' }
-  | { id: 'cond.surrounded' };
+  | { id: 'cond.surrounded' }
+  | { id: 'cond.underCharge' };
 
 export type SelectorDraft =
   | 'sel.nearest'
@@ -49,7 +50,11 @@ export type PreferenceDraft =
   | { id: 'space.highGround' }
   | { id: 'space.behindCover' }
   | { id: 'space.avoidHazard' }
-  | { id: 'act.shove' };
+  | { id: 'act.shove' }
+  | { id: 'space.spread' }
+  | { id: 'act.barrage' }
+  | { id: 'act.preempt' }
+  | { id: 'act.castRitual' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -108,7 +113,9 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
                 ? 'если кто-то из наших пал: '
                 : c.id === 'cond.surrounded'
                   ? 'если меня окружили: '
-                  : `если ${nm(c.ally)} в опасности: `;
+                  : c.id === 'cond.underCharge'
+                    ? 'если враги накатывают: '
+                    : `если ${nm(c.ally)} в опасности: `;
   const p = draft.preference;
   const refText = (ref: { ally: string } | { enemy: SelectorDraft }): string =>
     'ally' in ref ? nm(ref.ally) : CONCEPTS[ref.enemy].label;
@@ -127,6 +134,14 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       ? 'обходить опасное'
       : p.id === 'act.shove'
       ? 'толкать'
+      : p.id === 'space.spread'
+      ? 'держать интервал'
+      : p.id === 'act.barrage'
+      ? 'накрыть скопление'
+      : p.id === 'act.preempt'
+      ? 'бить на упреждение'
+      : p.id === 'act.castRitual'
+      ? 'замахиваться ритуалом'
       : p.id === 'act.attack'
       ? `атаковать: ${CONCEPTS[p.target].label}`
       : p.id === 'act.protect'
@@ -184,7 +199,9 @@ export function compilePhrase(
                 ? { kind: 'allyFallen' }
                 : c.id === 'cond.surrounded'
                   ? { kind: 'surrounded' }
-                  : { kind: 'allyInDanger', ally: c.ally };
+                  : c.id === 'cond.underCharge'
+                    ? { kind: 'underCharge' }
+                    : { kind: 'allyInDanger', ally: c.ally };
 
   const p = draft.preference;
   const toPosRef = (ref: { ally: string } | { enemy: SelectorDraft }): PosRef =>
@@ -205,6 +222,14 @@ export function compilePhrase(
       ? { kind: 'avoidHazard' }
       : p.id === 'act.shove'
       ? { kind: 'shove' }
+      : p.id === 'space.spread'
+      ? { kind: 'spread' }
+      : p.id === 'act.barrage'
+      ? { kind: 'barrage' }
+      : p.id === 'act.preempt'
+      ? { kind: 'preempt' }
+      : p.id === 'act.castRitual'
+      ? { kind: 'castRitual' }
       : p.id === 'act.attack'
       ? { kind: 'attack', target: SELECTOR_MAP[p.target] }
       : p.id === 'act.protect'

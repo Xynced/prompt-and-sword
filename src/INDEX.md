@@ -6,7 +6,7 @@
 
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
-| [types.ts](types.ts) | Базовые типы: сторона, позиция, юнит, виды действий, id линз | `Side`, `Pos`, `ActionKind`, `LensId`, `CombatUnit` |
+| [types.ts](types.ts) | Базовые типы: сторона, позиция, юнит, виды действий, площадное оружие, id линз | `Side`, `Pos`, `ActionKind`, `LensId`, `CombatUnit`, `AoeSpec` |
 | [rng.ts](rng.ts) | Seeded RNG — единственный источник случайности | `mulberry32`, `shuffle` |
 | [grid.ts](grid.ts) | Сетка 18×18: дистанция (Чебышёв), LoS, каменное укрытие, фланг, взвешенные обход и достижимость (бурелом/подъём — 2 очка) | `GRID_W/H`, `dist`, `hasLoS`, `hasTerrainCover`, `isFlanking`, `reachableTiles`, `EntryCost` |
 | [terrain.ts](terrain.ts) | Поле из клеток со свойствами (камень/высота/опасность/бурелом), 12 арен-сценариев ASCII-схемами, пулы по тегам | `Tile`, `ArenaTag`, `TERRAIN_LAYOUTS`, `pickTerrain` |
@@ -14,8 +14,8 @@
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», вычисление условий и селекторов | `Rule`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
 | [vocab.ts](vocab.ts) | Словарь концептов (37: условия, селекторы, действия, манера удара, пространство), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
 | [lens.ts](lens.ts) | Линзы характеров — детерминированные трансформации IR (10 в пуле), инстинкты и тяга к видам действий | `applyLens`, `rollLenses`, `biasFor`, `ActionBias`, `LENS_POOL`, `LENS_RU` |
-| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг и толчок | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest` |
-| [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, event-sourced лог, превью спавнов | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult`, `spawnPreview` |
+| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady` |
+| [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, площадные касты (телеграф ритуала, залп в начале хода кастера), event-sourced лог, превью спавнов | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult`, `spawnPreview` |
 | [metrics.ts](metrics.ts) | Поведенческий отпечаток боя для статистики и сравнения | `fingerprint`, `Fingerprint` |
 
 ## Компиляция принципов (текст → IR → карточка)

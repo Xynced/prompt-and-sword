@@ -1,6 +1,6 @@
 import type { Condition, Preference, Rule } from './ir.js';
 import { LENS_RU, applyLens } from './lens.js';
-import type { LensId } from './types.js';
+import type { AoeSpec, LensId } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -44,6 +44,8 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если кто-то из наших пал — ';
     case 'surrounded':
       return 'если меня окружили — ';
+    case 'underCharge':
+      return 'если враги накатывают — ';
   }
 }
 
@@ -93,7 +95,38 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'обхожу опасное: на шипы и в огонь не встаю, а встав — ухожу';
     case 'shove':
       return 'толкаю: сбиваю врага с места — в шипы, в огонь, из строя';
+    case 'barrage':
+      return 'накрываю скопление: бью по площади, где врагов двое и больше — своих зацепит тоже';
+    case 'spread':
+      return 'держу интервал: не встаю вплотную к своим, пока у врага есть чем накрыть';
+    case 'preempt':
+      return 'бью на упреждение: замахиваюсь туда, куда враг придёт, а не где стоит';
+    case 'castRitual':
+      return 'замахиваюсь ритуалом: трачу ход на большую зону, на мгновенный залп не размениваюсь';
   }
+}
+
+/**
+ * Человеческое описание площадного оружия носителя АОЕ — одна строка для
+ * разведки врагов и карточки героя (игрок должен видеть носителя до того,
+ * как возьмёт слово «накрыть скопление»).
+ */
+export function describeAoe(aoe: AoeSpec): string {
+  const w: string[] = [];
+  if (aoe.blast) {
+    const limit = aoe.blast.usesPerBattle ? `, ${aoe.blast.usesPerBattle} на бой` : '';
+    w.push(`заряд 3×3 (дальность ${aoe.blast.range}${limit})`);
+  }
+  if (aoe.line) w.push(`волна 1×${aoe.line.len}`);
+  if (aoe.ritual) {
+    const limit = aoe.ritual.cooldown
+      ? `, раз в ${aoe.ritual.cooldown} раунда`
+      : aoe.ritual.usesPerBattle
+        ? `, ${aoe.ritual.usesPerBattle} на бой`
+        : '';
+    w.push(`ритуал 5×5 (замах виден за ход${limit})`);
+  }
+  return w.join(' · ');
 }
 
 /** Помечена ли строка искажением линзы (по аннотации source). */

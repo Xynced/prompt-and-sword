@@ -343,6 +343,25 @@ button.primary:disabled:hover { background: var(--ink); }
   width: var(--cell, 12.5%);
   height: var(--cell, 12.5%);
 }
+/* зона замаха ритуала: тревожная охристая пульсация — ударит в начале хода кастера */
+.zones-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.zone {
+  position: absolute;
+  width: var(--cell, 12.5%);
+  height: var(--cell, 12.5%);
+  background: repeating-linear-gradient(90deg, rgba(179, 90, 35, 0.28) 0 2px, rgba(179, 90, 35, 0.08) 2px 6px);
+  outline: 1px dashed rgba(156, 59, 40, 0.5);
+  outline-offset: -1px;
+  animation: zone-pulse 1.2s ease-in-out infinite;
+}
+@keyframes zone-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
 .hz.spikes {
   background: repeating-linear-gradient(45deg, rgba(156, 59, 40, 0.4) 0 1.5px, transparent 1.5px 5px);
 }

@@ -9,6 +9,8 @@ export type ActionBias = Partial<Record<ActionKind, number>>;
 export interface Instincts {
   aggression: number;
   survival: number;
+  /** Насколько жалко своих в зоне площадного каста; 0 — «в замес — так в замес». */
+  ffCare: number;
   /** Фанатик игнорирует угрозу зон контроля. */
   ignoreZoC: boolean;
   /** Буквалист не достраивает пропуски: нет сработавшего правила → защищается на месте. */
@@ -30,6 +32,7 @@ export interface CompiledBehavior {
 const BASE: Instincts = {
   aggression: 1,
   survival: 1,
+  ffCare: 1,
   ignoreZoC: false,
   gapFill: true,
   actionBias: {},
@@ -79,6 +82,7 @@ export function rollLenses(rng: Rng): LensId[] {
 interface InstinctMods {
   aggression?: number;
   survival?: number;
+  ffCare?: number;
   ignoreZoC?: true;
   gapFill?: false;
   actionBias?: ActionBias;
@@ -102,6 +106,7 @@ export function applyLens(lenses: readonly LensId[], rules: Rule[]): CompiledBeh
     out = step.rules;
     instincts.aggression *= step.mods.aggression ?? 1;
     instincts.survival *= step.mods.survival ?? 1;
+    instincts.ffCare *= step.mods.ffCare ?? 1;
     if (step.mods.ignoreZoC) instincts.ignoreZoC = true;
     if (step.mods.gapFill === false) instincts.gapFill = false;
     for (const [action, mult] of Object.entries(step.mods.actionBias ?? {})) {
@@ -220,6 +225,8 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         mods: {
           aggression: 1.6,
           survival: 0.4,
+          // свои в зоне каста не жалко: в замес — так в замес (план АОЕ)
+          ffCare: 0,
           ignoreZoC: true,
           // щиты — для трусов: глухая защита исключена вовсе, размен ран — норма;
           // красться по шипам смешно, а толкать — недостаточно кроваво: бей!
@@ -265,8 +272,12 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         }
         return r;
       });
-      // вполсилы не бьёт — это оскорбление противника; толкаться — недостойно
-      return { rules: out, mods: { aggression: 1.1, actionBias: { weakAttack: 0.85, shove: 0 } } };
+      // вполсилы не бьёт — это оскорбление противника; толкаться — недостойно;
+      // бить по площади, не глядя противнику в лицо, — тем более (план АОЕ)
+      return {
+        rules: out,
+        mods: { aggression: 1.1, actionBias: { weakAttack: 0.85, shove: 0, aoeBlast: 0, aoeLine: 0, aoeRitual: 0 } },
+      };
     }
 
     case 'gloryhound': {
@@ -357,8 +368,9 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         mods: {
           aggression: 1.35,
           survival: 0.75,
-          // бьёт сразу и часто, примеряться и прикрываться некогда
-          actionBias: { weakAttack: 3, cover: 0.5 },
+          // бьёт сразу и часто, примеряться и прикрываться некогда; замах на
+          // целый ход с ударом через ход — пытка: жги залпом сейчас (план АОЕ)
+          actionBias: { weakAttack: 3, cover: 0.5, aoeRitual: 0.3 },
         },
       };
     }

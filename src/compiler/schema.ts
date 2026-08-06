@@ -32,6 +32,7 @@ const PARAMLESS_CONDITIONS = [
   'cond.initiativeEdge',
   'cond.allyFallen',
   'cond.surrounded',
+  'cond.underCharge',
 ] as const;
 const PARAMLESS_PREFERENCES = [
   'act.holdPosition',
@@ -51,6 +52,10 @@ const PARAMLESS_PREFERENCES = [
   'space.behindCover',
   'space.avoidHazard',
   'act.shove',
+  'space.spread',
+  'act.barrage',
+  'act.preempt',
+  'act.castRitual',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -144,6 +149,8 @@ function validateCondition(
       return vocab.includes('cond.allyFallen') ? { id: 'cond.allyFallen' } : null;
     case 'cond.surrounded':
       return vocab.includes('cond.surrounded') ? { id: 'cond.surrounded' } : null;
+    case 'cond.underCharge':
+      return vocab.includes('cond.underCharge') ? { id: 'cond.underCharge' } : null;
     case 'cond.allyInDanger':
       return vocab.includes('cond.allyInDanger') && inAllies(v.ally)
         ? { id: 'cond.allyInDanger', ally: v.ally }
@@ -203,6 +210,14 @@ function validatePreference(
       return vocab.includes('space.avoidHazard') ? { id: 'space.avoidHazard' } : null;
     case 'act.shove':
       return vocab.includes('act.shove') ? { id: 'act.shove' } : null;
+    case 'space.spread':
+      return vocab.includes('space.spread') ? { id: 'space.spread' } : null;
+    case 'act.barrage':
+      return vocab.includes('act.barrage') ? { id: 'act.barrage' } : null;
+    case 'act.preempt':
+      return vocab.includes('act.preempt') ? { id: 'act.preempt' } : null;
+    case 'act.castRitual':
+      return vocab.includes('act.castRitual') ? { id: 'act.castRitual' } : null;
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {

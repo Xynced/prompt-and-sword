@@ -1,5 +1,6 @@
 import type { Rule } from './ir.js';
 import type { UnitSpec } from './battle.js';
+import { describeAoe } from './cards.js';
 import { applyLens } from './lens.js';
 
 /** Фабрики врагов. Новый враг = новый набор правил, не новый арт. */
@@ -8,14 +9,15 @@ const rule = (r: Omit<Rule, 'scope'>): Rule => ({ ...r, scope: 'self' });
 
 /**
  * Разведка: видимые принципы врагов (после линзы характера — то, как враг
- * БУДЕТ себя вести). Показывается перед боем у элиток и босса: бой становится
- * задачей на контр-формулировку.
+ * БУДЕТ себя вести) + площадное оружие носителя АОЕ. Показывается перед боем
+ * у элиток и босса: бой становится задачей на контр-формулировку.
  */
 export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: string[] }[] {
-  return specs.map((s) => ({
-    name: s.name,
-    lines: applyLens(s.lenses, s.rules).rules.map((r) => r.source),
-  }));
+  return specs.map((s) => {
+    const lines = applyLens(s.lenses, s.rules).rules.map((r) => r.source);
+    if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
+    return { name: s.name, lines };
+  });
 }
 
 export function grunt(n: number): UnitSpec {
@@ -103,6 +105,9 @@ export function shaman(behindId: string): UnitSpec {
     speed: 5,
     move: 1,
     lenses: ['plain'],
+    // носитель АОЕ: залп 3×3 — первая причина держать интервал; ритуал 5×5
+    // с перезарядкой 3 — телеграфированный, из него выходят или прикрываются
+    aoe: { blast: { range: 4, mult: 0.75 }, ritual: { range: 4, mult: 1.2, cooldown: 3 } },
     rules: [
       rule({
         when: { kind: 'always' },
@@ -110,7 +115,7 @@ export function shaman(behindId: string): UnitSpec {
         weight: 1.5,
         source: 'шаман: держаться за спинами',
       }),
-      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 1.5, source: 'шаман: жечь раненых' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'barrage' }, weight: 1.5, source: 'шаман: накрыть скопление' }),
     ],
   };
 }
@@ -162,7 +167,9 @@ export function warlord(): UnitSpec {
     id: 'warlord',
     name: 'Вождь орды',
     side: 'foe',
-    maxHp: 120,
+    // 132 (было 120): ритуал съедает треть его ходов, а фанатик жжёт и свою
+    // свиту — без компенсации узел босса мягчел с 43 до ~55% (план АОЕ, шаг 8)
+    maxHp: 132,
     // hp 60 / atk 9: с пулом героев и способностями (партия сильнее
     // фиксированной тройки фазы 5) наив на 52/8 добрался до ~46% —
     // босс переставал быть задачей на контр-формулировку; здесь наив ~35%
@@ -172,6 +179,11 @@ export function warlord(): UnitSpec {
     move: 2,
     tags: ['leader'],
     lenses: ['fanatic'],
+    // ритуал «дыхание орды»: рейд-механика финала — замах виден за ход, из
+    // зоны выходят, медленные прикрываются; перезарядка 3 задаёт ритм боя.
+    // mult 2.0: телеграфированный удар обязан быть страшным — при 1.2 босс
+    // менял треть своих ходов на щекотку и мягчел (замер шага 5)
+    aoe: { ritual: { range: 4, mult: 2.0, cooldown: 3 } },
     rules: [
       rule({
         when: { kind: 'always' },
@@ -180,6 +192,12 @@ export function warlord(): UnitSpec {
         source: 'вождь орды: ломать самых опасных',
       }),
       rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 1.5, source: 'вождь орды: крови не жалеть' }),
+      // вес 1.0 (не 1.5): при 1.5 вождь менял на замахи треть ходов и мягчел —
+      // дыхание должно накрывать настоящие скопления, а не заменять топор
+      rule({ when: { kind: 'always' }, then: { kind: 'barrage' }, weight: 1.0, source: 'вождь орды: дыхание орды' }),
+      // упреждение: партия научилась выходить из зоны — вождь целит туда,
+      // куда выходят (шаг 5 плана АОЕ, лечит «босс помягчел» из шага 3)
+      rule({ when: { kind: 'always' }, then: { kind: 'preempt' }, weight: 1.0, source: 'вождь орды: бить на упреждение' }),
     ],
   };
 }

@@ -13,10 +13,31 @@ export type ActionKind =
   | 'attack'
   | 'selflessAttack'
   | 'shove'
+  | 'aoeBlast'
+  | 'aoeLine'
+  | 'aoeRitual'
   | 'cover'
   | 'fullCover'
   | 'shieldAlly'
   | 'wait';
+
+/**
+ * Площадное оружие юнита (план АОЕ) — «умеет накрывать». АОЕ не действие для
+ * всех: без спеки кандидатов каста нет; использование гейтится правилом
+ * «накрыть скопление» (у врагов — в спеке, у героев — словом).
+ */
+export interface AoeSpec {
+  /** Залп: мгновенный взрыв 3×3 вокруг центра в дальности range; урон mult × ожидаемый удар, фиксированный. */
+  blast?: { range: number; mult: number; usesPerBattle?: number };
+  /** Линия («волна клинка»): мгновенная полоса 1×len от себя в одном из 8 направлений; камень обрывает взмах. */
+  line?: { len: number; mult: number };
+  /**
+   * Ритуал: телеграфированная зона 5×5 — замах весь ход (3 AP), бьёт всех,
+   * кто в зоне в начале **следующего** хода кастера; смерть кастера отменяет.
+   * cooldown — раундов между замахами; usesPerBattle — жёсткий лимит на бой.
+   */
+  ritual?: { range: number; mult: number; cooldown?: number; usesPerBattle?: number };
+}
 
 export type LensId =
   | 'plain'
@@ -53,6 +74,16 @@ export interface CombatUnit {
   tags: string[];
   /** Линзы характера в порядке применения (1–3 у героев). */
   lenses: LensId[];
+  /** Площадное оружие носителя АОЕ; у большинства юнитов отсутствует. */
+  aoe?: AoeSpec;
+  /** Висящая зона ритуала: центр 5×5; бьёт в начале следующего хода кастера. */
+  pendingRitual?: { at: Pos };
+  /** Раунд последнего замаха ритуала — перезарядка. */
+  lastRitualRound?: number;
+  /** Потраченных применений ритуала в этом бою — лимит usesPerBattle. */
+  ritualUses?: number;
+  /** Потраченных залпов в этом бою — лимит usesPerBattle заряда. */
+  blastUses?: number;
   /** Кто последним нанёс мне урон — для селектора «кто атаковал меня». */
   lastAttackerId?: string;
 }

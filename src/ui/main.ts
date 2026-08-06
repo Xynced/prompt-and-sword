@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { understandingCard } from '../cards.js';
+import { describeAoe, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -304,10 +304,14 @@ function statLine(
   return `hp ${hpTxt} · удар ${s.atk} · даль ${s.range} · иниц ${s.speed} · шаг ${s.move}`;
 }
 
-/** Строка способности архетипа героя. */
+/** Строка способности архетипа героя; у носителя АОЕ — плюс его оружие. */
 function abilityLine(archetypeId: string): string {
-  const a = heroArchetype(archetypeId).ability;
-  return `${a.name} — ${a.desc}`;
+  const arch = heroArchetype(archetypeId);
+  const a = arch.ability;
+  // оружие видно всегда, даже до слова «накрыть скопление»: слово берут
+  // осознанно, зная, есть ли в партии кому им махать
+  const weapon = arch.aoe ? ` · оружие: ${describeAoe(arch.aoe)}` : '';
+  return `${a.name} — ${a.desc}${weapon}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {
@@ -398,6 +402,7 @@ function conditionOptions(): Opt<ConditionDraft>[] {
   if (has('cond.initiativeEdge')) out.push({ value: { id: 'cond.initiativeEdge' }, label: 'если мы быстрее' });
   if (has('cond.allyFallen')) out.push({ value: { id: 'cond.allyFallen' }, label: 'если кто-то из наших пал' });
   if (has('cond.surrounded')) out.push({ value: { id: 'cond.surrounded' }, label: 'если меня окружили' });
+  if (has('cond.underCharge')) out.push({ value: { id: 'cond.underCharge' }, label: 'если враги накатывают' });
   return out;
 }
 
@@ -448,6 +453,10 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.behindCover')) out.push({ value: { id: 'space.behindCover' }, label: 'держаться за укрытием' });
   if (has('space.avoidHazard')) out.push({ value: { id: 'space.avoidHazard' }, label: 'обходить опасное' });
   if (has('act.shove')) out.push({ value: { id: 'act.shove' }, label: 'толкать' });
+  if (has('space.spread')) out.push({ value: { id: 'space.spread' }, label: 'держать интервал' });
+  if (has('act.barrage')) out.push({ value: { id: 'act.barrage' }, label: 'накрыть скопление' });
+  if (has('act.preempt')) out.push({ value: { id: 'act.preempt' }, label: 'бить на упреждение' });
+  if (has('act.castRitual')) out.push({ value: { id: 'act.castRitual' }, label: 'замахиваться ритуалом' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -502,6 +511,8 @@ interface Frame {
   text: string;
   factors: { label: string; value: number }[];
   units: FrameUnit[];
+  /** Центры висящих зон замаха (5×5) — от телеграфа до залпа или смерти кастера. */
+  zones: { x: number; y: number }[];
   callout?: string;
 }
 
@@ -514,6 +525,8 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
   const units = new Map<string, FrameUnit>();
   const nm = (id: string): string => units.get(id)?.name ?? id;
   const snap = (): FrameUnit[] => [...units.values()].map((u) => ({ ...u }));
+  // висящие зоны замаха по кастерам: от телеграфа до залпа или смерти кастера
+  const activeZones = new Map<string, { x: number; y: number }>();
   const out: Frame[] = [];
   let round = 0;
   let pending: { actorId: string; factors: Frame['factors']; parts: string[] } | null = null;
@@ -527,6 +540,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       text: pending.parts.length ? pending.parts.join(', ') : 'медлит',
       factors: pending.factors,
       units: snap(),
+      zones: [...activeZones.values()].map((z) => ({ ...z })),
     });
     pending = null;
   };
@@ -582,8 +596,31 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending?.parts.push(`толкает ${nm(e.target)} в ${cellName(e.to.x, e.to.y)}`);
         break;
       }
+      case 'telegraph':
+        activeZones.set(e.unit, { x: e.at.x, y: e.at.y });
+        pending?.parts.push(`начинает замах: накроет 5×5 у ${cellName(e.at.x, e.at.y)}`);
+        break;
+      case 'aoeCast':
+        if (e.form === 'ritual') {
+          // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр
+          flush();
+          pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`] };
+          activeZones.delete(e.unit);
+        } else if (e.form === 'line') {
+          pending?.parts.push(`рубит волной в сторону ${cellName(e.at.x, e.at.y)}`);
+        } else {
+          pending?.parts.push(`накрывает залпом ${cellName(e.at.x, e.at.y)}`);
+        }
+        break;
+      case 'aoeHit': {
+        const u = units.get(e.unit)!;
+        u.hp = e.hp;
+        pending?.parts.push(`${nm(e.unit)} накрыт: −${e.dmg}`);
+        break;
+      }
       case 'die': {
         units.get(e.unit)!.alive = false;
+        activeZones.delete(e.unit); // зона умирает вместе с кастером
         pending?.parts.push(`${nm(e.unit)} падает`);
         break;
       }
@@ -611,6 +648,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
     text: '',
     factors: [],
     units: out.length ? out[0]!.units.map((u) => ({ ...u, hp: u.maxHp, alive: true })) : snap(),
+    zones: [],
     callout: 'приказы скомпилированы — дальше арифметика',
   };
   // позиции стартового кадра — из событий spawn, а не первого решения
@@ -1099,6 +1137,26 @@ function tokensHtml(): string {
     .join('');
 }
 
+/** Висящие зоны замаха текущего кадра: клетки 5×5 вокруг центров. */
+function zonesHtml(): string {
+  const f = frames[frameIdx];
+  if (!f || f.zones.length === 0) return '';
+  const out: string[] = [];
+  for (const z of f.zones) {
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const x = z.x + dx;
+        const y = z.y + dy;
+        if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
+        out.push(
+          `<div class="zone" style="left:${x * CELL}%;top:${y * CELL}%" title="зона замаха — ударит в начале хода кастера"></div>`,
+        );
+      }
+    }
+  }
+  return out.join('');
+}
+
 function tilesLayerHtml(tiles: readonly Tile[][]): string {
   const out: string[] = [];
   tiles.forEach((row, y) =>
@@ -1134,6 +1192,7 @@ function battleScreenHtml(): string {
       </div>
       <div class="bfield" id="bfield" style="--cell:${CELL}%">
         ${terrainHtml()}
+        <div class="zones-layer" id="zoneslayer">${zonesHtml()}</div>
         ${tokensHtml()}
         <span class="callout" id="callout" style="left:24%;top:90%">${esc(f.callout ?? '')}</span>
       </div>
@@ -1191,6 +1250,8 @@ function syncBattleFrame(): void {
   set('turnlabel', `ход ${f.round}`);
   set('framelabel', `${frameIdx}/${frames.length - 1}`);
   set('callout', f.callout ?? '');
+  const zl = document.getElementById('zoneslayer');
+  if (zl) zl.innerHTML = zonesHtml();
   const play = document.getElementById('playbtn');
   if (play) play.textContent = playing ? '❙❙' : '▶';
   const bar = document.getElementById('progressbar');

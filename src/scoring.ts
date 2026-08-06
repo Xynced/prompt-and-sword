@@ -55,10 +55,14 @@ export const AP_COST: Record<ActionKind, number> = {
   // за 1 AP «сдвинуть и добить» — нормальный ход
   shove: 1,
   cover: 1,
+  aoeBlast: 2,
+  aoeLine: 2,
   attack: 2,
   selflessAttack: 2,
   shieldAlly: 2,
   fullCover: 3,
+  // замах — весь ход: зона объявлена, бьёт в начале следующего хода кастера
+  aoeRitual: 3,
   wait: 0,
 };
 
@@ -71,7 +75,7 @@ export function apCostFor(action: ActionKind, u: CombatUnit): number {
   return action === 'carefulStep' && u.move <= 1 ? 2 : AP_COST[action];
 }
 
-/** Множитель урона по виду атаки; 0 — действие не атака. */
+/** Множитель урона по виду атаки; 0 — действие не атака (залп — не атака: бьёт площадь, не цель). */
 const ATTACK_MULT: Record<ActionKind, number> = {
   weakAttack: WEAK_ATK_MULT,
   attack: 1,
@@ -79,6 +83,9 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   move: 0,
   carefulStep: 0,
   shove: 0,
+  aoeBlast: 0,
+  aoeLine: 0,
+  aoeRitual: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -96,6 +103,9 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   attack: 0,
   selflessAttack: 0,
   shove: 0,
+  aoeBlast: 0,
+  aoeLine: 0,
+  aoeRitual: 0,
   wait: 0,
 };
 
@@ -105,6 +115,143 @@ export function shoveDest(pusher: Pos, target: Pos): Pos {
     x: target.x + Math.sign(target.x - pusher.x),
     y: target.y + Math.sign(target.y - pusher.y),
   };
+}
+
+/** Радиус залпа: 3×3 вокруг центра (Чебышёв). */
+export const AOE_BLAST_RADIUS = 1;
+
+/** Радиус ритуала: 5×5 вокруг центра (Чебышёв). */
+export const AOE_RITUAL_RADIUS = 2;
+
+/** Радиус зоны по виду каста. */
+export const aoeRadius = (a: ActionKind): number => (a === 'aoeRitual' ? AOE_RITUAL_RADIUS : AOE_BLAST_RADIUS);
+
+/** Глубина точки в зоне ритуала: 1 в центре, ~0.33 у края. */
+export const ritualDepth = (p: Pos, center: Pos): number =>
+  (AOE_RITUAL_RADIUS + 1 - dist(p, center)) / (AOE_RITUAL_RADIUS + 1);
+
+/**
+ * Клетки линии («волны клинка»): от from в направлении dir (единичный вектор,
+ * 8 направлений), длиной len. Камень и край поля обрывают взмах; тела — нет.
+ */
+export function lineCells(from: Pos, dir: Pos, len: number, blocked: (p: Pos) => boolean): Pos[] {
+  const out: Pos[] = [];
+  for (let i = 1; i <= len; i++) {
+    const p = { x: from.x + dir.x * i, y: from.y + dir.y * i };
+    if (!inBounds(p) || blocked(p)) break;
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Жертвы каста-кандидата: для залпа и ритуала — зона вокруг центра `at`, для
+ * линии `at` — смежная клетка-направление, жертвы на клетках взмаха.
+ */
+export function castVictims<T extends CombatUnit>(
+  action: ActionKind,
+  at: Pos,
+  self: CombatUnit,
+  units: readonly T[],
+  blocked: (p: Pos) => boolean,
+): T[] {
+  if (action === 'aoeLine') {
+    const dir = { x: Math.sign(at.x - self.pos.x), y: Math.sign(at.y - self.pos.y) };
+    const cells = lineCells(self.pos, dir, self.aoe?.line?.len ?? 0, blocked);
+    return units.filter((u) => u.alive && cells.some((c) => posEq(c, u.pos)));
+  }
+  return aoeVictims(at, units, aoeRadius(action));
+}
+
+/**
+ * Готов ли ритуал юнита в этом раунде: нет висящей зоны, перезарядка прошла,
+ * лимит применений на бой не выбран.
+ */
+export function ritualReady(u: CombatUnit, round: number): boolean {
+  const ritual = u.aoe?.ritual;
+  if (!ritual || u.pendingRitual) return false;
+  if (ritual.cooldown && u.lastRitualRound !== undefined && round - u.lastRitualRound < ritual.cooldown) return false;
+  if (ritual.usesPerBattle !== undefined && (u.ritualUses ?? 0) >= ritual.usesPerBattle) return false;
+  return true;
+}
+
+/** Готов ли залп: лимит применений на бой не выбран. */
+export function blastReady(u: CombatUnit): boolean {
+  const blast = u.aoe?.blast;
+  if (!blast) return false;
+  return blast.usesPerBattle === undefined || (u.blastUses ?? 0) < blast.usesPerBattle;
+}
+
+/** Живые юниты обеих сторон в зоне — friendly fire включён для всех. */
+export function aoeVictims<T extends CombatUnit>(
+  center: Pos,
+  units: readonly T[],
+  radius: number = AOE_BLAST_RADIUS,
+): T[] {
+  return units.filter((u) => u.alive && dist(u.pos, center) <= radius);
+}
+
+/**
+ * Урон площадного каста по цели: фиксированный, строго без rng (прецедент
+ * шипов — новый вызов rng() сдвинул бы последовательность боя и переписал
+ * фикстуры; и одно число в логе у всех накрытых читается лучше). Каменное
+ * укрытие от взрыва не спасает (это не выстрел), прикрытие от действий и
+ * открытость — работают.
+ */
+export function aoeDamage(caster: CombatUnit, mult: number, target: CombatUnit): number {
+  return Math.max(
+    1,
+    Math.round(
+      expectedDamage(caster.atk) * mult * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1),
+    ),
+  );
+}
+
+/**
+ * Проекция позиции юнита на ход вперёд: спуск по полю дистанций к его
+ * ближайшей цели на два шага движения (третье очко — на удар), остановка на
+ * своей дальности. Детерминированная, без rng: используется манерой
+ * «бить на упреждение» — целить ритуал туда, куда враг придёт к залпу.
+ */
+export function predictedPos(u: Fighter, units: readonly Fighter[], ctx: ScoreCtx): Pos {
+  const target = resolveSelector('nearest', u, units);
+  if (!target) return u.pos;
+  let cur = u.pos;
+  for (let i = 0; i < u.move * 2; i++) {
+    if (dist(cur, target.pos) <= u.range) break;
+    let best = cur;
+    let bestD = ctx.distTo(target.pos, cur);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const n = { x: cur.x + dx, y: cur.y + dy };
+        if (!inBounds(n) || ctx.blocked(n)) continue;
+        const d = ctx.distTo(target.pos, n);
+        if (d < bestD) {
+          bestD = d;
+          best = n;
+        }
+      }
+    }
+    if (posEq(best, cur)) break;
+    cur = best;
+  }
+  return cur;
+}
+
+/**
+ * Суммарный урон висящих зон замаха по юниту, стоящему в p. Считаются зоны
+ * ОБЕИХ сторон — friendly fire, своя зона жжёт и своих (и самого кастера).
+ * Это канал опасности для уклонения: юниты выходят из зон инстинктом, без
+ * отдельного кода — тот же приём, что с шипами.
+ */
+export function zoneDangerAt(p: Pos, units: readonly CombatUnit[], target: CombatUnit): number {
+  let dmg = 0;
+  for (const u of units) {
+    if (!u.alive || !u.pendingRitual || !u.aoe?.ritual) continue;
+    if (dist(u.pendingRitual.at, p) <= AOE_RITUAL_RADIUS) dmg += aoeDamage(u, u.aoe.ritual.mult, target);
+  }
+  return dmg;
 }
 
 /** Перемещения: у обоих `to` — новая клетка; осторожный шаг не будит опасность. */
@@ -130,6 +277,8 @@ export interface Candidate {
   action: ActionKind;
   /** Цель атаки — или прикрываемый союзник для `shieldAlly`. */
   targetId?: string;
+  /** Центр зоны площадного каста (`aoeBlast`). */
+  at?: Pos;
 }
 
 export interface Factor {
@@ -267,6 +416,11 @@ export function generateCandidates(
   units: readonly Fighter[],
   ctx: ScoreCtx = makeCtx(),
   ap: number = AP_PER_TURN,
+  round = 1,
+  // правила для гейтов слов (толчок, касты): decide передаёт СРАБОТАВШИЕ —
+  // «если враги накатывают — накрыть скопление» открывает касты только при
+  // накате, а не самим фактом правила в приказах
+  fired: readonly Rule[] = self.compiled.rules,
 ): Candidate[] {
   const here = self.pos;
   const { blocked } = ctx;
@@ -307,16 +461,70 @@ export function generateCandidates(
   // за край не проходит и в кандидаты не попадает вовсе — скоринг не учится
   // «толкаться в стену». Инстинкты толчка не знают: без слова «толкать» в
   // правилах кандидатов нет — иначе поле начало бы играть само
-  if (
-    ap >= AP_COST.shove &&
-    allowed('shove') &&
-    self.compiled.rules.some((r) => r.then.kind === 'shove')
-  ) {
+  if (ap >= AP_COST.shove && allowed('shove') && fired.some((r) => r.then.kind === 'shove')) {
     for (const e of enemiesOf(self, units) as Fighter[]) {
       if (dist(here, e.pos) !== 1) continue;
       const dest = shoveDest(here, e.pos);
       if (inBounds(dest) && !blocked(dest) && !units.some((u) => u.alive && posEq(u.pos, dest))) {
         out.push({ to: here, action: 'shove', targetId: e.id });
+      }
+    }
+  }
+
+  // площадные касты: залп (мгновенный, 3×3) и ритуал (телеграф, 5×5, замах
+  // весь ход). Оружие — spec.aoe (носителей единицы), гейт — правило «накрыть
+  // скопление»: инстинкты каста не знают, без слова кандидатов нет (прецедент
+  // толчка — иначе поле играло бы само). Центры — не скан поля, а окрестности
+  // врагов: только клетки, где зона накрывает хотя бы одного
+  // касты открывает «накрыть скопление» — или манера «замахиваться ритуалом»
+  // сама по себе (не требовать от игрока два глубоких слова разом)
+  if (self.aoe && fired.some((r) => r.then.kind === 'barrage' || r.then.kind === 'castRitual')) {
+    const forms: { action: ActionKind; form?: { range: number }; ready: boolean }[] = [
+      { action: 'aoeBlast', form: self.aoe.blast, ready: blastReady(self) },
+      { action: 'aoeRitual', form: self.aoe.ritual, ready: ritualReady(self, round) },
+    ];
+    // с манерой «бить на упреждение» ритуал целит и в проекции движения
+    // врагов — без затравки от предсказанных позиций таких кандидатов не было бы
+    const preempt = fired.some((r) => r.then.kind === 'preempt');
+    for (const { action, form, ready } of forms) {
+      if (!form || !ready || ap < AP_COST[action] || !allowed(action)) continue;
+      const radius = aoeRadius(action);
+      const seen = new Set<string>();
+      for (const e of enemiesOf(self, units) as Fighter[]) {
+        const seeds =
+          action === 'aoeRitual' && preempt ? [e.pos, predictedPos(e, units, ctx)] : [e.pos];
+        for (const seed of seeds) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+              const at = { x: seed.x + dx, y: seed.y + dy };
+              const key = posKey(at);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              if (!inBounds(at) || blocked(at) || dist(here, at) > form.range) continue;
+              // до центра зоны нужна линия видимости сквозь камни (каменоломня —
+              // контр шамана); тела взрыв не заслоняют — он навесной
+              if (!hasLoS(here, at, blocked)) continue;
+              out.push({ to: here, action, at });
+            }
+          }
+        }
+      }
+    }
+
+    // линия («волна клинка»): 8 направлений от себя, кандидат — только взмах,
+    // задевающий хотя бы одного врага; `at` кодирует направление смежной клеткой
+    const line = self.aoe.line;
+    if (line && ap >= AP_COST.aoeLine && allowed('aoeLine')) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const at = { x: here.x + dx, y: here.y + dy };
+          if (!inBounds(at)) continue;
+          const cells = lineCells(here, { x: dx, y: dy }, line.len, blocked);
+          if (enemiesOf(self, units).some((e) => cells.some((c) => posEq(c, e.pos)))) {
+            out.push({ to: here, action: 'aoeLine', at });
+          }
+        }
       }
     }
   }
@@ -611,19 +819,76 @@ function scorePreference(
     case 'avoidHazard': {
       // обходить опасное: сильный штраф шагу на опасную клетку, слабый —
       // осторожному входу (слово говорит «не лезь», а не «лезь аккуратно»);
-      // стоящему на опасной клетке — премия за уход на чистую
+      // стоящему на опасной клетке — премия за уход на чистую. Зона замаха —
+      // то же опасное место, но осторожный шаг от взрыва не спасает
+      const zoned = zoneDangerAt(cand.to, units, self) > 0;
+      if (zoned) return -2.2 * w;
       if (ctx.hazardAt(cand.to)) return (cand.action === 'carefulStep' ? -1 : -2.2) * w;
-      if (ctx.hazardAt(self.pos) && isMovement(cand.action)) return 1.5 * w;
+      if (
+        (ctx.hazardAt(self.pos) || zoneDangerAt(self.pos, units, self) > 0) &&
+        isMovement(cand.action)
+      ) {
+        return 1.5 * w;
+      }
       return 0;
     }
     case 'shove': {
-      // толкать: тем ценнее, чем опаснее клетка назначения. В шипы — сильнее
-      // полного удара (гарантированный урон + сбитая позиция); на чистую
+      // толкать: тем ценнее, чем опаснее клетка назначения. В шипы или в зону
+      // замаха — сильнее полного удара (урон + сбитая позиция); на чистую
       // клетку — мелкая выгода, соперник слабого удара, а не полного
       if (cand.action !== 'shove' || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
       const dest = shoveDest(self.pos, target.pos);
-      return (ctx.hazardAt(dest) ? 3.5 : 0.8) * w;
+      const danger = ctx.hazardAt(dest) || zoneDangerAt(dest, units, target) > 0;
+      return (danger ? 3.5 : 0.8) * w;
+    }
+    case 'barrage': {
+      // накрыть скопление: премия только от двух накрытых врагов — и растёт с
+      // их числом. По одному касты не жмут (обычная атака выгоднее по урону):
+      // АОЕ — ответ на кучность, а не кнопка урона
+      if ((cand.action !== 'aoeBlast' && cand.action !== 'aoeLine' && cand.action !== 'aoeRitual') || !cand.at) {
+        return 0;
+      }
+      const covered = castVictims(cand.action, cand.at, self, units, ctx.blocked).filter(
+        (v) => v.side !== self.side,
+      ).length;
+      return covered >= 2 ? 1.5 * covered * w : 0;
+    }
+    case 'spread': {
+      // держать интервал: штраф за конец хода вплотную к союзнику (дист ≤1
+      // сильно, 2 — мягко), пока у врага жив АОЕ-носитель; без носителя слово
+      // молчит — паттерн «держать высоту» на арене без высот
+      if (!(enemiesOf(self, units) as Fighter[]).some((e) => e.aoe)) return 0;
+      let s = 0;
+      for (const a of alliesOf(self, units)) {
+        if (a.id === self.id) continue;
+        const d = dist(cand.to, a.pos);
+        if (d <= 1) s -= 1.2;
+        else if (d === 2) s -= 0.4;
+      }
+      return s * w;
+    }
+    case 'preempt': {
+      // бить на упреждение: манера ритуала — премия зонам, накрывающим
+      // ПРОЕКЦИИ движения врагов (куда придут к залпу), а не текущие позиции.
+      // Коэффициент выше премии скопления: прогноз должен перетягивать выбор
+      // центра у зон «где стоят», иначе слово не читается
+      if (cand.action !== 'aoeRitual' || !cand.at) return 0;
+      // премия взвешена глубиной проекций: зона, где бегущие окажутся в
+      // середине, обыгрывает зону, где они будут у края
+      const depths = (enemiesOf(self, units) as Fighter[])
+        .map((e) => predictedPos(e, units, ctx))
+        .filter((p) => dist(p, cand.at!) <= AOE_RITUAL_RADIUS)
+        .map((p) => ritualDepth(p, cand.at!));
+      return depths.length >= 2 ? 2.5 * depths.reduce((s, d) => s + d, 0) * w : 0;
+    }
+    case 'castRitual': {
+      // замахиваться ритуалом: манера каста по образцу манер удара — премия
+      // замаху, штраф мгновенным кастам («не разменивайся на залп»). Атаки
+      // не трогает: слово о том, ЧЕМ накрывать, а не о том, бить ли вообще
+      if (cand.action === 'aoeRitual') return STRIKE_STYLE_BONUS * w;
+      if (cand.action === 'aoeBlast' || cand.action === 'aoeLine') return -STRIKE_STYLE_BONUS * w;
+      return 0;
     }
   }
 }
@@ -659,6 +924,38 @@ export function scoreCandidate(
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
   }
 
+  // площадной каст: та же валюта, что у агрессии, но суммой по накрытым.
+  // Свои в зоне (friendly fire) — в минус, вес ffCare (у всех 1, фанатик 0:
+  // «в замес — так в замес»). Ритуал оценивается по текущим позициям: без
+  // слова упреждения кастер целит в скопление «где стоят» — зона читаема и
+  // уворачиваема, это норма
+  const aoeForm =
+    cand.action === 'aoeBlast' ? self.aoe?.blast
+    : cand.action === 'aoeLine' ? self.aoe?.line
+    : cand.action === 'aoeRitual' ? self.aoe?.ritual
+    : undefined;
+  if (aoeForm && cand.at) {
+    let foes = 0;
+    let own = 0;
+    for (const v of castVictims(cand.action, cand.at, self, units, ctx.blocked)) {
+      const dmg = Math.min(aoeDamage(self, aoeForm.mult, v), v.hp);
+      let val = (dmg / v.maxHp) * 6 + (dmg >= v.hp ? 4 : 0);
+      // ритуал бьёт через ход: жертва у края зоны выйдет одним шагом, из
+      // середины — не успеет. Глубина в зоне — ожидаемая доля попадания;
+      // без неё все центры, накрывшие пару, равны, и тай-брейк порядка
+      // генерации выбирал угловую зону — «цепляет краем» вместо накрытия
+      if (cand.action === 'aoeRitual') {
+        val *= 0.4 + 0.6 * ritualDepth(v.pos, cand.at);
+      }
+      if (v.side !== self.side) foes += val;
+      else own += val;
+    }
+    if (foes !== 0) factors.push({ label: 'инстинкт:агрессия', value: foes * instincts.aggression });
+    if (own !== 0 && instincts.ffCare !== 0) {
+      factors.push({ label: 'свои в зоне', value: -own * instincts.ffCare });
+    }
+  }
+
   const hpFrac = self.hp / self.maxHp;
   const threat = threatAt(cand.to, self, units);
   if (threat > 0) {
@@ -672,6 +969,14 @@ export function scoreCandidate(
       label: 'инстинкт:опасная клетка',
       value: -(HAZARD_DMG / self.maxHp) * 6 * instincts.survival,
     });
+  }
+  // зона замаха: бьёт присутствие в момент залпа, поэтому штраф — полю, а не
+  // действию «шаг»: любой кандидат, оканчивающийся в зоне, платит, и выход
+  // из зоны снимает штраф сам собой. Осторожный шаг от взрыва не спасает.
+  // Трус (survival ×2.2) разбегается, фанатик стоит — искажения бесплатно
+  const zoneDmg = zoneDangerAt(cand.to, units, self);
+  if (zoneDmg > 0) {
+    factors.push({ label: 'инстинкт:зона замаха', value: -(zoneDmg / self.maxHp) * 6 * instincts.survival });
   }
   if (!instincts.ignoreZoC && zocOf(self, units)(cand.to)) {
     factors.push({ label: 'инстинкт:зона контроля', value: -1.5 * instincts.survival });
@@ -741,7 +1046,7 @@ export function decide(
     };
   }
 
-  const candidates = generateCandidates(self, units, ctx, ap);
+  const candidates = generateCandidates(self, units, ctx, ap, round, fired);
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = scoreCandidate(cand, self, units, fired, ctx);

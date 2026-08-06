@@ -44,7 +44,13 @@ export type ConceptId =
   | 'space.highGround'
   | 'space.behindCover'
   | 'space.avoidHazard'
-  | 'act.shove';
+  | 'act.shove'
+  // площадные атаки (план АОЕ)
+  | 'space.spread'
+  | 'act.barrage'
+  | 'act.preempt'
+  | 'cond.underCharge'
+  | 'act.castRitual';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -92,6 +98,11 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'space.behindCover': { id: 'space.behindCover', label: 'за укрытием', category: 'space' },
   'space.avoidHazard': { id: 'space.avoidHazard', label: 'обходить опасное', category: 'space' },
   'act.shove': { id: 'act.shove', label: 'толкать', category: 'action' },
+  'space.spread': { id: 'space.spread', label: 'держать интервал', category: 'space' },
+  'act.barrage': { id: 'act.barrage', label: 'накрыть скопление', category: 'action' },
+  'act.preempt': { id: 'act.preempt', label: 'бить на упреждение', category: 'action' },
+  'cond.underCharge': { id: 'cond.underCharge', label: 'враги накатывают', category: 'condition' },
+  'act.castRitual': { id: 'act.castRitual', label: 'замахиваться ритуалом', category: 'action' },
 };
 
 /**
@@ -127,6 +138,10 @@ export const CORE_WORDS: ConceptId[] = [
   'space.behindCover',
   // техника безопасности, а не стратегия
   'space.avoidHazard',
+  // читается с разведки (у врага носитель АОЕ) и работает само (план АОЕ)
+  'space.spread',
+  // «вот-вот навалятся» — простое условие, полезное далеко не только кастерам
+  'cond.underCharge',
 ];
 
 /** Глубокие слова — качественно новые стратегии; вторая колонка предложений. */
@@ -153,6 +168,12 @@ export const DEEP_WORDS: ConceptId[] = [
   'act.strikeDesperate',
   // окупается только в связке с полем: без опасных клеток почти мёртвое слово
   'act.shove',
+  // гейт площадного каста: без носителя в партии слово мёртвое (план АОЕ)
+  'act.barrage',
+  // манера ритуала: целить в проекцию движения — надстройка над «накрыть скопление»
+  'act.preempt',
+  // манера каста: тратить ход на замах, а не на мгновенный залп; сама открывает касты
+  'act.castRitual',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */

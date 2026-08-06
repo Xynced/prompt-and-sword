@@ -1,6 +1,6 @@
 import type { Rule } from './ir.js';
 import type { PhraseDraft } from './constructor.js';
-import type { Pos } from './types.js';
+import type { AoeSpec, Pos } from './types.js';
 import { type Rng, shuffle } from './rng.js';
 
 /**
@@ -23,6 +23,8 @@ export interface HeroArchetype {
   ability: { name: string; desc: string };
   /** Врождённые правила способности; в source — префикс «способность:». */
   innate: Rule[];
+  /** Площадное оружие носителя (план АОЕ); использование гейтится словом «накрыть скопление». */
+  aoe?: AoeSpec;
 }
 
 const r = (rule: Omit<Rule, 'scope'>): Rule => ({ ...rule, scope: 'self' });
@@ -62,6 +64,14 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         source: 'способность: Чутьё',
       }),
     ],
+    // боевой маг: залп и ритуал — оба раз в бой; без слова «накрыть скопление»
+    // оружие молчит. Дальность ритуала 6 (не 4): с move 1 Лия кастует по
+    // бегущим издали, и центр должен дотягиваться до скопления, а не цеплять
+    // его краем зоны
+    aoe: {
+      blast: { range: 4, mult: 0.75, usesPerBattle: 1 },
+      ritual: { range: 6, mult: 1.2, usesPerBattle: 1 },
+    },
   },
   {
     id: 'skala',
@@ -92,6 +102,9 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 0.9, source: 'способность: Выпад' }),
     ],
+    // спеллблейд: длинное копьё умеет бить волной по линии — оружие есть
+    // всегда, но без слова «накрыть скопление» волна не случается
+    aoe: { line: { len: 4, mult: 0.75 } },
   },
   {
     id: 'ulv',

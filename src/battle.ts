@@ -2,14 +2,20 @@ import { type Rng, mulberry32, shuffle } from './rng.js';
 import { AP_PER_TURN, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
-import { dist, inBounds, isFlanking, posEq } from './grid.js';
+import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
-import type { LensId, Pos, Side } from './types.js';
+import type { AoeSpec, LensId, Pos, Side } from './types.js';
 import {
   type ActionKind,
   type Decision,
   type Fighter,
+  AOE_RITUAL_RADIUS,
+  aoeDamage,
+  aoeVictims,
   apCostFor,
+  blastReady,
+  castVictims,
+  ritualReady,
   attackMult,
   coverLevelOf,
   decide,
@@ -36,6 +42,8 @@ export interface UnitSpec {
   /** Линзы характера в порядке применения. */
   lenses: LensId[];
   rules: Rule[];
+  /** Площадное оружие носителя АОЕ (план АОЕ). */
+  aoe?: AoeSpec;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
 }
@@ -47,12 +55,18 @@ export type BattleEvent =
       to: Pos;
       action: ActionKind;
       target?: string;
+      /** Центр зоны площадного каста. */
+      at?: Pos;
       /** Очков хода на момент решения (до списания цены действия). */
       ap: number;
     })
   | { t: 'move'; unit: string; from: Pos; to: Pos }
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
+  | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos }
+  | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
+  /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
+  | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
   | {
       t: 'attack';
       unit: string;
@@ -97,6 +111,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     exposed: false,
     tags: spec.tags ?? [],
     lenses: spec.lenses,
+    aoe: spec.aoe,
     compiled: applyLens(spec.lenses, spec.rules),
   };
 }
@@ -154,6 +169,21 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
   }
   let rounds = 0;
 
+  // общий урон площадного каста: фиксированный, по всем жертвам (friendly
+  // fire), с событием aoeHit и смертями; порядок жертв — порядок в units
+  const applyAoe = (caster: Fighter, mult: number, victims: readonly Fighter[]): void => {
+    for (const v of victims) {
+      const dmg = aoeDamage(caster, mult, v);
+      v.hp = Math.max(0, v.hp - dmg);
+      v.lastAttackerId = caster.id;
+      events.push({ t: 'aoeHit', unit: v.id, by: caster.id, dmg, hp: v.hp });
+      if (v.hp === 0) {
+        v.alive = false;
+        events.push({ t: 'die', unit: v.id });
+      }
+    }
+  };
+
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     rounds = round;
     events.push({ t: 'round', n: round });
@@ -163,6 +193,23 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
 
     for (const unit of order) {
       if (!unit.alive) continue;
+
+      // висящая зона ритуала бьёт в начале хода кастера — ДО сброса прикрытий:
+      // «не могу выйти — прикрываюсь» работает, прикрытия жертв ещё активны.
+      // Смерть кастера отменяет зону сама собой: мёртвый хода не получает
+      if (unit.pendingRitual) {
+        const { at } = unit.pendingRitual;
+        unit.pendingRitual = undefined;
+        events.push({ t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at } });
+        applyAoe(unit, unit.aoe?.ritual?.mult ?? 1, aoeVictims(at, units, AOE_RITUAL_RADIUS));
+        const w = winnerOf(units);
+        if (w) {
+          events.push({ t: 'end', winner: w, rounds: round });
+          return { winner: w, rounds: round, events, units, terrain };
+        }
+        if (!unit.alive) continue; // накрыл сам себя
+      }
+
       // прикрытие и открытость держатся до своего следующего хода
       unit.coverLevel = 0;
       unit.exposed = false;
@@ -175,7 +222,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
 
       while (ap > 0 && !over && unit.alive) {
         const decision = decide(unit, units, round, blocked, ap, ctx);
-        const { to, action, targetId } = decision.chosen;
+        const { to, action, targetId, at } = decision.chosen;
         events.push({
           t: 'decision',
           unit: unit.id,
@@ -183,6 +230,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           to,
           action,
           ...(targetId ? { target: targetId } : {}),
+          ...(at ? { at: { ...at } } : {}),
           ap,
           factors: decision.factors,
           condRules: decision.condRules,
@@ -258,6 +306,39 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
                 events.push({ t: 'die', unit: target.id });
               }
             }
+          }
+        } else if (action === 'aoeRitual' && at) {
+          // замах: зона объявлена, урон — в начале следующего хода кастера.
+          // Перезарядка и лимит списываются на замахе, а не на залпе
+          const ritual = unit.aoe?.ritual;
+          if (
+            ritual &&
+            ritualReady(unit, round) &&
+            dist(unit.pos, at) <= ritual.range &&
+            hasLoS(unit.pos, at, blocked)
+          ) {
+            unit.pendingRitual = { at: { ...at } };
+            unit.lastRitualRound = round;
+            unit.ritualUses = (unit.ritualUses ?? 0) + 1;
+            // dmg — номинал по чистой цели, для телеграфии в логе и разведке
+            const nominal = Math.max(1, Math.round(expectedDamage(unit.atk) * ritual.mult));
+            events.push({ t: 'telegraph', unit: unit.id, at: { ...at }, dmg: nominal });
+          }
+        } else if (action === 'aoeBlast' && at) {
+          // залп: фиксированный урон всем в 3×3 вокруг центра — обеим сторонам
+          // (friendly fire включён) и самому кастеру, если влез в зону
+          const blast = unit.aoe?.blast;
+          if (blast && blastReady(unit) && dist(unit.pos, at) <= blast.range && hasLoS(unit.pos, at, blocked)) {
+            unit.blastUses = (unit.blastUses ?? 0) + 1;
+            events.push({ t: 'aoeCast', unit: unit.id, form: 'blast', at: { ...at } });
+            applyAoe(unit, blast.mult, aoeVictims(at, units));
+          }
+        } else if (action === 'aoeLine' && at) {
+          // волна клинка: мгновенная полоса от себя, `at` — клетка-направление
+          const line = unit.aoe?.line;
+          if (line && dist(unit.pos, at) === 1) {
+            events.push({ t: 'aoeCast', unit: unit.id, form: 'line', at: { ...at } });
+            applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked));
           }
         } else if (action === 'shieldAlly' && targetId) {
           const ally = units.find((u) => u.id === targetId)!;

@@ -26,6 +26,12 @@ import { dist } from './grid.js';
  *   Простр.:   highGround (держать высоту), behindCover (за укрытием),
  *              avoidHazard (обходить опасное)
  *   Действия:  shove (толкать — в шипы, в огонь, из строя)
+ * План АОЕ:
+ *   Условия:   underCharge (враги накатывают — дотянутся за свой ход)
+ *   Действия:  barrage (накрыть скопление — гейт площадного каста носителя),
+ *              preempt (бить на упреждение — манера ритуала: целить в проекцию),
+ *              castRitual (замахиваться ритуалом — манера: ритуал, не залп)
+ *   Простр.:   spread (держать интервал — пока у врага жив АОЕ-носитель)
  */
 
 export type Selector =
@@ -49,7 +55,8 @@ export type Condition =
   | { kind: 'battleDrags' }
   | { kind: 'initiativeEdge' }
   | { kind: 'allyFallen' }
-  | { kind: 'surrounded' };
+  | { kind: 'surrounded' }
+  | { kind: 'underCharge' };
 
 /** Ссылка на позицию-якорь для пространственных предпочтений. */
 export type PosRef = { type: 'ally'; id: string } | { type: 'enemy'; sel: Selector };
@@ -78,7 +85,11 @@ export type Preference =
   | { kind: 'highGround' }
   | { kind: 'behindCover' }
   | { kind: 'avoidHazard' }
-  | { kind: 'shove' };
+  | { kind: 'shove' }
+  | { kind: 'barrage' }
+  | { kind: 'spread' }
+  | { kind: 'preempt' }
+  | { kind: 'castRitual' };
 
 export interface Rule {
   when: Condition;
@@ -137,6 +148,10 @@ export function evalCondition(
       return units.some((u) => u.side === self.side && u.id !== self.id && !u.alive);
     case 'surrounded':
       return enemiesOf(self, units).filter((e) => dist(e.pos, self.pos) === 1).length >= 2;
+    case 'underCharge':
+      // враги накатывают: хотя бы один дотянется до меня за свой ход
+      // (два шага + дальность — та же формула, что strikeReach в скоринге)
+      return enemiesOf(self, units).some((e) => dist(e.pos, self.pos) <= e.move * 2 + e.range);
   }
 }
 
@@ -242,5 +257,13 @@ export function describePreference(p: Preference): string {
       return 'обходить опасное';
     case 'shove':
       return 'толкать';
+    case 'barrage':
+      return 'накрыть скопление';
+    case 'spread':
+      return 'держать интервал';
+    case 'preempt':
+      return 'бить на упреждение';
+    case 'castRitual':
+      return 'замахиваться ритуалом';
   }
 }
