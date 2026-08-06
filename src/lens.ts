@@ -166,8 +166,9 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         mods: {
           aggression: 0.7,
           survival: 2.2,
-          // за щитом отсидеться — первое, что приходит в голову; открыться — последнее
-          actionBias: { cover: 1.5, fullCover: 1.2, selflessAttack: 0.2 },
+          // за щитом отсидеться — первое, что приходит в голову; открыться —
+          // последнее; на опасное поле — только осторожно, даже где не надо
+          actionBias: { cover: 1.5, fullCover: 1.2, selflessAttack: 0.2, carefulStep: 1.5 },
         },
       };
     }
@@ -220,8 +221,9 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
           aggression: 1.6,
           survival: 0.4,
           ignoreZoC: true,
-          // щиты — для трусов: глухая защита исключена вовсе, размен ран — норма
-          actionBias: { selflessAttack: 2.5, cover: 0.3, fullCover: 0 },
+          // щиты — для трусов: глухая защита исключена вовсе, размен ран — норма;
+          // красться по шипам смешно, а толкать — недостаточно кроваво: бей!
+          actionBias: { selflessAttack: 2.5, cover: 0.3, fullCover: 0, carefulStep: 0.3, shove: 0 },
         },
       };
     }
@@ -263,8 +265,8 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         }
         return r;
       });
-      // вполсилы не бьёт — это оскорбление противника
-      return { rules: out, mods: { aggression: 1.1, actionBias: { weakAttack: 0.85 } } };
+      // вполсилы не бьёт — это оскорбление противника; толкаться — недостойно
+      return { rules: out, mods: { aggression: 1.1, actionBias: { weakAttack: 0.85, shove: 0 } } };
     }
 
     case 'gloryhound': {
@@ -316,7 +318,8 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
       });
       return {
         rules: out,
-        mods: { aggression: 0.85, survival: 1.5, actionBias: { cover: 1.8 } },
+        // осторожный шаг — параноику родной: мало ли что там под ногами
+        mods: { aggression: 0.85, survival: 1.5, actionBias: { cover: 1.8, carefulStep: 1.5 } },
       };
     }
 

@@ -39,7 +39,12 @@ export type ConceptId =
   // манера удара (экономика хода) — не «кого бить», а «чем бить»
   | 'act.strikeOften'
   | 'act.strikeHard'
-  | 'act.strikeDesperate';
+  | 'act.strikeDesperate'
+  // поле и ландшафт (план поля)
+  | 'space.highGround'
+  | 'space.behindCover'
+  | 'space.avoidHazard'
+  | 'act.shove';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -83,6 +88,10 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.strikeOften': { id: 'act.strikeOften', label: 'бить часто', category: 'action' },
   'act.strikeHard': { id: 'act.strikeHard', label: 'бить наверняка', category: 'action' },
   'act.strikeDesperate': { id: 'act.strikeDesperate', label: 'бить отчаянно', category: 'action' },
+  'space.highGround': { id: 'space.highGround', label: 'держать высоту', category: 'space' },
+  'space.behindCover': { id: 'space.behindCover', label: 'за укрытием', category: 'space' },
+  'space.avoidHazard': { id: 'space.avoidHazard', label: 'обходить опасное', category: 'space' },
+  'act.shove': { id: 'act.shove', label: 'толкать', category: 'action' },
 };
 
 /**
@@ -113,6 +122,11 @@ export const CORE_WORDS: ConceptId[] = [
   // пара «часто против наверняка» — самый простой вход в экономику хода
   'act.strikeOften',
   'act.strikeHard',
+  // читаются с карты и работают сами по себе (план поля)
+  'space.highGround',
+  'space.behindCover',
+  // техника безопасности, а не стратегия
+  'space.avoidHazard',
 ];
 
 /** Глубокие слова — качественно новые стратегии; вторая колонка предложений. */
@@ -137,6 +151,8 @@ export const DEEP_WORDS: ConceptId[] = [
   'space.awayFrom',
   // размен «сильнее бью — больнее получаю» стоит понимать до того, как взял
   'act.strikeDesperate',
+  // окупается только в связке с полем: без опасных клеток почти мёртвое слово
+  'act.shove',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */

@@ -1,4 +1,5 @@
-import { type BattleEvent, type BattleResult, type UnitSpec, runBattle } from '../battle.js';
+import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
+import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
 import { understandingCard } from '../cards.js';
 import {
@@ -18,7 +19,10 @@ import {
   type NodeKind,
   type RunState,
   advance,
+  arenaForNode,
   battleSeed,
+  deployedSpawn,
+  setDeploy,
   chooseInEvent,
   chooseInScriptorium,
   claimReward,
@@ -85,6 +89,8 @@ let editError: Record<string, string> = {};
 const visited = new Set<number>([run.at]);
 /** Онбординг: после поражения в уроке предлагаем переписать приказ. */
 let lessonNudge = false;
+/** Герой, выбранный для перестановки на мини-поле расстановки. */
+let deployPick: string | null = null;
 let fitScale = 1;
 
 // ---------- журнал плейтеста (Ворота B/C) ----------
@@ -438,6 +444,10 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.flank')) out.push({ value: { id: 'space.flank' }, label: 'заходить во фланг' });
   if (has('space.lineOfFire')) out.push({ value: { id: 'space.lineOfFire' }, label: 'держаться вне линии огня' });
   if (has('space.chokepoint')) out.push({ value: { id: 'space.chokepoint' }, label: 'вставать в узком месте' });
+  if (has('space.highGround')) out.push({ value: { id: 'space.highGround' }, label: 'держать высоту' });
+  if (has('space.behindCover')) out.push({ value: { id: 'space.behindCover' }, label: 'держаться за укрытием' });
+  if (has('space.avoidHazard')) out.push({ value: { id: 'space.avoidHazard' }, label: 'обходить опасное' });
+  if (has('act.shove')) out.push({ value: { id: 'act.shove' }, label: 'толкать' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -559,6 +569,19 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
         break;
       }
+      case 'hazard': {
+        const u = units.get(e.unit)!;
+        u.hp = e.hp;
+        pending?.parts.push(`${e.kind === 'spikes' ? 'напоролся на шипы' : 'обожжён'}: −${e.dmg}`);
+        break;
+      }
+      case 'shove': {
+        const t = units.get(e.target)!;
+        t.x = e.to.x;
+        t.y = e.to.y;
+        pending?.parts.push(`толкает ${nm(e.target)} в ${cellName(e.to.x, e.to.y)}`);
+        break;
+      }
       case 'die': {
         units.get(e.unit)!.alive = false;
         pending?.parts.push(`${nm(e.unit)} падает`);
@@ -626,7 +649,7 @@ function startBattle(): void {
   // foeSpecs — с применённой меткой: бой на экране и бой в забеге (playFight) — один бой
   const foes = foeSpecs(run);
   const leaderIds = new Set(foes.filter((f) => f.tags?.includes('leader')).map((f) => f.id));
-  battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foes]);
+  battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foes], arenaForNode(node));
   recordEvent({
     t: 'battle',
     node: node.kind,
@@ -637,6 +660,7 @@ function startBattle(): void {
   });
   fightsAtNode++;
   rewroteSinceBattle = false;
+  deployPick = null;
   frames = buildFrames(battle, leaderIds);
   frameIdx = 0;
   playing = true;
@@ -784,6 +808,53 @@ function intelHtml(node: MapNode): string {
   return `<div class="intel"><span class="kicker">они тоже читают — принципы врага видны</span>${rows}</div>`;
 }
 
+/** Мини-поле расстановки: зона партии слева, камни и высоты арены, враги при разведке. */
+function deployHtml(node: MapNode): string {
+  const layout = pickTerrain(battleSeed(run), arenaForNode(node));
+  const cells: string[] = [];
+  for (let y = 0; y < layout.tiles.length; y++) {
+    for (let x = 0; x <= 2; x++) {
+      if (layout.tiles[y]![x]!.blocked) continue;
+      cells.push(
+        `<div class="dcell" data-action="deploy-cell" data-x="${x}" data-y="${y}" style="left:${x * CELL}%;top:${y * CELL}%"></div>`,
+      );
+    }
+  }
+  const heroTokens = run.heroes
+    .filter((h) => h.alive)
+    .map((h) => {
+      const p = deployedSpawn(run, h);
+      return `<div class="btoken${deployPick === h.id ? ' pick' : ''}" data-action="deploy-pick" data-hero="${h.id}"
+        style="left:${p.x * CELL}%;top:${p.y * CELL}%"><span class="dm"><span>${esc(glyphOf(h.name))}</span></span></div>`;
+    })
+    .join('');
+  const intel = intelVisible(node);
+  let foeTokens = '';
+  if (intel) {
+    // тот же сид и порядок спеков, что у боя, — превью совпадает с ареной
+    const foes = foeSpecs(run);
+    const names = new Map(foes.map((f) => [f.id, f.name]));
+    foeTokens = spawnPreview(battleSeed(run), [...heroSpecs(run), ...foes])
+      .filter((u) => names.has(u.id))
+      .map(
+        (u) => `<div class="btoken foe" style="left:${u.pos.x * CELL}%;top:${u.pos.y * CELL}%">
+          <span class="dm"><span>${esc(glyphOf(names.get(u.id)!))}</span></span></div>`,
+      )
+      .join('');
+  }
+  const hint = deployPick
+    ? 'поставь на клетку зоны'
+    : `расстановка: герой → клетка${intel ? '; врагов выдаёт разведка' : ''}`;
+  return `<div class="deploy">
+    <span class="arena-line"><b>${esc(layout.name)}</b> — ${esc(layout.scenario)}</span>
+    <span class="kicker">${hint}</span>
+    <div class="bfield mini" style="--cell:${CELL}%">
+      <div class="dzone" style="width:${3 * CELL}%"></div>
+      ${tilesLayerHtml(layout.tiles)}${cells.join('')}${foeTokens}${heroTokens}
+    </div>
+  </div>`;
+}
+
 function nodePanelHtml(): string {
   const node = currentNode(run);
   if (run.status !== 'ongoing') return '';
@@ -833,8 +904,13 @@ function nodePanelHtml(): string {
         : '';
     return `<div class="node-panel">
       <h2>${esc(nodeTitle(node))}</h2>
-      <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
-      ${intelHtml(node)}
+      <div class="node-cols">
+        <div class="node-cols-l">
+          <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
+          ${intelHtml(node)}
+        </div>
+        ${deployHtml(node)}
+      </div>
       ${nudge}
       <div class="btn-row"><button class="primary" data-action="fight">⚔ выступить</button>
         <button data-action="open-editor">переписать приказы</button></div>
@@ -1023,11 +1099,22 @@ function tokensHtml(): string {
     .join('');
 }
 
+function tilesLayerHtml(tiles: readonly Tile[][]): string {
+  const out: string[] = [];
+  tiles.forEach((row, y) =>
+    row.forEach((t, x) => {
+      const at = `style="left:${x * CELL}%;top:${y * CELL}%"`;
+      if (t.blocked) out.push(`<div class="rock" ${at}></div>`);
+      else if (t.hazard) out.push(`<div class="hz ${t.hazard}" ${at} title="${t.hazard === 'spikes' ? 'шипы' : 'огонь'}"></div>`);
+      else if (t.rough) out.push(`<div class="rgh" ${at} title="труднопроходимо"></div>`);
+      else if (t.height) out.push(`<div class="hgt h${t.height}" ${at}></div>`);
+    }),
+  );
+  return out.join('');
+}
+
 function terrainHtml(): string {
-  if (!battle) return '';
-  return battle.terrain.tiles
-    .map((t) => `<div class="rock" style="left:${t.x * CELL}%;top:${t.y * CELL}%"></div>`)
-    .join('');
+  return battle ? tilesLayerHtml(battle.terrain.tiles) : '';
 }
 
 function battleScreenHtml(): string {
@@ -1043,7 +1130,7 @@ function battleScreenHtml(): string {
     <div class="page-l" style="padding:20px 24px 14px 28px;gap:10px">
       <div class="page-head">
         <span class="title">${esc(nodeTitle(node))}</span>
-        <span class="meta"><span id="turnlabel">ход ${f.round}</span> · seed ${run.runSeed}</span>
+        <span class="meta"><span id="turnlabel">ход ${f.round}</span> · ${esc(battle!.terrain.name)} · seed ${run.runSeed}</span>
       </div>
       <div class="bfield" id="bfield" style="--cell:${CELL}%">
         ${terrainHtml()}
@@ -1511,6 +1598,19 @@ function bind(): void {
         case 'mark-foe': {
           const foe = el.dataset.foe!;
           setMark(run, run.marked === foe ? null : foe);
+          render();
+          break;
+        }
+        case 'deploy-pick': {
+          const hero = el.dataset.hero!;
+          deployPick = deployPick === hero ? null : hero;
+          render();
+          break;
+        }
+        case 'deploy-cell': {
+          if (!deployPick) break;
+          const r = setDeploy(run, deployPick, { x: Number(el.dataset.x), y: Number(el.dataset.y) });
+          if (r.ok) deployPick = null;
           render();
           break;
         }

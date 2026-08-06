@@ -140,9 +140,9 @@ export function heroArchetype(id: string): HeroArchetype {
 
 /** Точки спавна партии по слоту: [0] — передовой, [1]–[2] — задняя линия. */
 export const PARTY_SPAWNS: readonly Pos[] = [
-  { x: 2, y: 5 },
-  { x: 1, y: 3 },
-  { x: 1, y: 8 },
+  { x: 2, y: 8 },
+  { x: 1, y: 4 },
+  { x: 1, y: 13 },
 ];
 
 /** Партия забега: 1 передовой + 2 других, детерминированно от rng. */

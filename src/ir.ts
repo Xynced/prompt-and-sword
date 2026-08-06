@@ -22,6 +22,10 @@ import { dist } from './grid.js';
  *   Действия:  strikeOften (бить часто), strikeHard (бить наверняка),
  *              strikeDesperate (бить отчаянно) — говорят, ЧЕМ бить; кого
  *              бить, по-прежнему решает отдельное правило attack
+ * План поля:
+ *   Простр.:   highGround (держать высоту), behindCover (за укрытием),
+ *              avoidHazard (обходить опасное)
+ *   Действия:  shove (толкать — в шипы, в огонь, из строя)
  */
 
 export type Selector =
@@ -70,7 +74,11 @@ export type Preference =
   // дешёвых замахов, на один полный или на отчаянный размен
   | { kind: 'strikeOften' }
   | { kind: 'strikeHard' }
-  | { kind: 'strikeDesperate' };
+  | { kind: 'strikeDesperate' }
+  | { kind: 'highGround' }
+  | { kind: 'behindCover' }
+  | { kind: 'avoidHazard' }
+  | { kind: 'shove' };
 
 export interface Rule {
   when: Condition;
@@ -226,5 +234,13 @@ export function describePreference(p: Preference): string {
       return 'бить наверняка';
     case 'strikeDesperate':
       return 'бить отчаянно';
+    case 'highGround':
+      return 'держать высоту';
+    case 'behindCover':
+      return 'за укрытием';
+    case 'avoidHazard':
+      return 'обходить опасное';
+    case 'shove':
+      return 'толкать';
   }
 }

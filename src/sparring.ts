@@ -1,4 +1,5 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle } from './battle.js';
+import type { ArenaTag } from './terrain.js';
 
 /**
  * Спарринг — «переиграть с теми же костями»: тот же seed, те же враги,
@@ -56,9 +57,10 @@ export function sparring(
   foes: readonly UnitSpec[],
   partyBefore: readonly UnitSpec[],
   partyAfter: readonly UnitSpec[],
+  arena?: ArenaTag,
 ): SparringResult {
-  const before = runBattle(seed, [...partyBefore, ...foes]);
-  const after = runBattle(seed, [...partyAfter, ...foes]);
+  const before = runBattle(seed, [...partyBefore, ...foes], arena);
+  const after = runBattle(seed, [...partyAfter, ...foes], arena);
   return {
     before,
     after,

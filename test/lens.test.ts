@@ -3,7 +3,9 @@ import type { Rule } from '../src/ir.js';
 import { LENS_POOL, applyLens, rollLenses } from '../src/lens.js';
 import { mulberry32 } from '../src/rng.js';
 import { type UnitSpec, runBattle } from '../src/battle.js';
-import type { LensId } from '../src/types.js';
+import { type Fighter, decide, generateCandidates, makeCtx } from '../src/scoring.js';
+import { pickTerrain } from '../src/terrain.js';
+import type { CombatUnit, LensId, Pos, Side } from '../src/types.js';
 
 const attack = (w = 2): Rule => ({
   when: { kind: 'always' },
@@ -308,6 +310,47 @@ describe('характер выбирает действие', () => {
     expect(actionMix(['guardian'], true).shieldAlly ?? 0).toBeGreaterThan(
       actionMix(['plain'], true).shieldAlly ?? 0,
     );
+  });
+});
+
+describe('линзы и поле (план поля, шаг 9)', () => {
+  function fielder(id: string, side: Side, pos: Pos, lenses: LensId[], rules: Rule[], over: Partial<CombatUnit> = {}): Fighter {
+    return {
+      id, name: id, side, maxHp: 20, hp: 20, atk: 5, range: 1, speed: 5, move: 2,
+      pos, startPos: { ...pos }, alive: true, coverLevel: 0, exposed: false, tags: [],
+      lenses, ...over, compiled: applyLens(lenses, rules),
+    };
+  }
+  const shove: Rule = { when: { kind: 'always' }, then: { kind: 'shove' }, weight: 2, scope: 'self', source: 'толкай' };
+
+  it('тяга к новым действиям роздана скупо: трус/параноик, фанатик, дуэлянт', () => {
+    expect(applyLens(['coward'], []).instincts.actionBias.carefulStep).toBe(1.5);
+    expect(applyLens(['paranoid'], []).instincts.actionBias.carefulStep).toBe(1.5);
+    expect(applyLens(['fanatic'], []).instincts.actionBias.carefulStep).toBe(0.3);
+    expect(applyLens(['fanatic'], []).instincts.actionBias.shove).toBe(0);
+    expect(applyLens(['duelist'], []).instincts.actionBias.shove).toBe(0);
+  });
+
+  it('фанатик прёт по шипам обычным шагом там, где обычный идёт осторожно', () => {
+    // теснина (сид 8): цель за шипами (8,6) — бить можно только с них
+    const layout = pickTerrain(8);
+    const blocked = (p: Pos): boolean => layout.tiles[p.y]?.[p.x]?.blocked === true;
+    const ctx = makeCtx(blocked, layout.tiles);
+    const enemy = fielder('e', 'foe', { x: 8, y: 5 }, ['plain'], [], { move: 0 });
+    const plain = fielder('s', 'party', { x: 7, y: 7 }, ['plain'], [attack()]);
+    expect(decide(plain, [plain, enemy], 1, blocked, 3, ctx).chosen.action).toBe('carefulStep');
+    const fanatic = fielder('f', 'party', { x: 7, y: 7 }, ['fanatic'], [attack()]);
+    expect(decide(fanatic, [fanatic, enemy], 1, blocked, 3, ctx).chosen.action).toBe('move');
+  });
+
+  it('фанатик и дуэлянт не толкаются даже со словом: нулевая тяга — запрет', () => {
+    const enemy = fielder('e', 'foe', { x: 6, y: 5 }, ['plain'], []);
+    for (const lens of ['fanatic', 'duelist'] as const) {
+      const self = fielder('s', 'party', { x: 5, y: 5 }, [lens], [shove]);
+      expect(generateCandidates(self, [self, enemy]).some((c) => c.action === 'shove')).toBe(false);
+    }
+    const control = fielder('s', 'party', { x: 5, y: 5 }, ['plain'], [shove]);
+    expect(generateCandidates(control, [control, enemy]).some((c) => c.action === 'shove')).toBe(true);
   });
 });
 

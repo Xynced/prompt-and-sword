@@ -1,20 +1,24 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
-import { AP_PER_TURN, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
+import { AP_PER_TURN, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
-import { dist, isFlanking, posEq, posKey } from './grid.js';
-import { pickTerrain } from './terrain.js';
+import { dist, inBounds, isFlanking, posEq } from './grid.js';
+import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
 import type { LensId, Pos, Side } from './types.js';
 import {
-  AP_COST,
   type ActionKind,
   type Decision,
   type Fighter,
+  apCostFor,
   attackMult,
   coverLevelOf,
   decide,
+  heightDmgBonus,
   isAttack,
+  isMovement,
   makeCtx,
+  rangeAt,
+  shoveDest,
 } from './scoring.js';
 
 export interface UnitSpec {
@@ -47,6 +51,8 @@ export type BattleEvent =
       ap: number;
     })
   | { t: 'move'; unit: string; from: Pos; to: Pos }
+  | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
+  | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
   | {
       t: 'attack';
       unit: string;
@@ -66,12 +72,12 @@ export interface BattleResult {
   rounds: number;
   events: BattleEvent[];
   units: Fighter[];
-  /** Террейн боя (камни): имя схемы и клетки — для отрисовки и разбора. */
-  terrain: { name: string; tiles: Pos[] };
+  /** Террейн боя: имя и вопрос схемы, клетки [y][x] — для отрисовки и разбора. */
+  terrain: { name: string; scenario: string; tiles: Tile[][] };
 }
 
 const MAX_ROUNDS = 30;
-const FOE_SPAWN_SLOTS: Pos[] = [2, 4, 5, 7, 9].map((y) => ({ x: 9, y }));
+const FOE_SPAWN_SLOTS: Pos[] = [3, 6, 8, 11, 14].map((y) => ({ x: 15, y }));
 
 function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
   return {
@@ -95,14 +101,25 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
   };
 }
 
-function placeUnits(specs: readonly UnitSpec[], rng: Rng): Fighter[] {
+/** Точки спавна по спекам: явный spawn как есть, остальным — слоты от сида. */
+function assignSpawns(specs: readonly UnitSpec[], rng: Rng): Pos[] {
   const slots = shuffle(FOE_SPAWN_SLOTS, rng);
   let slotIdx = 0;
-  return specs.map((s) => {
-    if (s.spawn) return makeFighter(s, s.spawn);
-    const slot = slots[slotIdx++ % slots.length]!;
-    return makeFighter(s, slot);
-  });
+  return specs.map((s) => s.spawn ?? slots[slotIdx++ % slots.length]!);
+}
+
+function placeUnits(specs: readonly UnitSpec[], rng: Rng): Fighter[] {
+  const spawns = assignSpawns(specs, rng);
+  return specs.map((s, i) => makeFighter(s, spawns[i]!));
+}
+
+/**
+ * Позиции спавна без боя — превью расстановки на экране узла: тот же сид и
+ * тот же порядок спеков, что у runBattle, дают ту же раскладку.
+ */
+export function spawnPreview(seed: number, specs: readonly UnitSpec[]): { id: string; pos: Pos }[] {
+  const rng = mulberry32(seed);
+  return assignSpawns(specs, rng).map((pos, i) => ({ id: specs[i]!.id, pos: { ...pos } }));
 }
 
 function rollDamage(base: number, rng: Rng): number {
@@ -117,15 +134,20 @@ function winnerOf(units: readonly Fighter[]): Side | undefined {
 }
 
 /** Детерминированный бой: тот же seed + те же принципы = тот же лог событий. */
-export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResult {
+export function runBattle(seed: number, specs: readonly UnitSpec[], arena: ArenaTag = 'late'): BattleResult {
   const rng = mulberry32(seed);
   const units = placeUnits(specs, rng);
-  // камни, совпавшие с чьей-то точкой спавна, убираем (кастомные спавны тестов/сценариев)
-  const layout = pickTerrain(seed);
-  const tiles = layout.tiles.filter((t) => !units.some((u) => posEq(u.pos, t)));
-  const terrain = { name: layout.name, tiles };
-  const blockedSet = new Set(tiles.map(posKey));
-  const blocked = (p: Pos): boolean => blockedSet.has(posKey(p));
+  // рабочая копия схемы; камни, совпавшие с чьей-то точкой спавна, убираем
+  // (кастомные спавны тестов/сценариев)
+  const layout = pickTerrain(seed, arena);
+  const tiles = layout.tiles.map((row) => row.map((t) => ({ ...t })));
+  for (const u of units) {
+    const t = tiles[u.pos.y]?.[u.pos.x];
+    if (t?.blocked) t.blocked = false;
+  }
+  const terrain = { name: layout.name, scenario: layout.scenario, tiles };
+  const blocked = (p: Pos): boolean => tiles[p.y]?.[p.x]?.blocked === true;
+  const heightAt = (p: Pos): number => tiles[p.y]?.[p.x]?.height ?? 0;
   const events: BattleEvent[] = [];
   for (const u of units) {
     events.push({ t: 'spawn', unit: u.id, name: u.name, side: u.side, pos: { ...u.pos }, maxHp: u.maxHp });
@@ -147,11 +169,11 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
 
       // поля дистанций считаем раз на ход: за ход этого юнита никто, кроме
       // него, не двигается, поэтому кэш ctx остаётся верным для всех действий
-      const ctx = makeCtx(blocked);
+      const ctx = makeCtx(blocked, tiles);
       let ap = AP_PER_TURN;
       let over = false;
 
-      while (ap > 0 && !over) {
+      while (ap > 0 && !over && unit.alive) {
         const decision = decide(unit, units, round, blocked, ap, ctx);
         const { to, action, targetId } = decision.chosen;
         events.push({
@@ -165,23 +187,37 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
           factors: decision.factors,
           condRules: decision.condRules,
         });
-        ap -= AP_COST[action];
+        ap -= apCostFor(action, unit);
 
-        if (action === 'move') {
+        if (isMovement(action)) {
           events.push({ t: 'move', unit: unit.id, from: { ...unit.pos }, to: { ...to } });
           unit.pos = { ...to };
+          // опасная клетка бьёт закончившего на ней шаг; осторожный шаг не
+          // будит опасность, проход насквозь безопасен. Без rng — фиксированный
+          const hz = action === 'move' ? tiles[to.y]?.[to.x]?.hazard : undefined;
+          if (hz) {
+            unit.hp = Math.max(0, unit.hp - HAZARD_DMG);
+            events.push({ t: 'hazard', unit: unit.id, kind: hz, dmg: HAZARD_DMG, hp: unit.hp });
+            if (unit.hp === 0) {
+              unit.alive = false;
+              events.push({ t: 'die', unit: unit.id });
+            }
+          }
         } else if (isAttack(action) && targetId) {
           if (action === 'selflessAttack') unit.exposed = true;
           const target = units.find((u) => u.id === targetId)!;
-          if (target.alive && dist(unit.pos, target.pos) <= unit.range) {
+          if (target.alive && dist(unit.pos, target.pos) <= rangeAt(unit, heightAt(unit.pos))) {
             const allyPositions = units
               .filter((u) => u.alive && u.side === unit.side && u !== unit)
               .map((u) => u.pos);
             const flank = unit.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
             const raw = rollDamage(unit.atk * attackMult(action) * (flank ? 1.5 : 1), rng);
+            // каменное укрытие цели не складывается с прикрытием — берётся максимум
+            const mitigation = Math.max(target.coverLevel, ctx.coverFrom(unit.pos, target.pos));
             const dmg = Math.max(
               1,
-              Math.round(raw * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1)),
+              Math.round(raw * (1 - mitigation) * (target.exposed ? SELFLESS_VULN_MULT : 1)) +
+                heightDmgBonus(unit, heightAt(unit.pos)),
             );
             target.hp = Math.max(0, target.hp - dmg);
             target.lastAttackerId = unit.id;
@@ -197,6 +233,30 @@ export function runBattle(seed: number, specs: readonly UnitSpec[]): BattleResul
             if (target.hp === 0) {
               target.alive = false;
               events.push({ t: 'die', unit: target.id });
+            }
+          }
+        } else if (action === 'shove' && targetId) {
+          const target = units.find((u) => u.id === targetId)!;
+          const dest = shoveDest(unit.pos, target.pos);
+          if (
+            target.alive &&
+            dist(unit.pos, target.pos) === 1 &&
+            inBounds(dest) &&
+            !blocked(dest) &&
+            !units.some((u) => u.alive && posEq(u.pos, dest))
+          ) {
+            events.push({ t: 'shove', unit: unit.id, target: target.id, from: { ...target.pos }, to: { ...dest } });
+            target.pos = { ...dest };
+            // опасность на клетке назначения срабатывает немедленно — иначе весь смысл
+            const hz = tiles[dest.y]?.[dest.x]?.hazard;
+            if (hz) {
+              target.hp = Math.max(0, target.hp - HAZARD_DMG);
+              target.lastAttackerId = unit.id; // мститель запомнит толкнувшего
+              events.push({ t: 'hazard', unit: target.id, kind: hz, dmg: HAZARD_DMG, hp: target.hp });
+              if (target.hp === 0) {
+                target.alive = false;
+                events.push({ t: 'die', unit: target.id });
+              }
             }
           }
         } else if (action === 'shieldAlly' && targetId) {
