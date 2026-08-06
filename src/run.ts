@@ -73,8 +73,8 @@ export interface RunState {
   log: string[];
 }
 
-export const START_SLOTS = 2;
-export const MAX_SLOTS = 4;
+export const START_SLOTS = 4;
+export const MAX_SLOTS = 6;
 
 /**
  * Перевязка после победы: доля maxHp. Поднята с 0.25, когда ранние бои
