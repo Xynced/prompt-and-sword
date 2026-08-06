@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
-import { foeIntel, rat, slinger, wolf } from '../src/foes.js';
+import { foeIntel, rat, sergeant, slinger, soldier, wolf } from '../src/foes.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
 import type { Rule } from '../src/ir.js';
 import { posEq } from '../src/grid.js';
@@ -129,6 +129,52 @@ describe('стая: волчья охота', () => {
     expect(intel[0]!.lines).toContain('крыса: вцепиться в ближайшего');
     expect(intel[0]!.lines.some((l) => l.startsWith('оружие: зубы'))).toBe(true);
     expect(intel[1]!.lines.some((l) => l.includes('фланг ×2'))).toBe(true);
+  });
+});
+
+describe('умная элита: латники и сержант', () => {
+  const elite = () => [soldier(1, 'soldier2'), soldier(2, 'soldier1'), sergeant()];
+  const atkWeakest = r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'добивай раненых' });
+  const atkLeader = r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'leader' }, weight: 2, source: 'вали вожака' });
+  const mkParty = (rules: Rule[]) => () => [hero('grom', 0, rules), hero('lia', 1, rules), hero('zhalo', 2, rules)];
+
+  it('спеки: латник о двух оружиях держит строй, сержант — вожак с кличем', () => {
+    const s1 = soldier(1, 'soldier2');
+    expect(s1.weapons!.map((w) => w.name)).toEqual(['меч и щит', 'метательное копьё']);
+    expect(s1.rules.some((rl) => rl.then.kind === 'nearTo')).toBe(true);
+    const sgt = sergeant();
+    expect(sgt.tags).toContain('leader');
+    expect(sgt.active?.bless?.usesPerBattle).toBe(1);
+    expect(sgt.rules.some((rl) => rl.when.kind === 'allyFallen' && rl.then.kind === 'bless')).toBe(true);
+  });
+
+  it('разведка выдаёт головоломку: условие клича видно до боя', () => {
+    const intel = foeIntel(elite());
+    const sgtLines = intel.find((i) => i.name === 'Сержант')!.lines;
+    expect(sgtLines).toContain('сержант: клич мести, когда падает латник');
+    expect(sgtLines.some((l) => l.startsWith('актив:'))).toBe(true);
+  });
+
+  it('смоук: жадное добивание будит клич мести, фокус вожака глушит его навсегда', () => {
+    let cries = 0;
+    let criesLeader = 0;
+    let hpWeakest = 0;
+    let hpLeader = 0;
+    for (let s = 1; s <= 20; s++) {
+      const w = runBattle(s * 17 + 3, [...mkParty([atkWeakest])(), ...elite()], 'elite');
+      const l = runBattle(s * 17 + 3, [...mkParty([atkLeader])(), ...elite()], 'elite');
+      cries += w.events.filter((e) => e.t === 'bless').length;
+      criesLeader += l.events.filter((e) => e.t === 'bless').length;
+      const frac = (res: typeof w): number => {
+        const pu = res.units.filter((u) => u.side === 'party');
+        return pu.reduce((a, u) => a + (u.alive ? u.hp : 0), 0) / pu.reduce((a, u) => a + u.maxHp, 0);
+      };
+      hpWeakest += frac(w);
+      hpLeader += frac(l);
+    }
+    expect(cries).toBeGreaterThanOrEqual(15); // добивание латников почти всегда будит клич
+    expect(criesLeader).toBe(0); // мёртвый сержант не кличет
+    expect(hpLeader).toBeGreaterThan(hpWeakest); // и порядок целей окупается
   });
 });
 

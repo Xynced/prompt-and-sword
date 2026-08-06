@@ -232,6 +232,67 @@ export function slinger(n: number): UnitSpec {
 }
 
 /**
+ * Умная элита: хобгоблин-латник (Hobgoblin Soldier, Formation) — дисциплина
+ * вместо ярости: держит строй с напарником, фокусит раненых, прикрывается.
+ * Меч для строя, метательное копьё — достать отходящего (второе оружие).
+ */
+export function soldier(n: number, buddyId: string): UnitSpec {
+  return {
+    id: `soldier${n}`,
+    name: `Латник ${n}`,
+    side: 'foe',
+    maxHp: 42,
+    weapons: [
+      { name: 'меч и щит', dmg: 5, range: 1, affinity: { attack: 1 } },
+      { name: 'метательное копьё', dmg: 4, range: 3 },
+    ],
+    speed: 5,
+    move: 2,
+    lenses: ['plain'],
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 1.8, source: 'латник: добивать раненых' }),
+      rule({
+        when: { kind: 'always' },
+        then: { kind: 'nearTo', ref: { type: 'ally', id: buddyId } },
+        weight: 1.2,
+        source: 'латник: держать строй',
+      }),
+      rule({ when: { kind: 'always' }, then: { kind: 'behindCover' }, weight: 0.8, source: 'латник: из-за щита' }),
+    ],
+  };
+}
+
+/**
+ * Сержант (Hobgoblin General): голос строя — боевой клич (bless, канал
+ * Радима) поднимает урон латника до конца боя; сам ломает самых опасных.
+ * Убить сержанта до клича — контр, ради которого он и носит тег вожака.
+ */
+export function sergeant(): UnitSpec {
+  return {
+    id: 'sergeant',
+    name: 'Сержант',
+    side: 'foe',
+    maxHp: 52,
+    weapons: [{ name: 'палаш', dmg: 7, range: 1 }],
+    speed: 5,
+    move: 2,
+    tags: ['leader'],
+    lenses: ['plain'],
+    active: { bless: { dmgMult: 1.25, range: 5, usesPerBattle: 1 } },
+    rules: [
+      // клич — ответ на падение латника: убей сержанта первым, и клича не
+      // будет; убей латника первым — второй станет вдвое злее. Порядок целей
+      // и есть головоломка элитки, условие видно в разведке
+      // вес 4: клич жмётся раз в бой, а звучит в разгаре рубки — при 2.0
+      // премия проигрывала жирной атаке и клич не звучал вовсе (урок ярости)
+      rule({ when: { kind: 'allyFallen' }, then: { kind: 'bless' }, weight: 4, source: 'сержант: клич мести, когда падает латник' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'mostDangerous' }, weight: 1.5, source: 'сержант: ломать опасных' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 0.8, source: 'сержант: размен по уставу' }),
+    ],
+  };
+}
+
+/**
  * Стая: волк (Wolf) — травля флангами: укус со стороны больнее (sneak,
  * канал Тессы), Knockdown из pf2e читается толчком «сбить с ног».
  */
