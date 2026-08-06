@@ -1,4 +1,5 @@
 import type { Rule } from './ir.js';
+import type { Pos } from './types.js';
 import type { UnitSpec } from './battle.js';
 import { describeActive, describeAoe, describePassives, describeWeapons } from './cards.js';
 import { applyLens } from './lens.js';
@@ -157,6 +158,76 @@ export function hunter(n: number): UnitSpec {
         source: 'охотник: снимать самых опасных',
       }),
       rule({ when: { kind: 'always' }, then: { kind: 'avoidLineOfFire' }, weight: 1.2, source: 'охотник: не лезть под выстрел' }),
+    ],
+  };
+}
+
+// ---- План врагов: паттерны боёв (по мотивам pf2e) ----
+
+/**
+ * Масса: крыса-переросток (Giant Rat) — дешёвое тело стаи. Умирает от
+ * полного удара с добором, но тел больше, чем у партии ходов; спавнятся
+ * кучей у восточного края (явные точки — стая приходит толпой).
+ */
+const RAT_SPAWNS: readonly Pos[] = [
+  { x: 15, y: 7 },
+  { x: 16, y: 8 },
+  { x: 15, y: 9 },
+  { x: 16, y: 10 },
+  { x: 15, y: 11 },
+  { x: 16, y: 6 },
+  { x: 16, y: 12 },
+  { x: 17, y: 7 },
+  { x: 17, y: 9 },
+  { x: 17, y: 11 },
+];
+
+export function rat(n: number): UnitSpec {
+  return {
+    id: `rat${n}`,
+    name: `Крыса ${n}`,
+    side: 'foe',
+    maxHp: 10,
+    weapons: [{ name: 'зубы', dmg: 4, range: 1 }],
+    speed: 7,
+    move: 3,
+    // фанатик: голодная стая не знает страха — без линзы хилое тело под
+    // обстрелом уходит в глухую оборону, и масса черепашится вместо накатывания
+    lenses: ['fanatic'],
+    spawn: { ...RAT_SPAWNS[(n - 1) % RAT_SPAWNS.length]! },
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, source: 'крыса: вцепиться в ближайшего' }),
+    ],
+  };
+}
+
+/**
+ * Стая: волк (Wolf) — травля флангами: укус со стороны больнее (sneak,
+ * канал Тессы), Knockdown из pf2e читается толчком «сбить с ног».
+ */
+const WOLF_SPAWNS: readonly Pos[] = [
+  { x: 15, y: 6 },
+  { x: 15, y: 9 },
+  { x: 15, y: 12 },
+  { x: 16, y: 8 },
+];
+
+export function wolf(n: number): UnitSpec {
+  return {
+    id: `wolf${n}`,
+    name: `Волк ${n}`,
+    side: 'foe',
+    maxHp: 32,
+    weapons: [{ name: 'клыки', dmg: 5, range: 1 }],
+    speed: 7,
+    move: 3,
+    lenses: ['plain'],
+    passives: { sneak: { flankMult: 2.0 } },
+    spawn: { ...WOLF_SPAWNS[(n - 1) % WOLF_SPAWNS.length]! },
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.3, source: 'волк: обойти со стороны' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 1.8, source: 'волк: резать слабых' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'shove' }, weight: 0.8, source: 'волк: сбить с ног' }),
     ],
   };
 }

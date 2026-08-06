@@ -3,7 +3,7 @@ import { type PhraseDraft, compilePhrase } from './constructor.js';
 import { CORE_WORDS, type ConceptId, DEEP_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
-import { archer, berserker, grunt, hunter, packLeader, shaman, warChief, warlord } from './foes.js';
+import { archer, berserker, grunt, hunter, packLeader, rat, shaman, warChief, warlord, wolf } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
 import { ARENA_H, type ArenaTag, PARTY_ZONE_MAX_X, pickTerrain, tileAt } from './terrain.js';
@@ -151,11 +151,11 @@ export function foesForNode(node: MapNode): UnitSpec[] {
     case 'fight':
       if (node.layer <= 1)
         return node.slot === 0
-          ? [berserker(1), grunt(1), grunt(2), archer(1)]
+          ? Array.from({ length: 9 }, (_, i) => rat(i + 1)) // масса: тел больше, чем ходов
           : [packLeader(), berserker(1), archer(1)];
       if (node.layer <= 3)
         return node.slot === 0
-          ? [grunt(1), grunt(2), archer(1)]
+          ? [wolf(1), wolf(2), wolf(3)] // стая: охота на хрупких (4-й волк — в поздних слоях)
           : [grunt(1), grunt(2), grunt(3)];
       return [berserker(1), grunt(1), grunt(2), archer(1)];
     case 'elite':

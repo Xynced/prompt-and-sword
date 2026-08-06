@@ -14,6 +14,7 @@
 | *(scoring.ts — файла нет)* | Скоринг проверяется поведенчески через battle/ir/lens/концепт-тесты |
 | [heroes.test.ts](heroes.test.ts) | Пул героев, способности, сборка партии |
 | [foes.test.ts](foes.test.ts) | Поздние враги (шаман, берсерк, охотник) и разведка foeIntel |
+| [foe-patterns.test.ts](foe-patterns.test.ts) | Паттерны боёв плана врагов: масса (крысы, контр — «накрыть скопление»), стая (волки-охотники, фокус-огонь); парные смоуки наив vs контр |
 | [constructor.test.ts](constructor.test.ts) | compilePhrase: чипсы → IR, закрытый концепт — ошибка |
 | [cards.test.ts](cards.test.ts) | Карточки «как понял»: шаблоны, пометки искажений ⚠ |
 | [deep-concepts.test.ts](deep-concepts.test.ts) | Глубокий словарь: условия, селекторы, скоринг, линзы, конструктор |
