@@ -1,5 +1,6 @@
 import type { Rule } from './ir.js';
 import type { UnitSpec } from './battle.js';
+import { describeAoe } from './cards.js';
 import { applyLens } from './lens.js';
 
 /** Фабрики врагов. Новый враг = новый набор правил, не новый арт. */
@@ -14,18 +15,7 @@ const rule = (r: Omit<Rule, 'scope'>): Rule => ({ ...r, scope: 'self' });
 export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: string[] }[] {
   return specs.map((s) => {
     const lines = applyLens(s.lenses, s.rules).rules.map((r) => r.source);
-    const w: string[] = [];
-    if (s.aoe?.blast) w.push(`заряд 3×3 (дальность ${s.aoe.blast.range})`);
-    if (s.aoe?.line) w.push(`волна 1×${s.aoe.line.len}`);
-    if (s.aoe?.ritual) {
-      const limit = s.aoe.ritual.cooldown
-        ? `, раз в ${s.aoe.ritual.cooldown} раунда`
-        : s.aoe.ritual.usesPerBattle
-          ? `, ${s.aoe.ritual.usesPerBattle} на бой`
-          : '';
-      w.push(`ритуал 5×5 (замах виден за ход${limit})`);
-    }
-    if (w.length > 0) lines.push(`оружие: ${w.join(' · ')}`);
+    if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
     return { name: s.name, lines };
   });
 }

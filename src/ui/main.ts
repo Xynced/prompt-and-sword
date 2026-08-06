@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { understandingCard } from '../cards.js';
+import { describeAoe, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -304,10 +304,14 @@ function statLine(
   return `hp ${hpTxt} · удар ${s.atk} · даль ${s.range} · иниц ${s.speed} · шаг ${s.move}`;
 }
 
-/** Строка способности архетипа героя. */
+/** Строка способности архетипа героя; у носителя АОЕ — плюс его оружие. */
 function abilityLine(archetypeId: string): string {
-  const a = heroArchetype(archetypeId).ability;
-  return `${a.name} — ${a.desc}`;
+  const arch = heroArchetype(archetypeId);
+  const a = arch.ability;
+  // оружие видно всегда, даже до слова «накрыть скопление»: слово берут
+  // осознанно, зная, есть ли в партии кому им махать
+  const weapon = arch.aoe ? ` · оружие: ${describeAoe(arch.aoe)}` : '';
+  return `${a.name} — ${a.desc}${weapon}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {

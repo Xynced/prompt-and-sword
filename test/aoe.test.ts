@@ -15,10 +15,11 @@ import {
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { dist, posKey } from '../src/grid.js';
 import { shaman } from '../src/foes.js';
+import { heroArchetype } from '../src/heroes.js';
 import { expectedDamage } from '../src/tuning.js';
 import { compilePhrase } from '../src/constructor.js';
 import { CONCEPTS, CORE_WORDS, DEEP_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
-import { understandingCard } from '../src/cards.js';
+import { describeAoe, understandingCard } from '../src/cards.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import type { AoeSpec, CombatUnit, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
@@ -306,5 +307,17 @@ describe('слова АОЕ: пулы, конструктор, карточки,
       expect(validateOutput(raw, FULL_VOCAB, [], 4).ok).toBe(true);
       expect(validateOutput(raw, STARTING_VOCAB, [], 4).ok).toBe(false);
     }
+  });
+});
+
+describe('оружие носителя видно игроку', () => {
+  it('describeAoe: Лия и Жало читаются с карточки, как враги — с разведки', () => {
+    expect(describeAoe(heroArchetype('lia').aoe!)).toBe(
+      'заряд 3×3 (дальность 4) · ритуал 5×5 (замах виден за ход, 1 на бой)',
+    );
+    expect(describeAoe(heroArchetype('zhalo').aoe!)).toBe('волна 1×4');
+    expect(describeAoe(shaman('nobody').aoe!)).toBe(
+      'заряд 3×3 (дальность 4) · ритуал 5×5 (замах виден за ход, раз в 3 раунда)',
+    );
   });
 });

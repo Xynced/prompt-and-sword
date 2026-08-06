@@ -1,6 +1,6 @@
 import type { Condition, Preference, Rule } from './ir.js';
 import { LENS_RU, applyLens } from './lens.js';
-import type { LensId } from './types.js';
+import type { AoeSpec, LensId } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -100,6 +100,26 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
     case 'preempt':
       return 'бью на упреждение: замахиваюсь туда, куда враг придёт, а не где стоит';
   }
+}
+
+/**
+ * Человеческое описание площадного оружия носителя АОЕ — одна строка для
+ * разведки врагов и карточки героя (игрок должен видеть носителя до того,
+ * как возьмёт слово «накрыть скопление»).
+ */
+export function describeAoe(aoe: AoeSpec): string {
+  const w: string[] = [];
+  if (aoe.blast) w.push(`заряд 3×3 (дальность ${aoe.blast.range})`);
+  if (aoe.line) w.push(`волна 1×${aoe.line.len}`);
+  if (aoe.ritual) {
+    const limit = aoe.ritual.cooldown
+      ? `, раз в ${aoe.ritual.cooldown} раунда`
+      : aoe.ritual.usesPerBattle
+        ? `, ${aoe.ritual.usesPerBattle} на бой`
+        : '';
+    w.push(`ритуал 5×5 (замах виден за ход${limit})`);
+  }
+  return w.join(' · ');
 }
 
 /** Помечена ли строка искажением линзы (по аннотации source). */
