@@ -1,4 +1,4 @@
-import type { LensMark, Rule } from './ir.js';
+import type { Condition, LensMark, Rule } from './ir.js';
 import type { ActionKind, LensId } from './types.js';
 import { type Rng, shuffle } from './rng.js';
 
@@ -27,9 +27,24 @@ export interface Instincts {
   actionBias: ActionBias;
 }
 
+/**
+ * Эмоциональный дрейф (план линз): детерминированный триггер и «сдвинутый»
+ * режим, который защёлкивается до конца боя. Оба режима компилируются до боя;
+ * защёлку держит battle.ts (эмоция не отщёлкивается, даже если условие
+ * перестало быть истинным — вылеченный трус остаётся в панике).
+ */
+export interface MoodDrift {
+  lens: LensId;
+  trigger: Condition;
+  rules: Rule[];
+  instincts: Instincts;
+}
+
 export interface CompiledBehavior {
   rules: Rule[];
   instincts: Instincts;
+  /** Дрейф первой (доминирующей) линзы с дрейфом; у стабильных характеров нет. */
+  drift?: MoodDrift;
 }
 
 const BASE: Instincts = {
@@ -118,7 +133,73 @@ export function applyLens(lenses: readonly LensId[], rules: Rule[]): CompiledBeh
       instincts.actionBias[a] = (instincts.actionBias[a] ?? 1) * mult;
     }
   }
+  // дрейф — у первой линзы по порядку, у которой он есть: доминирующая
+  // черта характера; режим строится из УЖЕ трансформированных правил
+  for (const lens of lenses) {
+    const drift = driftFor(lens, out, instincts);
+    if (drift) return { rules: out, instincts, drift };
+  }
   return { rules: out, instincts };
+}
+
+/** Копия инстинктов под правку режима дрейфа. */
+const cloneInstincts = (i: Instincts): Instincts => ({ ...i, actionBias: { ...i.actionBias } });
+
+/**
+ * Дрейф линзы: триггер + режим до конца боя. Правила режима без новых пометок:
+ * карточка дрейф не показывает — он раскрывается событием moodShift в бою.
+ */
+function driftFor(lens: LensId, rules: Rule[], base: Instincts): MoodDrift | undefined {
+  switch (lens) {
+    case 'avenger': {
+      // пал кто-то из наших — дальше все приказы читаются через ярость
+      const inst = cloneInstincts(base);
+      inst.aggression *= 1.3;
+      return {
+        lens,
+        trigger: { kind: 'allyFallen' },
+        rules: rules.map((r) =>
+          r.then.kind === 'attack' ? { ...r, then: { kind: 'attack', target: 'attacker' } } : r,
+        ),
+        instincts: inst,
+      };
+    }
+    case 'coward': {
+      // довели до края — паника: бегство больше не выключается лечением
+      const inst = cloneInstincts(base);
+      inst.survival *= 1.3;
+      return {
+        lens,
+        trigger: { kind: 'hpBelow', who: 'self', frac: 0.3 },
+        rules: rules.map((r) =>
+          r.then.kind === 'retreat' && r.when.kind === 'hpBelow' && r.when.who === 'self'
+            ? { ...r, when: { kind: 'always' } }
+            : r,
+        ),
+        instincts: inst,
+      };
+    }
+    case 'hothead': {
+      // первая кровь — закипел: бьёт ещё чаще, о защите не думает
+      const inst = cloneInstincts(base);
+      inst.survival *= 0.8;
+      inst.actionBias.weakAttack = (inst.actionBias.weakAttack ?? 1) * 1.5;
+      return { lens, trigger: { kind: 'firstBlood' }, rules: rules.slice(), instincts: inst };
+    }
+    case 'gloryhound': {
+      // вожак пал — слава добыта или украдена: сдувается
+      const inst = cloneInstincts(base);
+      inst.aggression *= 0.8;
+      return {
+        lens,
+        trigger: { kind: 'leaderDown' },
+        rules: rules.map((r) => (r.then.kind === 'attack' ? { ...r, weight: r.weight * 0.8 } : r)),
+        instincts: inst,
+      };
+    }
+    default:
+      return undefined;
+  }
 }
 
 function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctMods } {

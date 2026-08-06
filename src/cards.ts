@@ -50,6 +50,12 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если меня окружили — ';
     case 'underCharge':
       return 'если враги накатывают — ';
+    case 'firstBlood':
+      return 'если пролилась первая кровь — ';
+    case 'leaderDown':
+      return 'если вожак врага пал — ';
+    case 'wasHit':
+      return 'если меня уже били — ';
   }
 }
 
@@ -271,6 +277,22 @@ export function lensQuip(m: LensMark, names: Record<string, string> = {}, rule?:
       return m.kind === 'instinct' ? 'Пусть весь их строй смотрит на меня.' : 'Эффектный заход — это по мне.';
   }
   return 'Понял по-своему.';
+}
+
+/** Реплика эмоционального сдвига (событие moodShift) — момент, когда характер защёлкнулся. */
+export function driftQuip(lens: LensId): string {
+  switch (lens) {
+    case 'avenger':
+      return 'Они убили нашего. Дальше я слушаю только ярость.';
+    case 'coward':
+      return 'Хватит с меня. Я хочу жить.';
+    case 'hothead':
+      return 'Кровь! Наконец-то. Понеслась!';
+    case 'gloryhound':
+      return 'Вожак пал… Ради чего теперь стараться.';
+    default:
+      return 'Что-то во мне переменилось.';
+  }
 }
 
 /**

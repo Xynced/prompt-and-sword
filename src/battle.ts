@@ -94,6 +94,8 @@ export type BattleEvent =
   | { t: 'heal'; unit: string; target: string; amount: number; hp: number }
   /** Регенерация: юнит зарастает в начале своего хода (пассив regen). */
   | { t: 'regen'; unit: string; amount: number; hp: number }
+  /** Эмоциональный дрейф (план линз): триггер сработал, режим защёлкнут до конца боя. */
+  | { t: 'moodShift'; unit: string; lens: LensId }
   /** Благословение: атаки цели ×mult до конца боя. */
   | { t: 'bless'; unit: string; target: string; mult: number }
   /** Финт: цель открыта (входящий ×SELFLESS_VULN_MULT) до её следующего хода. */
@@ -269,6 +271,15 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
         const amount = Math.min(regen.amount, unit.maxHp - unit.hp);
         unit.hp += amount;
         events.push({ t: 'regen', unit: unit.id, amount, hp: unit.hp });
+      }
+
+      // эмоциональный дрейф (план линз): триггер проверяется в начале хода,
+      // режим защёлкивается до конца боя — обратной дороги нет, условие
+      // может перестать быть истинным (вылеченный трус остаётся в панике)
+      const drift = unit.compiled.drift;
+      if (drift && evalCondition(drift.trigger, unit, units, round)) {
+        unit.compiled = { rules: drift.rules, instincts: drift.instincts };
+        events.push({ t: 'moodShift', unit: unit.id, lens: drift.lens });
       }
 
       // прикрытие, открытость и перехват держатся до своего следующего хода

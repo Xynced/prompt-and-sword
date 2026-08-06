@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { describeActive, describePassives, describeWeapons, lensQuip, understandingCard } from '../cards.js';
+import { describeActive, describePassives, describeWeapons, driftQuip, lensQuip, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -771,6 +771,15 @@ function buildFrames(
         flush();
         units.get(e.unit)!.hp = e.hp;
         pending = { actorId: e.unit, factors: [], parts: [`зарастает: +${e.amount}`] };
+        break;
+      }
+      case 'moodShift': {
+        // сдвиг характера — свой кадр с репликой; попадает и в разбор после боя
+        flush();
+        const quip = driftQuip(e.lens);
+        const u = units.get(e.unit)!;
+        reveals.push({ unit: e.unit, name: u.name, side: u.side, lens: e.lens, quip });
+        pending = { actorId: e.unit, factors: [], parts: [`«${quip}»`], callout: `${u.name}: «${quip}»` };
         break;
       }
       case 'bless':
