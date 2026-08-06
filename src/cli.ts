@@ -156,7 +156,8 @@ function verboseRun(setName: string, seed: number): void {
   const names = new Map(specs.map((s) => [s.id, s.name]));
   const nm = (id: string): string => names.get(id) ?? id;
   const r = runBattle(seed, specs);
-  console.log(`${set.desc} | seed=${seed}\n`);
+  console.log(`${set.desc} | seed=${seed}`);
+  console.log(`Арена: ${r.terrain.name} — ${r.terrain.scenario}\n`);
   for (const e of r.events) {
     switch (e.t) {
       case 'round':

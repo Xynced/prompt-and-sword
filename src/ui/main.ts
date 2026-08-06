@@ -846,6 +846,7 @@ function deployHtml(node: MapNode): string {
     ? 'поставь на клетку зоны'
     : `расстановка: герой → клетка${intel ? '; врагов выдаёт разведка' : ''}`;
   return `<div class="deploy">
+    <span class="arena-line"><b>${esc(layout.name)}</b> — ${esc(layout.scenario)}</span>
     <span class="kicker">${hint}</span>
     <div class="bfield mini" style="--cell:${CELL}%">
       <div class="dzone" style="width:${3 * CELL}%"></div>
@@ -1104,6 +1105,8 @@ function tilesLayerHtml(tiles: readonly Tile[][]): string {
     row.forEach((t, x) => {
       const at = `style="left:${x * CELL}%;top:${y * CELL}%"`;
       if (t.blocked) out.push(`<div class="rock" ${at}></div>`);
+      else if (t.hazard) out.push(`<div class="hz ${t.hazard}" ${at} title="${t.hazard === 'spikes' ? 'шипы' : 'огонь'}"></div>`);
+      else if (t.rough) out.push(`<div class="rgh" ${at} title="труднопроходимо"></div>`);
       else if (t.height) out.push(`<div class="hgt h${t.height}" ${at}></div>`);
     }),
   );
@@ -1127,7 +1130,7 @@ function battleScreenHtml(): string {
     <div class="page-l" style="padding:20px 24px 14px 28px;gap:10px">
       <div class="page-head">
         <span class="title">${esc(nodeTitle(node))}</span>
-        <span class="meta"><span id="turnlabel">ход ${f.round}</span> · seed ${run.runSeed}</span>
+        <span class="meta"><span id="turnlabel">ход ${f.round}</span> · ${esc(battle!.terrain.name)} · seed ${run.runSeed}</span>
       </div>
       <div class="bfield" id="bfield" style="--cell:${CELL}%">
         ${terrainHtml()}

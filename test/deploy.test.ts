@@ -14,6 +14,7 @@ import {
 import { runBattle, spawnPreview } from '../src/battle.js';
 import { sparring } from '../src/sparring.js';
 import { PARTY_SPAWNS } from '../src/heroes.js';
+import { pickTerrain } from '../src/terrain.js';
 import type { Pos } from '../src/types.js';
 
 /**
@@ -94,6 +95,18 @@ describe('дефолт и детерминизм', () => {
     const d = sparring(battleSeed(s), foeSpecs(s), party, party, arenaForNode(currentNode(s)));
     expect(d.diff.winnerBefore).toBe(d.diff.winnerAfter);
     expect(d.diff.firstDivergenceRound).toBeNull();
+  });
+});
+
+describe('превью арены', () => {
+  it('арена на экране узла — та же, что реально сыграет', () => {
+    for (const seed of [1, 2, 3, 7]) {
+      const s = startRun(seed);
+      const previewed = pickTerrain(battleSeed(s), arenaForNode(currentNode(s)));
+      const r = playFight(s);
+      expect(r.terrain.name).toBe(previewed.name);
+      expect(r.terrain.scenario).toBe(previewed.scenario);
+    }
   });
 });
 
