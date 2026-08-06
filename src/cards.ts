@@ -1,6 +1,6 @@
 import type { Condition, Preference, Rule } from './ir.js';
 import { LENS_RU, applyLens } from './lens.js';
-import type { AoeSpec, LensId } from './types.js';
+import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponSpec } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -103,6 +103,14 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'бью на упреждение: замахиваюсь туда, куда враг придёт, а не где стоит';
     case 'castRitual':
       return 'замахиваюсь ритуалом: трачу ход на большую зону, на мгновенный залп не размениваюсь';
+    case 'rage':
+      return 'впадаю в ярость: бью сильнее, но и получаю больнее — до конца боя, назад пути нет';
+    case 'heal':
+      return 'лечу: трачу ход на исцеление того из наших, кому хуже всех';
+    case 'bless':
+      return 'благословляю: усиливаю удары самого ударного из наших до конца боя';
+    case 'feint':
+      return 'финчу: обманным выпадом открываю врага под удары своих';
   }
 }
 
@@ -124,9 +132,62 @@ export function describeAoe(aoe: AoeSpec): string {
       : aoe.ritual.usesPerBattle
         ? `, ${aoe.ritual.usesPerBattle} на бой`
         : '';
-    w.push(`ритуал 5×5 (замах виден за ход${limit})`);
+    const pulses = aoe.ritual.pulses && aoe.ritual.pulses > 1 ? `, жжёт ${aoe.ritual.pulses} хода` : '';
+    w.push(`ритуал 5×5 (замах виден за ход${pulses}${limit})`);
   }
   return w.join(' · ');
+}
+
+/**
+ * Строка одного оружия (план классов) — для разведки врага и карточки героя:
+ * имя, урон, дальность, площадные формы. Игрок видит оружие до того, как
+ * возьмёт слова под него («накрыть скопление» берут, зная носителя).
+ */
+export function describeWeapon(w: WeaponSpec): string {
+  const range = w.range > 1 ? `, даль ${w.range}` : '';
+  const aoe = w.aoe ? ` · ${describeAoe(w.aoe)}` : '';
+  return `${w.name} (удар ${w.dmg}${range})${aoe}`;
+}
+
+/** Строка оружейного набора: у мастера несколько — через «;». */
+export function describeWeapons(weapons: readonly WeaponSpec[]): string {
+  return weapons.map(describeWeapon).join('; ');
+}
+
+/**
+ * Строка классового актива — цифры размена игрок видит до того, как возьмёт
+ * слово-гейт (тот же контракт, что у оружия носителя АОЕ).
+ */
+export function describeActive(active: ActiveSpec): string {
+  const parts: string[] = [];
+  if (active.rage) {
+    parts.push(`ярость (урон ×${active.rage.dmgMult}, входящий ×${active.rage.vulnMult}, до конца боя)`);
+  }
+  if (active.wall) {
+    parts.push(`стена (прикрытие себе и смежным, ${active.wall.usesPerBattle} на бой)`);
+  }
+  if (active.heal) {
+    parts.push(`исцеление (+${active.heal.amount} hp, дальность ${active.heal.range}, ${active.heal.usesPerBattle} на бой)`);
+  }
+  if (active.bless) {
+    parts.push(`благословение (урон союзника ×${active.bless.dmgMult}, до конца боя, ${active.bless.usesPerBattle} на бой)`);
+  }
+  if (active.feint) {
+    parts.push('финт (открывает врага под удары своих)');
+  }
+  return parts.join(' · ');
+}
+
+/** Строка классовых пассивов — читается с карточки героя и разведки. */
+export function describePassives(p: PassiveSpec): string {
+  const parts: string[] = [];
+  if (p.shieldwall) parts.push(`щит союзнику −${Math.round(p.shieldwall.cover * 100)}%`);
+  if (p.markOnHit) parts.push('метит цель ударом');
+  if (p.steadfast) parts.push('глухая оборона за 2 очка');
+  if (p.shadow) parts.push(`из тени урон ×${p.shadow.mult}`);
+  if (p.sneak) parts.push(`фланг ×${p.sneak.flankMult}`);
+  if (p.retribution) parts.push(`кара обидчикам своих ×${p.retribution.mult}`);
+  return parts.join(' · ');
 }
 
 /** Помечена ли строка искажением линзы (по аннотации source). */

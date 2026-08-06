@@ -24,9 +24,10 @@ import {
   reachableTiles,
 } from './grid.js';
 import type { HazardKind, Tile } from './terrain.js';
-import type { ActionKind, CombatUnit, Pos } from './types.js';
+import type { ActionKind, CombatUnit, Pos, WeaponSpec } from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
+  WEAPON_AFFINITY_BONUS,
   AP_PER_TURN,
   AP_VALUE,
   COVER,
@@ -55,11 +56,19 @@ export const AP_COST: Record<ActionKind, number> = {
   // за 1 AP «сдвинуть и добить» — нормальный ход
   shove: 1,
   cover: 1,
+  // войти в ярость — короткий рык, а не замах: дорогая часть — размен
+  // «получаю больнее до конца боя», а не очки хода
+  rage: 1,
+  // финт — короткий обман, а не удар: дешёвый сетап под удары своих
+  feint: 1,
   aoeBlast: 2,
   aoeLine: 2,
   attack: 2,
   selflessAttack: 2,
   shieldAlly: 2,
+  wall: 2,
+  heal: 2,
+  bless: 2,
   fullCover: 3,
   // замах — весь ход: зона объявлена, бьёт в начале следующего хода кастера
   aoeRitual: 3,
@@ -67,12 +76,16 @@ export const AP_COST: Record<ActionKind, number> = {
 };
 
 /**
- * Цена действия для конкретного юнита. Единственное отклонение от констант:
- * осторожный шаг медленному (`move: 1`) стоит 2 AP — он не может за ход и
- * осторожно зайти на шипы, и нормально ударить.
+ * Цена действия для конкретного юнита. Отклонения от констант:
+ * - осторожный шаг медленному (`move: 1`) стоит 2 AP — он не может за ход и
+ *   осторожно зайти на шипы, и нормально ударить;
+ * - глухая защита бастиону (пассив «незыблемость») — 2 AP: его «сегодня не
+ *   воюю» дешевле, чем у всех.
  */
 export function apCostFor(action: ActionKind, u: CombatUnit): number {
-  return action === 'carefulStep' && u.move <= 1 ? 2 : AP_COST[action];
+  if (action === 'carefulStep' && u.move <= 1) return 2;
+  if (action === 'fullCover' && u.passives?.steadfast) return 2;
+  return AP_COST[action];
 }
 
 /** Множитель урона по виду атаки; 0 — действие не атака (залп — не атака: бьёт площадь, не цель). */
@@ -86,6 +99,11 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   aoeBlast: 0,
   aoeLine: 0,
   aoeRitual: 0,
+  rage: 0,
+  wall: 0,
+  heal: 0,
+  bless: 0,
+  feint: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -106,8 +124,26 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   aoeBlast: 0,
   aoeLine: 0,
   aoeRitual: 0,
+  rage: 0,
+  // стена кроет группу — своя ветка исполнения, генерическая не нужна
+  wall: 0,
+  heal: 0,
+  bless: 0,
+  feint: 0,
   wait: 0,
 };
+
+/**
+ * Оружия юнита: явный список — или неявное оружие из atk/range («голые»
+ * юниты тестов и сценариев Ворот A). Кандидат атаки несёт индекс оружия
+ * (`Candidate.weapon`) — урон и дальность атака считает по своему оружию,
+ * а производные atk/range юнита (максимумы) остаются мерой угрозы.
+ */
+export function weaponsOf(u: CombatUnit): WeaponSpec[] {
+  return u.weapons && u.weapons.length > 0
+    ? u.weapons
+    : [{ name: '', dmg: u.atk, range: u.range, aoe: u.aoe }];
+}
 
 /** Клетка, куда толчок сдвигает цель: ровно на 1 строго от толкающего. */
 export function shoveDest(pusher: Pos, target: Pos): Pos {
@@ -182,6 +218,78 @@ export function blastReady(u: CombatUnit): boolean {
   return blast.usesPerBattle === undefined || (u.blastUses ?? 0) < blast.usesPerBattle;
 }
 
+/** Готова ли ярость: есть актив и юнит ещё не в ней (она до конца боя). */
+export function rageReady(u: CombatUnit): boolean {
+  return !!u.active?.rage && !u.raged;
+}
+
+/** Готова ли стена: есть актив и лимит на бой не выбран. */
+export function wallReady(u: CombatUnit): boolean {
+  const wall = u.active?.wall;
+  return !!wall && (u.wallUses ?? 0) < wall.usesPerBattle;
+}
+
+/** Готово ли исцеление: есть актив и лимит на бой не выбран. */
+export function healReady(u: CombatUnit): boolean {
+  const heal = u.active?.heal;
+  return !!heal && (u.healUses ?? 0) < heal.usesPerBattle;
+}
+
+/** Готово ли благословение: есть актив и лимит на бой не выбран. */
+export function blessReady(u: CombatUnit): boolean {
+  const bless = u.active?.bless;
+  return !!bless && (u.blessUses ?? 0) < bless.usesPerBattle;
+}
+
+/** Множитель урона атак благословлённого — до конца боя, как ярость. */
+export const blessMult = (u: CombatUnit): number => u.blessedMult ?? 1;
+
+/**
+ * Множитель урона атаки из тени (пассив Мары): действует, пока из клетки
+ * from юнита не держит на прицеле ни один вражеский стрелок (дальность + LoS
+ * сквозь камни и тела — та же геометрия, что у слова «вне линии огня»).
+ */
+export function shadowMult(
+  self: CombatUnit,
+  from: Pos,
+  units: readonly CombatUnit[],
+  blocked: (p: Pos) => boolean,
+): number {
+  const mult = self.passives?.shadow?.mult;
+  if (!mult) return 1;
+  const spotted = units.some(
+    (e) =>
+      e.alive &&
+      e.side !== self.side &&
+      e.range > 1 &&
+      dist(e.pos, from) <= e.range &&
+      hasLoS(e.pos, from, (p) =>
+        blocked(p) || units.some((u) => u.alive && u !== self && u !== e && posEq(u.pos, p)),
+      ),
+  );
+  return spotted ? 1 : mult;
+}
+
+/**
+ * Множитель кары (пассив Зари): атаки ×mult по врагу, чей удар последним
+ * получил кто-то из живых союзников (канал lastAttackerId — тот же, что у
+ * селектора «кто атаковал меня»).
+ */
+export function retributionMult(self: CombatUnit, target: CombatUnit, units: readonly CombatUnit[]): number {
+  const mult = self.passives?.retribution?.mult;
+  if (!mult) return 1;
+  const guilty = units.some(
+    (a) => a.alive && a.side === self.side && a.lastAttackerId === target.id,
+  );
+  return guilty ? mult : 1;
+}
+
+/** Множитель своего урона от ярости (атаки оружием; касты не трогает). */
+export const rageDmgMult = (u: CombatUnit): number => (u.raged ? u.active?.rage?.dmgMult ?? 1 : 1);
+
+/** Множитель входящего урона по яростному — применяется везде, как exposed. */
+export const rageVulnMult = (u: CombatUnit): number => (u.raged ? u.active?.rage?.vulnMult ?? 1 : 1);
+
 /** Живые юниты обеих сторон в зоне — friendly fire включён для всех. */
 export function aoeVictims<T extends CombatUnit>(
   center: Pos,
@@ -202,7 +310,11 @@ export function aoeDamage(caster: CombatUnit, mult: number, target: CombatUnit):
   return Math.max(
     1,
     Math.round(
-      expectedDamage(caster.atk) * mult * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1),
+      expectedDamage(caster.atk) *
+        mult *
+        (1 - target.coverLevel) *
+        (target.exposed ? SELFLESS_VULN_MULT : 1) *
+        rageVulnMult(target),
     ),
   );
 }
@@ -258,6 +370,10 @@ export function zoneDangerAt(p: Pos, units: readonly CombatUnit[], target: Comba
 export const isMovement = (a: ActionKind): boolean => a === 'move' || a === 'carefulStep';
 
 export const attackMult = (a: ActionKind): number => ATTACK_MULT[a];
+
+/** Множитель вида атаки для конкретного оружия: кулаки Юны бьют слабым ударом крепче общего. */
+export const attackMultFor = (a: ActionKind, w: WeaponSpec): number =>
+  a === 'weakAttack' ? w.weakMult ?? WEAK_ATK_MULT : ATTACK_MULT[a];
 export const isAttack = (a: ActionKind): boolean => ATTACK_MULT[a] > 0;
 export const coverLevelOf = (a: ActionKind): number => COVER_LEVEL[a];
 
@@ -279,6 +395,8 @@ export interface Candidate {
   targetId?: string;
   /** Центр зоны площадного каста (`aoeBlast`). */
   at?: Pos;
+  /** Индекс оружия атаки в `weaponsOf` — у мастера трёх оружий их несколько. */
+  weapon?: number;
 }
 
 export interface Factor {
@@ -375,13 +493,13 @@ function zocOf(self: Fighter, units: readonly Fighter[]): (p: Pos) => boolean {
 }
 
 /** Дальность атаки с учётом высоты клетки: стрелку холм добавляет +height. */
-export function rangeAt(u: CombatUnit, height: number): number {
-  return u.range > 1 ? u.range + height : u.range;
+export function rangeAt(u: CombatUnit, height: number, wRange: number = u.range): number {
+  return wRange > 1 ? wRange + height : wRange;
 }
 
 /** Плоский бонус урона стрелка с высоты 2 («бью сверху»). */
-export function heightDmgBonus(u: CombatUnit, height: number): number {
-  return u.range > 1 && height === 2 ? HIGH_GROUND_DMG : 0;
+export function heightDmgBonus(u: CombatUnit, height: number, wRange: number = u.range): number {
+  return wRange > 1 && height === 2 ? HIGH_GROUND_DMG : 0;
 }
 
 function canAttackFrom(
@@ -391,10 +509,13 @@ function canAttackFrom(
   units: readonly Fighter[],
   blocked: (p: Pos) => boolean,
   height = 0,
+  // дальность конкретного оружия; по умолчанию — производный максимум юнита
+  // (проверки «докуда вообще достаёт», например премия шагу под выстрел)
+  wRange: number = attacker.range,
 ): boolean {
   const d = dist(from, target.pos);
-  if (d > rangeAt(attacker, height)) return false;
-  if (attacker.range === 1) return d === 1;
+  if (d > rangeAt(attacker, height, wRange)) return false;
+  if (wRange === 1) return d === 1;
   // камень, смежный цели, — не стена, а укрытие (гибрид Q-2): выстрел проходит,
   // урон режет coverFrom; тела по-прежнему заслоняют полностью
   return hasLoS(
@@ -450,10 +571,17 @@ export function generateCandidates(
     }
   }
 
+  // атаки — на каждое оружие: мастер трёх оружий сам выбирает копьё против
+  // строя и молот в упор; у юнита с одним оружием кандидаты те же, что раньше
+  const weapons = weaponsOf(self);
   for (const e of enemiesOf(self, units) as Fighter[]) {
-    if (!canAttackFrom(here, self, e, units, blocked, ctx.heightAt(here))) continue;
-    for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
-      if (ap >= AP_COST[action] && allowed(action)) out.push({ to: here, action, targetId: e.id });
+    for (let wi = 0; wi < weapons.length; wi++) {
+      if (!canAttackFrom(here, self, e, units, blocked, ctx.heightAt(here), weapons[wi]!.range)) continue;
+      for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
+        if (ap >= AP_COST[action] && allowed(action)) {
+          out.push({ to: here, action, targetId: e.id, ...(weapons.length > 1 ? { weapon: wi } : {}) });
+        }
+      }
     }
   }
 
@@ -529,15 +657,73 @@ export function generateCandidates(
     }
   }
 
-  // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем
+  // ярость: актив носителя (план классов) — гейт тот же, что у кастов:
+  // оружие есть всегда, но без сработавшего правила «впасть в ярость»
+  // кандидата нет; слово решает КОГДА потратить единственный вход
+  if (
+    ap >= AP_COST.rage &&
+    allowed('rage') &&
+    rageReady(self) &&
+    fired.some((r) => r.then.kind === 'rage')
+  ) {
+    out.push({ to: here, action: 'rage' });
+  }
+
+  // стена: щитоносец кроет себя и смежных союзников. Своего слова нет —
+  // гейт защитными правилами («защищать», «прикрывать отход»): у кого в
+  // приказах защита, тот и вспоминает про стену
+  if (
+    ap >= AP_COST.wall &&
+    allowed('wall') &&
+    wallReady(self) &&
+    fired.some((r) => r.then.kind === 'protect' || r.then.kind === 'coverRetreat')
+  ) {
+    out.push({ to: here, action: 'wall' });
+  }
+
+  // исцеление: целитель лечит раненого союзника (или себя) в дальности
+  // актива; кого именно — решает скоринг по нужде. Гейт правилом «лечить»
+  if (ap >= AP_COST.heal && allowed('heal') && healReady(self) && fired.some((r) => r.then.kind === 'heal')) {
+    const range = self.active!.heal!.range;
+    for (const a of alliesOf(self, units) as Fighter[]) {
+      if (a.hp < a.maxHp && dist(here, a.pos) <= range) {
+        out.push({ to: here, action: 'heal', targetId: a.id });
+      }
+    }
+  }
+
+  // благословение: жрец усиливает атаки союзника до конца боя; себя не
+  // благословляет — чудо для других (и так выбор цели проще читается)
+  if (ap >= AP_COST.bless && allowed('bless') && blessReady(self) && fired.some((r) => r.then.kind === 'bless')) {
+    const range = self.active!.bless!.range;
+    for (const a of alliesOf(self, units) as Fighter[]) {
+      if (a.id !== self.id && a.blessedMult === undefined && dist(here, a.pos) <= range) {
+        out.push({ to: here, action: 'bless', targetId: a.id });
+      }
+    }
+  }
+
+  // финт: открыть смежного врага под удары своих (и свои же). Гейт —
+  // правило «финтить» (врождённое у трюкачки); открытого второй раз не финтят
+  if (ap >= AP_COST.feint && allowed('feint') && self.active?.feint && fired.some((r) => r.then.kind === 'feint')) {
+    for (const e of enemiesOf(self, units) as Fighter[]) {
+      if (dist(here, e.pos) === 1 && !e.exposed) {
+        out.push({ to: here, action: 'feint', targetId: e.id });
+      }
+    }
+  }
+
+  // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем.
+  // Цена через apCostFor: бастиону глухая защита за 2 очка (незыблемость)
   for (const action of ['cover', 'fullCover'] as const) {
-    if (ap >= AP_COST[action] && allowed(action) && coverLevelOf(action) > self.coverLevel) {
+    if (ap >= apCostFor(action, self) && allowed(action) && coverLevelOf(action) > self.coverLevel) {
       out.push({ to: here, action });
     }
   }
   if (ap >= AP_COST.shieldAlly && allowed('shieldAlly')) {
+    const level = self.passives?.shieldwall?.cover ?? coverLevelOf('shieldAlly');
     for (const a of alliesOf(self, units) as Fighter[]) {
-      if (a.id !== self.id && coverLevelOf('shieldAlly') > a.coverLevel) {
+      if (a.id !== self.id && level > a.coverLevel) {
         out.push({ to: here, action: 'shieldAlly', targetId: a.id });
       }
     }
@@ -580,6 +766,36 @@ const SHIELD_RULE_BONUS = 1.4;
  */
 const STRIKE_STYLE_BONUS = 2.5;
 
+/**
+ * Премия правила «впасть в ярость» самому действию ярости. Выше премии
+ * атаки (3 × вес): условие правила уже сказало «сейчас», и откладывать вход
+ * ради рядового удара нельзя — ярость жмётся раз в бой, конкуренция за ход
+ * ей не грозит после входа. Добивание всё же перебивает (бонус lethal +4):
+ * сначала добей — ярость никуда не денется.
+ */
+const RAGE_RULE_BONUS = 4;
+
+/**
+ * Премия правила «лечить» при полной нужде. Чуть выше премии атаки: спасение
+ * умирающего важнее среднего удара, но добивание (lethal +4) перевешивает —
+ * снятый враг лечит партию лучше всякого чуда.
+ */
+const HEAL_RULE_BONUS = 3.5;
+
+/** Потеря hp цели, при которой исцеление получает полную премию. */
+const HEAL_FULL_NEED = 0.5;
+
+/** Премия правилу «благословить» — уровень манеры удара: буст, не замена бою. */
+const BLESS_RULE_BONUS = 2.5;
+
+/**
+ * Премия правилу «финтить» при двух добирающих. Должна обыгрывать слабый удар
+ * (премия атаки 3 × apShare 0.5 + агрессия ≈ 2.9 при весе 2): жадный цикл не
+ * видит связку «финт → удар», поэтому финт обязан выигрывать сам по себе —
+ * его выгоду добирают следующие удары по открытой цели.
+ */
+const FEINT_RULE_BONUS = 3.2;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel);
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -588,6 +804,7 @@ function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
 /**
  * Ожидаемый урон конкретного вида атаки по цели с учётом её прикрытия,
  * каменного укрытия (максимум, не сумма) и открытости; из клетки from.
+ * Урон и «стрелковость» (бонус высоты) — по оружию атаки.
  */
 function expectedAttackDamage(
   self: Fighter,
@@ -595,16 +812,23 @@ function expectedAttackDamage(
   target: CombatUnit,
   ctx: ScoreCtx,
   from: Pos,
+  weapon: WeaponSpec = weaponsOf(self)[0]!,
 ): number {
   const mitigation = Math.max(target.coverLevel, ctx.coverFrom(from, target.pos));
   return (
-    expectedDamage(self.atk) *
-      attackMult(action) *
+    expectedDamage(weapon.dmg) *
+      rageDmgMult(self) *
+      blessMult(self) *
+      attackMultFor(action, weapon) *
       (1 - mitigation) *
-      (target.exposed ? SELFLESS_VULN_MULT : 1) +
-    heightDmgBonus(self, ctx.heightAt(from))
+      (target.exposed ? SELFLESS_VULN_MULT : 1) *
+      rageVulnMult(target) +
+    heightDmgBonus(self, ctx.heightAt(from), weapon.range)
   );
 }
+
+/** Оружие кандидата-атаки; у не-атак и одиночного оружия — первое. */
+const candWeapon = (self: Fighter, cand: Candidate): WeaponSpec => weaponsOf(self)[cand.weapon ?? 0]!;
 
 function nearestEnemyDist(p: Pos, self: Fighter, units: readonly Fighter[]): number {
   const es = enemiesOf(self, units);
@@ -655,6 +879,10 @@ function scorePreference(
       if (cand.action === 'shieldAlly' && cand.targetId === ally.id) {
         return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units);
       }
+      // стена исполняет «защищать», если подопечный в её накрытии
+      if (cand.action === 'wall' && dist(self.pos, ally.pos) <= 1) {
+        return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units);
+      }
       let s = -0.4 * dist(cand.to, ally.pos) * w;
       const threat = resolveSelector('nearest', ally as Fighter, units);
       if (
@@ -699,7 +927,10 @@ function scorePreference(
       // размен: жать атаку, если она добивает или снимает много — угрозу перевешивает вес
       if (!isAttack(cand.action) || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
-      const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx, cand.to), target.hp);
+      const expDmg = Math.min(
+        expectedAttackDamage(self, cand.action, target, ctx, cand.to, candWeapon(self, cand)),
+        target.hp,
+      );
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
     }
     case 'standoff': {
@@ -720,6 +951,9 @@ function scorePreference(
         );
       if (!wounded) return 0;
       if (cand.action === 'shieldAlly' && cand.targetId === wounded.id) {
+        return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units);
+      }
+      if (cand.action === 'wall' && dist(self.pos, wounded.pos) <= 1) {
         return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units);
       }
       const threat = resolveSelector('nearest', wounded, units);
@@ -890,6 +1124,40 @@ function scorePreference(
       if (cand.action === 'aoeBlast' || cand.action === 'aoeLine') return -STRIKE_STYLE_BONUS * w;
       return 0;
     }
+    case 'rage':
+      // впасть в ярость: правило-гейт платит и премию — актив жмётся, как
+      // только условие правила сработало («если врагов больше — ярись»).
+      // Оценивать выгоду ярости инстинктами не пытаемся (сколько боя осталось —
+      // юнит не знает); в этом и смысл: КОГДА тратить, решает слово игрока
+      return cand.action === 'rage' ? RAGE_RULE_BONUS * w : 0;
+    case 'heal': {
+      // лечить: премия растёт с нуждой цели — полная при потере половины hp.
+      // Царапины лечить невыгодно (заряды считаны), умирающего — важнее удара
+      if (cand.action !== 'heal' || !cand.targetId) return 0;
+      const target = units.find((u) => u.id === cand.targetId)!;
+      const need = Math.min((target.maxHp - target.hp) / target.maxHp / HEAL_FULL_NEED, 1);
+      return HEAL_RULE_BONUS * w * need;
+    }
+    case 'feint': {
+      // финтить: ценность — открытая цель под ударами; полная премия, когда
+      // добрать могут хотя бы двое своих (включая самого финтёра — он бьёт
+      // тем же ходом), иначе финт вхолостую
+      if (cand.action !== 'feint' || !cand.targetId) return 0;
+      const target = units.find((u) => u.id === cand.targetId)!;
+      const reachers = (alliesOf(self, units) as Fighter[]).filter(
+        (a) => dist(a.pos, target.pos) <= strikeReach(a),
+      ).length;
+      return FEINT_RULE_BONUS * w * Math.min(reachers, 2) / 2;
+    }
+    case 'bless':
+      // благословить: цель выбирает премия — самый ударный союзник ценнее
+      if (cand.action !== 'bless' || !cand.targetId) return 0;
+      return (
+        BLESS_RULE_BONUS *
+        w *
+        (units.find((u) => u.id === cand.targetId)!.atk /
+          Math.max(...alliesOf(self, units).map((a) => a.atk), 1))
+      );
   }
 }
 
@@ -917,11 +1185,20 @@ export function scoreCandidate(
   }
 
   if (isAttack(cand.action) && cand.targetId) {
+    const weapon = candWeapon(self, cand);
     const target = units.find((u) => u.id === cand.targetId)!;
-    const expDmg = Math.min(expectedAttackDamage(self, cand.action, target, ctx, cand.to), target.hp);
+    const expDmg = Math.min(
+      expectedAttackDamage(self, cand.action, target, ctx, cand.to, weapon) *
+        shadowMult(self, cand.to, units, ctx.blocked) *
+        retributionMult(self, target, units),
+      target.hp,
+    );
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
+    // аффинность оружия к манере: мягкий вкус, слово игрока (±2.5) перебивает
+    const aff = weapon.affinity?.[cand.action as 'weakAttack' | 'attack' | 'selflessAttack'];
+    if (aff) factors.push({ label: 'оружие:манера', value: aff * WEAPON_AFFINITY_BONUS });
   }
 
   // площадной каст: та же валюта, что у агрессии, но суммой по накрытым.
@@ -997,10 +1274,23 @@ export function scoreCandidate(
   if (cand.action === 'shieldAlly' && cand.targetId) {
     const ally = units.find((u) => u.id === cand.targetId);
     if (ally?.alive) {
-      const spared = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel) * COVER;
+      // щитоносец («стена щита» Грома) кроет союзника сильнее общего COVER
+      const level = self.passives?.shieldwall?.cover ?? COVER;
+      const spared = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel) * level;
       const v = (spared / ally.maxHp) * 6 * instincts.survival;
       if (v !== 0) factors.push({ label: 'инстинкт:прикрыть своего', value: v });
     }
+  }
+  if (cand.action === 'wall') {
+    // стена: суммарно спасённый урон по себе и смежным союзникам — та же
+    // валюта, что у щита одному
+    let v = 0;
+    for (const a of alliesOf(self, units)) {
+      if (a.id !== self.id && dist(a.pos, self.pos) > 1) continue;
+      v += (threatAt(a.pos, a as Fighter, units) * (1 - a.coverLevel) * COVER) / a.maxHp;
+    }
+    v *= 6 * instincts.survival;
+    if (v !== 0) factors.push({ label: 'инстинкт:стена', value: v });
   }
 
   for (const rule of firedRules) {

@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { describeAoe, understandingCard } from '../cards.js';
+import { describeActive, describePassives, describeWeapons, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -45,7 +45,7 @@ import { heroArchetype } from '../heroes.js';
 import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../playtest.js';
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU } from '../lens.js';
-import type { LensId, Side } from '../types.js';
+import type { LensId, Side, WeaponSpec } from '../types.js';
 
 /**
  * UI по дизайн-прототипу «Prompt & Sword - Prototype.dc.html» (разворот кодекса,
@@ -295,23 +295,36 @@ function lensTag(lenses: readonly LensId[]): string {
   return lenses.map((l) => LENS_RU[l]).join('+');
 }
 
-/** Строка параметров юнита: hp текущее/макс, удар, дальность, инициатива, шаг. */
+/** Ярлык класса героя («воин», «следопыт») — рядом с именем в карточках. */
+function classTag(archetypeId: string): string {
+  return `<span class="r-tag klass">${esc(heroArchetype(archetypeId).class)}</span>`;
+}
+
+/**
+ * Строка параметров юнита: hp текущее/макс, оружие (урон/дальность — на нём,
+ * план классов), инициатива, шаг. Шортхенд atk/range — для юнитов без спеки
+ * оружия.
+ */
 function statLine(
-  s: { maxHp: number; atk: number; range: number; speed: number; move: number },
+  s: { maxHp: number; atk?: number; range?: number; weapons?: readonly WeaponSpec[]; speed: number; move: number },
   hp?: number,
 ): string {
   const hpTxt = hp === undefined ? `${s.maxHp}` : `${hp}/${s.maxHp}`;
-  return `hp ${hpTxt} · удар ${s.atk} · даль ${s.range} · иниц ${s.speed} · шаг ${s.move}`;
+  const arms = s.weapons?.length
+    ? s.weapons.map((w) => `${w.name} ${w.dmg}/${w.range}`).join(' · ')
+    : `удар ${s.atk} · даль ${s.range}`;
+  return `hp ${hpTxt} · ${arms} · иниц ${s.speed} · шаг ${s.move}`;
 }
 
-/** Строка способности архетипа героя; у носителя АОЕ — плюс его оружие. */
+/** Строка способности архетипа героя + его оружие. */
 function abilityLine(archetypeId: string): string {
   const arch = heroArchetype(archetypeId);
   const a = arch.ability;
   // оружие видно всегда, даже до слова «накрыть скопление»: слово берут
   // осознанно, зная, есть ли в партии кому им махать
-  const weapon = arch.aoe ? ` · оружие: ${describeAoe(arch.aoe)}` : '';
-  return `${a.name} — ${a.desc}${weapon}`;
+  const act = arch.active ? ` · актив: ${describeActive(arch.active)}` : '';
+  const pas = arch.passives ? ` · ${describePassives(arch.passives)}` : '';
+  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${act}${pas}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {
@@ -457,6 +470,8 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('act.barrage')) out.push({ value: { id: 'act.barrage' }, label: 'накрыть скопление' });
   if (has('act.preempt')) out.push({ value: { id: 'act.preempt' }, label: 'бить на упреждение' });
   if (has('act.castRitual')) out.push({ value: { id: 'act.castRitual' }, label: 'замахиваться ритуалом' });
+  if (has('act.rage')) out.push({ value: { id: 'act.rage' }, label: 'впасть в ярость' });
+  if (has('act.heal')) out.push({ value: { id: 'act.heal' }, label: 'лечить раненых' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -602,10 +617,11 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         break;
       case 'aoeCast':
         if (e.form === 'ritual') {
-          // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр
+          // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр;
+          // «полымя» (holds) держит зону до последнего пульса
           flush();
           pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`] };
-          activeZones.delete(e.unit);
+          if (!e.holds) activeZones.delete(e.unit);
         } else if (e.form === 'line') {
           pending?.parts.push(`рубит волной в сторону ${cellName(e.at.x, e.at.y)}`);
         } else {
@@ -624,6 +640,24 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending?.parts.push(`${nm(e.unit)} падает`);
         break;
       }
+      case 'rage':
+        pending?.parts.push('впадает в ярость');
+        break;
+      case 'mark':
+        pending?.parts.push(`метит ${nm(e.target)}`);
+        break;
+      case 'heal': {
+        const u = units.get(e.target)!;
+        u.hp = e.hp;
+        pending?.parts.push(`исцеляет ${nm(e.target)}: +${e.amount}`);
+        break;
+      }
+      case 'bless':
+        pending?.parts.push(`благословляет ${nm(e.target)} (урон ×${e.mult})`);
+        break;
+      case 'feint':
+        pending?.parts.push(`финтит: ${nm(e.target)} открыт`);
+        break;
       case 'cover':
         pending?.parts.push(
           e.ally
@@ -778,6 +812,7 @@ function rosterHtml(compact: boolean): string {
         <div class="r-body">
           <div class="r-head">
             <span class="r-name clickable" data-action="unit-card" data-unit="${h.id}" title="карточка юнита">${esc(h.name)}</span>
+            ${classTag(h.archetypeId)}
             <span class="r-tag ${h.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(h.lenses)}</span>
             <span class="r-hp ${low ? 'low' : ''}" data-hp="${h.id}">${hpTxt}</span>
           </div>
@@ -1284,7 +1319,8 @@ function editorHtml(): string {
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
         <div class="nm"><span>${esc(h.name)}</span><span class="ch">${lensTag(h.lenses)}</span></div>
-        <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine(h.stats, h.hp)}</div>
+        <div class="sub klass-line">${esc(heroArchetype(h.archetypeId).class)}</div>
+        <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine({ ...h.stats, weapons: heroArchetype(h.archetypeId).weapons }, h.hp)}</div>
         <div class="sub ability">${esc(abilityLine(h.archetypeId))}</div>
       </div>`;
     })
@@ -1437,10 +1473,11 @@ function unitCardHtml(id: string): string {
     return `<div class="overlay"><div class="modal unit-card">
       <div class="head">
         <span class="title">${esc(hero.name)}</span>
+        ${classTag(hero.archetypeId)}
         <span class="r-tag ${hero.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(hero.lenses)}</span>
         <span class="meta">${live?.alive === false || !hero.alive ? 'пал(а)' : 'наш отряд'}</span>
       </div>
-      <div class="stat-line">${statLine(hero.stats, live?.hp)}</div>
+      <div class="stat-line">${statLine({ ...hero.stats, weapons: heroArchetype(hero.archetypeId).weapons }, live?.hp)}</div>
       <div class="ability-note">способность · ${esc(abilityLine(hero.archetypeId))}</div>
       <div class="card-block">
         <span class="kicker">приказы</span>

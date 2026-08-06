@@ -152,6 +152,14 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
             source: `${r.source} (трус: отчаянно не могу — хотя бы в полную силу)`,
           };
         }
+        if (r.then.kind === 'rage') {
+          // ярость — «получать больнее до конца боя»?! трус на такое не подпишется
+          return {
+            ...r,
+            then: { kind: 'brace' },
+            source: `${r.source} (трус: в ярость? лучше в глухую оборону)`,
+          };
+        }
         if (r.then.kind === 'standoff') {
           // держать дистанцию — трусу по сердцу: исполняет рьяно
           return { ...r, weight: r.weight * 1.3, source: `${r.source} (трус: дистанция — это святое)` };
@@ -218,7 +226,14 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
                         then: { kind: 'strikeDesperate' },
                         source: `${r.source} (фанатик: бить — так со всей ярости)`,
                       }
-                    : r,
+                    : r.then.kind === 'rage' && r.when.kind !== 'always'
+                      ? {
+                          // ждать повода для ярости? она не ждёт
+                          ...r,
+                          when: { kind: 'always' },
+                          source: `${r.source} (фанатик: ярость не ждёт повода)`,
+                        }
+                      : r,
       );
       return {
         rules: out,
@@ -312,8 +327,10 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         mods: {
           aggression: 0.85,
           survival: 1.2,
-          // закрыть своего собой — самый понятный наседке способ потратить ход
-          actionBias: { shieldAlly: 2.2 },
+          // закрыть своего собой — самый понятный наседке способ потратить ход;
+          // стена (укрыть всех разом) — ещё роднее щита одному: ×3 против ×2.2
+          // сдвигает выбор в её пользу даже при единственном подопечном
+          actionBias: { shieldAlly: 2.2, wall: 3 },
         },
       };
     }

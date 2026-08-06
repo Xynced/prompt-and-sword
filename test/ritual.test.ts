@@ -320,8 +320,8 @@ describe('слова АОЕ: интервал и упреждение (шаг 5)
     const lia = heroArchetype('lia');
     const spec: UnitSpec = {
       id: 'lia', name: 'Лия', side: 'party',
-      maxHp: 200, atk: lia.stats.atk, range: lia.stats.range, speed: 9, move: lia.stats.move,
-      lenses: ['plain'], aoe: lia.aoe,
+      maxHp: 200, weapons: lia.weapons, speed: 9, move: lia.stats.move,
+      lenses: ['plain'],
       rules: [rule({ kind: 'barrage' })], spawn: { x: 8, y: 8 },
     };
     const tank = (id: string, spawn: Pos): UnitSpec => ({
@@ -396,7 +396,7 @@ describe('инструкции применения оружия (хвост п�
     ];
     const mkLia = (): Fighter =>
       fighter('lia', 'party', { x: 2, y: 8 }, {
-        atk: lia.stats.atk, range: lia.stats.range, move: lia.stats.move, aoe: lia.aoe,
+        atk: lia.weapons[0]!.dmg, range: lia.weapons[0]!.range, move: lia.stats.move, aoe: lia.weapons[0]!.aoe,
       }, rulesLia);
 
     // враги далеко — обычная жизнь, ритуала нет

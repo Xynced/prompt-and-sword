@@ -1,10 +1,10 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
-import { AP_PER_TURN, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
+import { AP_PER_TURN, COVER, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
 import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
-import type { AoeSpec, LensId, Pos, Side } from './types.js';
+import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, Pos, Side, WeaponSpec } from './types.js';
 import {
   type ActionKind,
   type Decision,
@@ -23,8 +23,19 @@ import {
   isAttack,
   isMovement,
   makeCtx,
+  attackMultFor,
+  blessMult,
+  blessReady,
+  healReady,
+  retributionMult,
+  rageDmgMult,
+  rageReady,
+  rageVulnMult,
   rangeAt,
+  shadowMult,
   shoveDest,
+  wallReady,
+  weaponsOf,
 } from './scoring.js';
 
 export interface UnitSpec {
@@ -34,16 +45,26 @@ export interface UnitSpec {
   maxHp: number;
   /** Стартовое hp боя (перенос между боями забега); по умолчанию maxHp. */
   hp?: number;
-  atk: number;
-  range: number;
+  /**
+   * Оружие юнита (план классов) — носитель урона и дальности. Шортхенд для
+   * тестов и сценариев: вместо weapons можно задать atk/range — соберётся
+   * неявное безымянное оружие.
+   */
+  weapons?: WeaponSpec[];
+  atk?: number;
+  range?: number;
   speed: number;
   move: number;
   tags?: string[];
   /** Линзы характера в порядке применения. */
   lenses: LensId[];
   rules: Rule[];
-  /** Площадное оружие носителя АОЕ (план АОЕ). */
+  /** Площадное оружие носителя АОЕ (план АОЕ); в норме живёт в weapons[].aoe. */
   aoe?: AoeSpec;
+  /** Классовые активы (план классов); без спеки кандидатов действия нет. */
+  active?: ActiveSpec;
+  /** Классовые пассивы (план классов); всегда включены, слов не требуют. */
+  passives?: PassiveSpec;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
 }
@@ -63,7 +84,18 @@ export type BattleEvent =
   | { t: 'move'; unit: string; from: Pos; to: Pos }
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
-  | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos }
+  /** holds: зона «полымя» держится — будут ещё залпы (пульсы Весты). */
+  | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos; holds?: true }
+  /** Вошёл в ярость: урон и уязвимость по спеке актива — до конца боя. */
+  | { t: 'rage'; unit: string }
+  /** Охотник пометил цель: тег marked для всей его стороны (прежняя метка снята). */
+  | { t: 'mark'; unit: string; target: string }
+  /** Исцеление: цели восстановлено amount hp (после капа), hp — итог. */
+  | { t: 'heal'; unit: string; target: string; amount: number; hp: number }
+  /** Благословение: атаки цели ×mult до конца боя. */
+  | { t: 'bless'; unit: string; target: string; mult: number }
+  /** Финт: цель открыта (входящий ×SELFLESS_VULN_MULT) до её следующего хода. */
+  | { t: 'feint'; unit: string; target: string }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
@@ -94,14 +126,21 @@ const MAX_ROUNDS = 30;
 const FOE_SPAWN_SLOTS: Pos[] = [3, 6, 8, 11, 14].map((y) => ({ x: 15, y }));
 
 function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
+  // atk/range юнита — производные максимумы по оружию: мера угрозы для
+  // threatAt и селекторов; урон конкретной атаки считает её оружие
+  const weapons = spec.weapons;
+  if (!weapons?.length && spec.atk === undefined) {
+    throw new Error(`У юнита ${spec.id} нет ни weapons, ни atk/range`);
+  }
   return {
     id: spec.id,
     name: spec.name,
     side: spec.side,
     maxHp: spec.maxHp,
     hp: Math.min(spec.hp ?? spec.maxHp, spec.maxHp),
-    atk: spec.atk,
-    range: spec.range,
+    weapons,
+    atk: weapons?.length ? Math.max(...weapons.map((w) => w.dmg)) : spec.atk!,
+    range: weapons?.length ? Math.max(...weapons.map((w) => w.range)) : spec.range!,
     speed: spec.speed,
     move: spec.move,
     pos: { ...pos },
@@ -111,7 +150,9 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     exposed: false,
     tags: spec.tags ?? [],
     lenses: spec.lenses,
-    aoe: spec.aoe,
+    aoe: spec.aoe ?? weapons?.find((w) => w.aoe)?.aoe,
+    active: spec.active,
+    passives: spec.passives,
     compiled: applyLens(spec.lenses, spec.rules),
   };
 }
@@ -199,8 +240,14 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
       // Смерть кастера отменяет зону сама собой: мёртвый хода не получает
       if (unit.pendingRitual) {
         const { at } = unit.pendingRitual;
-        unit.pendingRitual = undefined;
-        events.push({ t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at } });
+        // «полымя»: зона с пульсами бьёт по разу в начале каждого хода
+        // кастера, пока пульсы не выйдут; holds в событии — зона ещё висит
+        const pulsesLeft = (unit.pendingRitual.pulsesLeft ?? 1) - 1;
+        unit.pendingRitual = pulsesLeft > 0 ? { at, pulsesLeft } : undefined;
+        events.push({
+          t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at },
+          ...(pulsesLeft > 0 ? { holds: true as const } : {}),
+        });
         applyAoe(unit, unit.aoe?.ritual?.mult ?? 1, aoeVictims(at, units, AOE_RITUAL_RADIUS));
         const w = winnerOf(units);
         if (w) {
@@ -254,18 +301,38 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
         } else if (isAttack(action) && targetId) {
           if (action === 'selflessAttack') unit.exposed = true;
           const target = units.find((u) => u.id === targetId)!;
-          if (target.alive && dist(unit.pos, target.pos) <= rangeAt(unit, heightAt(unit.pos))) {
+          // урон, дальность и «стрелковость» — по оружию кандидата
+          const weapon: WeaponSpec = weaponsOf(unit)[decision.chosen.weapon ?? 0]!;
+          if (
+            target.alive &&
+            dist(unit.pos, target.pos) <= rangeAt(unit, heightAt(unit.pos), weapon.range)
+          ) {
             const allyPositions = units
               .filter((u) => u.alive && u.side === unit.side && u !== unit)
               .map((u) => u.pos);
-            const flank = unit.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
-            const raw = rollDamage(unit.atk * attackMult(action) * (flank ? 1.5 : 1), rng);
+            const flank = weapon.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
+            // фланговый множитель: у плута «в спину» — свой, острее общего
+            const flankMult = flank ? unit.passives?.sneak?.flankMult ?? 1.5 : 1;
+            const raw = rollDamage(
+              weapon.dmg *
+                rageDmgMult(unit) *
+                blessMult(unit) *
+                shadowMult(unit, unit.pos, units, blocked) *
+                retributionMult(unit, target, units) *
+                attackMultFor(action, weapon) *
+                flankMult,
+              rng,
+            );
             // каменное укрытие цели не складывается с прикрытием — берётся максимум
             const mitigation = Math.max(target.coverLevel, ctx.coverFrom(unit.pos, target.pos));
             const dmg = Math.max(
               1,
-              Math.round(raw * (1 - mitigation) * (target.exposed ? SELFLESS_VULN_MULT : 1)) +
-                heightDmgBonus(unit, heightAt(unit.pos)),
+              Math.round(
+                raw *
+                  (1 - mitigation) *
+                  (target.exposed ? SELFLESS_VULN_MULT : 1) *
+                  rageVulnMult(target),
+              ) + heightDmgBonus(unit, heightAt(unit.pos), weapon.range),
             );
             target.hp = Math.max(0, target.hp - dmg);
             target.lastAttackerId = unit.id;
@@ -281,6 +348,14 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             if (target.hp === 0) {
               target.alive = false;
               events.push({ t: 'die', unit: target.id });
+            } else if (unit.passives?.markOnHit && !target.tags.includes('marked')) {
+              // охотник метит добычу самим ударом: одна метка на стороне цели,
+              // прежняя снимается — стая идёт за охотником
+              for (const u of units) {
+                if (u.side === target.side) u.tags = u.tags.filter((t) => t !== 'marked');
+              }
+              target.tags.push('marked');
+              events.push({ t: 'mark', unit: unit.id, target: target.id });
             }
           }
         } else if (action === 'shove' && targetId) {
@@ -317,7 +392,10 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             dist(unit.pos, at) <= ritual.range &&
             hasLoS(unit.pos, at, blocked)
           ) {
-            unit.pendingRitual = { at: { ...at } };
+            unit.pendingRitual = {
+              at: { ...at },
+              ...(ritual.pulses && ritual.pulses > 1 ? { pulsesLeft: ritual.pulses } : {}),
+            };
             unit.lastRitualRound = round;
             unit.ritualUses = (unit.ritualUses ?? 0) + 1;
             // dmg — номинал по чистой цели, для телеграфии в логе и разведке
@@ -340,10 +418,56 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             events.push({ t: 'aoeCast', unit: unit.id, form: 'line', at: { ...at } });
             applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked));
           }
+        } else if (action === 'rage') {
+          // вход в ярость: статус до конца боя, второго входа нет по устройству
+          if (rageReady(unit)) {
+            unit.raged = true;
+            events.push({ t: 'rage', unit: unit.id });
+          }
+        } else if (action === 'wall') {
+          // стена: прикрытие себе и всем смежным союзникам; снимается у
+          // каждого в начале ЕГО хода — та же жизнь, что у щита одному
+          if (wallReady(unit)) {
+            unit.wallUses = (unit.wallUses ?? 0) + 1;
+            unit.coverLevel = Math.max(unit.coverLevel, COVER);
+            events.push({ t: 'cover', unit: unit.id, level: unit.coverLevel });
+            for (const a of units) {
+              if (a.alive && a !== unit && a.side === unit.side && dist(a.pos, unit.pos) <= 1) {
+                a.coverLevel = Math.max(a.coverLevel, COVER);
+                events.push({ t: 'cover', unit: unit.id, level: a.coverLevel, ally: a.id });
+              }
+            }
+          }
+        } else if (action === 'heal' && targetId) {
+          // первый «hp вверх» в симе: фиксированное значение, без rng
+          const heal = unit.active?.heal;
+          const ally = units.find((u) => u.id === targetId)!;
+          if (heal && healReady(unit) && ally.alive && dist(unit.pos, ally.pos) <= heal.range) {
+            unit.healUses = (unit.healUses ?? 0) + 1;
+            const amount = Math.min(heal.amount, ally.maxHp - ally.hp);
+            ally.hp += amount;
+            events.push({ t: 'heal', unit: unit.id, target: ally.id, amount, hp: ally.hp });
+          }
+        } else if (action === 'bless' && targetId) {
+          const bless = unit.active?.bless;
+          const ally = units.find((u) => u.id === targetId)!;
+          if (bless && blessReady(unit) && ally.alive && dist(unit.pos, ally.pos) <= bless.range) {
+            unit.blessUses = (unit.blessUses ?? 0) + 1;
+            ally.blessedMult = bless.dmgMult;
+            events.push({ t: 'bless', unit: unit.id, target: ally.id, mult: bless.dmgMult });
+          }
+        } else if (action === 'feint' && targetId) {
+          const target = units.find((u) => u.id === targetId)!;
+          if (unit.active?.feint && target.alive && dist(unit.pos, target.pos) === 1) {
+            target.exposed = true;
+            events.push({ t: 'feint', unit: unit.id, target: target.id });
+          }
         } else if (action === 'shieldAlly' && targetId) {
           const ally = units.find((u) => u.id === targetId)!;
           if (ally.alive) {
-            ally.coverLevel = Math.max(ally.coverLevel, coverLevelOf(action));
+            // щитоносец («стена щита») кроет союзника сильнее общего уровня
+            const level = unit.passives?.shieldwall?.cover ?? coverLevelOf(action);
+            ally.coverLevel = Math.max(ally.coverLevel, level);
             events.push({ t: 'cover', unit: unit.id, level: ally.coverLevel, ally: ally.id });
           }
         } else if (coverLevelOf(action) > 0) {

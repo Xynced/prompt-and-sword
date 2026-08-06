@@ -6,15 +6,15 @@
 
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
-| [types.ts](types.ts) | Базовые типы: сторона, позиция, юнит, виды действий, площадное оружие, id линз | `Side`, `Pos`, `ActionKind`, `LensId`, `CombatUnit`, `AoeSpec` |
+| [types.ts](types.ts) | Базовые типы: сторона, позиция, юнит, виды действий, оружие (урон/дальность на нём), площадные формы, классовые активы и пассивы, id линз | `Side`, `Pos`, `ActionKind`, `LensId`, `CombatUnit`, `WeaponSpec`, `AoeSpec`, `ActiveSpec`, `PassiveSpec` |
 | [rng.ts](rng.ts) | Seeded RNG — единственный источник случайности | `mulberry32`, `shuffle` |
 | [grid.ts](grid.ts) | Сетка 18×18: дистанция (Чебышёв), LoS, каменное укрытие, фланг, взвешенные обход и достижимость (бурелом/подъём — 2 очка) | `GRID_W/H`, `dist`, `hasLoS`, `hasTerrainCover`, `isFlanking`, `reachableTiles`, `EntryCost` |
 | [terrain.ts](terrain.ts) | Поле из клеток со свойствами (камень/высота/опасность/бурелом), 12 арен-сценариев ASCII-схемами, пулы по тегам | `Tile`, `ArenaTag`, `TERRAIN_LAYOUTS`, `pickTerrain` |
 | [tuning.ts](tuning.ts) | Константы баланса: урон, экономика хода, цены прикрытий | `DMG_SCALE`, `expectedDamage`, `AP_PER_TURN`, `AP_VALUE`, `ACTION_BIAS_WEIGHT`, `WEAK_ATK_MULT`, `COVER` |
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», вычисление условий и селекторов | `Rule`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
-| [vocab.ts](vocab.ts) | Словарь концептов (37: условия, селекторы, действия, манера удара, пространство), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
+| [vocab.ts](vocab.ts) | Словарь концептов (44: условия, селекторы, действия, манера удара, пространство, активы), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
 | [lens.ts](lens.ts) | Линзы характеров — детерминированные трансформации IR (10 в пуле), инстинкты и тяга к видам действий | `applyLens`, `rollLenses`, `biasFor`, `ActionBias`, `LENS_POOL`, `LENS_RU` |
-| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady` |
+| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; кандидаты атак по каждому оружию, аффинность манер; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady`, `weaponsOf`, `rageReady`, `wallReady`, `healReady`, `blessReady`, `shadowMult`, `retributionMult`, `attackMultFor` |
 | [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, площадные касты (телеграф ритуала, залп в начале хода кастера), event-sourced лог, превью спавнов | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult`, `spawnPreview` |
 | [metrics.ts](metrics.ts) | Поведенческий отпечаток боя для статистики и сравнения | `fingerprint`, `Fingerprint` |
 
@@ -23,7 +23,7 @@
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
 | [constructor.ts](constructor.ts) | Конструктор фраз: `PhraseDraft` (чипсы словаря) → IR без LLM; закрытый концепт — ошибка | `compilePhrase`, `PhraseDraft`, `CompileResult` |
-| [cards.ts](cards.ts) | Обратный перевод IR после линзы → карточка «как понял» (искажения ⚠) | `understandingCard` |
+| [cards.ts](cards.ts) | Обратный перевод IR после линзы → карточка «как понял» (искажения ⚠); описания оружия, активов и пассивов для разведки и карточек | `understandingCard`, `describeWeapon`, `describeWeapons`, `describeActive`, `describePassives` |
 | [compiler/schema.ts](compiler/schema.ts) | JSON-схема tool use из **открытого** словаря + программная валидация выхода | `buildCompileSchema`, `validateOutput`, `CompilerOutput` |
 | [compiler/prompt.ts](compiler/prompt.ts) | Системный промпт компилятора (версионируется для ключа кэша) | `buildSystemPrompt`, `PROMPT_VERSION` |
 | [compiler/compile.ts](compiler/compile.ts) | LLM-вызов: свободный текст → `PhraseDraft`, гейт через `compilePhrase` | `compileFreeText`, `anthropicModelCall`, `DEFAULT_MODEL` |
@@ -34,7 +34,7 @@
 
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
-| [heroes.ts](heroes.ts) | Пул героев со способностями, сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
+| [heroes.ts](heroes.ts) | Пул из 16 героев — 8 классов pf2e × 2 варианта (класс-ярлык, оружие, актив, пассив, способность), сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
 | [foes.ts](foes.ts) | Фабрики врагов (принципы в том же IR) + разведка перед боем | `grunt`, `warChief`, `shaman`, …, `foeIntel` |
 | [run.ts](run.ts) | Забег: ветвящаяся карта 15 узлов, состояние партии, расстановка перед боем, скрипторий, события, трофеи, босс | `generateMap`, `RunState`, `foesForNode`, `arenaForNode`, `setDeploy` |
 | [sparring.ts](sparring.ts) | «Переиграть с теми же костями»: тот же seed, новые принципы, дифф исходов | `sparring`, `SparringDiff` |

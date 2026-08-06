@@ -50,7 +50,10 @@ export type ConceptId =
   | 'act.barrage'
   | 'act.preempt'
   | 'cond.underCharge'
-  | 'act.castRitual';
+  | 'act.castRitual'
+  // классы (план классов) — слова активов
+  | 'act.rage'
+  | 'act.heal';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -103,6 +106,8 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.preempt': { id: 'act.preempt', label: 'бить на упреждение', category: 'action' },
   'cond.underCharge': { id: 'cond.underCharge', label: 'враги накатывают', category: 'condition' },
   'act.castRitual': { id: 'act.castRitual', label: 'замахиваться ритуалом', category: 'action' },
+  'act.rage': { id: 'act.rage', label: 'впасть в ярость', category: 'action' },
+  'act.heal': { id: 'act.heal', label: 'лечить', category: 'action' },
 };
 
 /**
@@ -142,6 +147,9 @@ export const CORE_WORDS: ConceptId[] = [
   'space.spread',
   // «вот-вот навалятся» — простое условие, полезное далеко не только кастерам
   'cond.underCharge',
+  // гейт актива целителя: «лечи раненых» — базовая опора партии с Ивой;
+  // без носителя слово молчит (паттерн «накрыть скопление»)
+  'act.heal',
 ];
 
 /** Глубокие слова — качественно новые стратегии; вторая колонка предложений. */
@@ -174,6 +182,9 @@ export const DEEP_WORDS: ConceptId[] = [
   'act.preempt',
   // манера каста: тратить ход на замах, а не на мгновенный залп; сама открывает касты
   'act.castRitual',
+  // гейт актива ярости: без носителя (Ульв) слово мёртвое — паттерн «накрыть скопление»;
+  // размен «бью сильнее — получаю больнее до конца боя» стоит понимать до того, как взял
+  'act.rage',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */

@@ -197,6 +197,21 @@ function verboseRun(setName: string, seed: number): void {
       case 'aoeHit':
         console.log(`  ${nm(e.unit)} накрыт: ${e.dmg} урона, hp=${e.hp}`);
         break;
+      case 'rage':
+        console.log(`  ${nm(e.unit)} впадает в ярость`);
+        break;
+      case 'mark':
+        console.log(`  ${nm(e.unit)} метит ${nm(e.target)}`);
+        break;
+      case 'heal':
+        console.log(`  ${nm(e.unit)} исцеляет ${nm(e.target)}: +${e.amount}, hp=${e.hp}`);
+        break;
+      case 'bless':
+        console.log(`  ${nm(e.unit)} благословляет ${nm(e.target)} (урон ×${e.mult})`);
+        break;
+      case 'feint':
+        console.log(`  ${nm(e.unit)} финтит: ${nm(e.target)} открыт`);
+        break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);
         break;

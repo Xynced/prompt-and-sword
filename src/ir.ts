@@ -32,6 +32,14 @@ import { dist } from './grid.js';
  *              preempt (бить на упреждение — манера ритуала: целить в проекцию),
  *              castRitual (замахиваться ритуалом — манера: ритуал, не залп)
  *   Простр.:   spread (держать интервал — пока у врага жив АОЕ-носитель)
+ * План классов:
+ *   Действия:  rage (впасть в ярость — гейт актива носителя: урон ×, входящий ×,
+ *              до конца боя; слово решает КОГДА потратить),
+ *              heal (лечить — гейт актива целителя; цель выбирает скоринг по нужде),
+ *              bless (благословить — актив жреца; своего слова пока нет:
+ *              жмётся врождённым правилом, словарь бережём для words-плана),
+ *              feint (финт — актив трюкачки, тоже без слова: открыть врага
+ *              под удары своих)
  */
 
 export type Selector =
@@ -89,7 +97,11 @@ export type Preference =
   | { kind: 'barrage' }
   | { kind: 'spread' }
   | { kind: 'preempt' }
-  | { kind: 'castRitual' };
+  | { kind: 'castRitual' }
+  | { kind: 'rage' }
+  | { kind: 'heal' }
+  | { kind: 'bless' }
+  | { kind: 'feint' };
 
 export interface Rule {
   when: Condition;
@@ -265,5 +277,13 @@ export function describePreference(p: Preference): string {
       return 'бить на упреждение';
     case 'castRitual':
       return 'замахиваться ритуалом';
+    case 'rage':
+      return 'впасть в ярость';
+    case 'heal':
+      return 'лечить';
+    case 'bless':
+      return 'благословить';
+    case 'feint':
+      return 'финтить';
   }
 }

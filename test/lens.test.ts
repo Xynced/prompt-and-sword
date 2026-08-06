@@ -208,6 +208,37 @@ describe('линза: позёр', () => {
   });
 });
 
+describe('линзы и активы (план классов, шаг 4)', () => {
+  const rageWhenDrags = (): Rule => ({
+    when: { kind: 'battleDrags' },
+    then: { kind: 'rage' },
+    weight: 2,
+    scope: 'self',
+    source: 'способность: Ярость',
+  });
+
+  it('фанатик срывает условие с ярости: она не ждёт повода', () => {
+    const c = applyLens(['fanatic'], [rageWhenDrags()]);
+    expect(c.rules[0]!.when).toEqual({ kind: 'always' });
+    expect(c.rules[0]!.then).toEqual({ kind: 'rage' });
+    expect(c.rules[0]!.source).toContain('фанатик: ярость не ждёт повода');
+  });
+
+  it('трус в ярость не впадает — уходит в глухую оборону', () => {
+    const c = applyLens(['coward'], [rageWhenDrags()]);
+    const r = c.rules.find((x) => x.source.includes('способность: Ярость'))!;
+    expect(r.then).toEqual({ kind: 'brace' });
+    expect(r.when).toEqual({ kind: 'battleDrags' }); // условие трус не трогает
+    expect(r.source).toContain('трус: в ярость? лучше в глухую оборону');
+  });
+
+  it('наседка тянется к стене сильнее, чем к щиту одному', () => {
+    const c = applyLens(['guardian'], []);
+    expect(c.instincts.actionBias.wall).toBe(3);
+    expect(c.instincts.actionBias.shieldAlly).toBe(2.2);
+  });
+});
+
 describe('композиция линз', () => {
   it('пустой список = правила и инстинкты как есть', () => {
     const rules = [attack(), retreat()];
