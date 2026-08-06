@@ -4,7 +4,7 @@ import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
 import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
-import type { AoeSpec, LensId, Pos, Side, WeaponSpec } from './types.js';
+import type { ActiveSpec, AoeSpec, LensId, Pos, Side, WeaponSpec } from './types.js';
 import {
   type ActionKind,
   type Decision,
@@ -23,6 +23,9 @@ import {
   isAttack,
   isMovement,
   makeCtx,
+  rageDmgMult,
+  rageReady,
+  rageVulnMult,
   rangeAt,
   shoveDest,
   weaponsOf,
@@ -51,6 +54,8 @@ export interface UnitSpec {
   rules: Rule[];
   /** Площадное оружие носителя АОЕ (план АОЕ); в норме живёт в weapons[].aoe. */
   aoe?: AoeSpec;
+  /** Классовые активы (план классов); без спеки кандидатов действия нет. */
+  active?: ActiveSpec;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
 }
@@ -71,6 +76,8 @@ export type BattleEvent =
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
   | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos }
+  /** Вошёл в ярость: урон и уязвимость по спеке актива — до конца боя. */
+  | { t: 'rage'; unit: string }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
@@ -126,6 +133,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     tags: spec.tags ?? [],
     lenses: spec.lenses,
     aoe: spec.aoe ?? weapons?.find((w) => w.aoe)?.aoe,
+    active: spec.active,
     compiled: applyLens(spec.lenses, spec.rules),
   };
 }
@@ -278,13 +286,20 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
               .filter((u) => u.alive && u.side === unit.side && u !== unit)
               .map((u) => u.pos);
             const flank = weapon.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
-            const raw = rollDamage(weapon.dmg * attackMult(action) * (flank ? 1.5 : 1), rng);
+            const raw = rollDamage(
+              weapon.dmg * rageDmgMult(unit) * attackMult(action) * (flank ? 1.5 : 1),
+              rng,
+            );
             // каменное укрытие цели не складывается с прикрытием — берётся максимум
             const mitigation = Math.max(target.coverLevel, ctx.coverFrom(unit.pos, target.pos));
             const dmg = Math.max(
               1,
-              Math.round(raw * (1 - mitigation) * (target.exposed ? SELFLESS_VULN_MULT : 1)) +
-                heightDmgBonus(unit, heightAt(unit.pos), weapon.range),
+              Math.round(
+                raw *
+                  (1 - mitigation) *
+                  (target.exposed ? SELFLESS_VULN_MULT : 1) *
+                  rageVulnMult(target),
+              ) + heightDmgBonus(unit, heightAt(unit.pos), weapon.range),
             );
             target.hp = Math.max(0, target.hp - dmg);
             target.lastAttackerId = unit.id;
@@ -358,6 +373,12 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           if (line && dist(unit.pos, at) === 1) {
             events.push({ t: 'aoeCast', unit: unit.id, form: 'line', at: { ...at } });
             applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked));
+          }
+        } else if (action === 'rage') {
+          // вход в ярость: статус до конца боя, второго входа нет по устройству
+          if (rageReady(unit)) {
+            unit.raged = true;
+            events.push({ t: 'rage', unit: unit.id });
           }
         } else if (action === 'shieldAlly' && targetId) {
           const ally = units.find((u) => u.id === targetId)!;

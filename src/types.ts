@@ -16,10 +16,23 @@ export type ActionKind =
   | 'aoeBlast'
   | 'aoeLine'
   | 'aoeRitual'
+  | 'rage'
   | 'cover'
   | 'fullCover'
   | 'shieldAlly'
   | 'wait';
+
+/**
+ * Классовые активы (план классов) — по образцу AoeSpec: без спеки кандидатов
+ * действия нет, использование гейтится словом (прецедент «накрыть скопление»).
+ */
+export interface ActiveSpec {
+  /**
+   * Ярость: 1 AP, раз в бой, до конца боя — свой урон ×dmgMult,
+   * входящий ×vulnMult. Длящийся статус: раз войдя, назад не выйти.
+   */
+  rage?: { dmgMult: number; vulnMult: number };
+}
 
 /**
  * Оружие (план классов): носитель урона и дальности — они переезжают с юнита
@@ -97,6 +110,10 @@ export interface CombatUnit {
   coverLevel: number;
   /** Отчаянный удар открыл: входящий урон ×SELFLESS_VULN_MULT до своего следующего хода. */
   exposed: boolean;
+  /** Классовые активы юнита; у большинства отсутствуют. */
+  active?: ActiveSpec;
+  /** В ярости: свой урон и входящий умножены по спеке — до конца боя. */
+  raged?: boolean;
   tags: string[];
   /** Линзы характера в порядке применения (1–3 у героев). */
   lenses: LensId[];

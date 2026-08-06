@@ -56,6 +56,9 @@ export const AP_COST: Record<ActionKind, number> = {
   // за 1 AP «сдвинуть и добить» — нормальный ход
   shove: 1,
   cover: 1,
+  // войти в ярость — короткий рык, а не замах: дорогая часть — размен
+  // «получаю больнее до конца боя», а не очки хода
+  rage: 1,
   aoeBlast: 2,
   aoeLine: 2,
   attack: 2,
@@ -87,6 +90,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   aoeBlast: 0,
   aoeLine: 0,
   aoeRitual: 0,
+  rage: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -107,6 +111,7 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   aoeBlast: 0,
   aoeLine: 0,
   aoeRitual: 0,
+  rage: 0,
   wait: 0,
 };
 
@@ -195,6 +200,17 @@ export function blastReady(u: CombatUnit): boolean {
   return blast.usesPerBattle === undefined || (u.blastUses ?? 0) < blast.usesPerBattle;
 }
 
+/** Готова ли ярость: есть актив и юнит ещё не в ней (она до конца боя). */
+export function rageReady(u: CombatUnit): boolean {
+  return !!u.active?.rage && !u.raged;
+}
+
+/** Множитель своего урона от ярости (атаки оружием; касты не трогает). */
+export const rageDmgMult = (u: CombatUnit): number => (u.raged ? u.active?.rage?.dmgMult ?? 1 : 1);
+
+/** Множитель входящего урона по яростному — применяется везде, как exposed. */
+export const rageVulnMult = (u: CombatUnit): number => (u.raged ? u.active?.rage?.vulnMult ?? 1 : 1);
+
 /** Живые юниты обеих сторон в зоне — friendly fire включён для всех. */
 export function aoeVictims<T extends CombatUnit>(
   center: Pos,
@@ -215,7 +231,11 @@ export function aoeDamage(caster: CombatUnit, mult: number, target: CombatUnit):
   return Math.max(
     1,
     Math.round(
-      expectedDamage(caster.atk) * mult * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1),
+      expectedDamage(caster.atk) *
+        mult *
+        (1 - target.coverLevel) *
+        (target.exposed ? SELFLESS_VULN_MULT : 1) *
+        rageVulnMult(target),
     ),
   );
 }
@@ -554,6 +574,18 @@ export function generateCandidates(
     }
   }
 
+  // ярость: актив носителя (план классов) — гейт тот же, что у кастов:
+  // оружие есть всегда, но без сработавшего правила «впасть в ярость»
+  // кандидата нет; слово решает КОГДА потратить единственный вход
+  if (
+    ap >= AP_COST.rage &&
+    allowed('rage') &&
+    rageReady(self) &&
+    fired.some((r) => r.then.kind === 'rage')
+  ) {
+    out.push({ to: here, action: 'rage' });
+  }
+
   // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем
   for (const action of ['cover', 'fullCover'] as const) {
     if (ap >= AP_COST[action] && allowed(action) && coverLevelOf(action) > self.coverLevel) {
@@ -605,6 +637,15 @@ const SHIELD_RULE_BONUS = 1.4;
  */
 const STRIKE_STYLE_BONUS = 2.5;
 
+/**
+ * Премия правила «впасть в ярость» самому действию ярости. Выше премии
+ * атаки (3 × вес): условие правила уже сказало «сейчас», и откладывать вход
+ * ради рядового удара нельзя — ярость жмётся раз в бой, конкуренция за ход
+ * ей не грозит после входа. Добивание всё же перебивает (бонус lethal +4):
+ * сначала добей — ярость никуда не денется.
+ */
+const RAGE_RULE_BONUS = 4;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel);
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -626,9 +667,11 @@ function expectedAttackDamage(
   const mitigation = Math.max(target.coverLevel, ctx.coverFrom(from, target.pos));
   return (
     expectedDamage(weapon.dmg) *
+      rageDmgMult(self) *
       attackMult(action) *
       (1 - mitigation) *
-      (target.exposed ? SELFLESS_VULN_MULT : 1) +
+      (target.exposed ? SELFLESS_VULN_MULT : 1) *
+      rageVulnMult(target) +
     heightDmgBonus(self, ctx.heightAt(from), weapon.range)
   );
 }
@@ -923,6 +966,12 @@ function scorePreference(
       if (cand.action === 'aoeBlast' || cand.action === 'aoeLine') return -STRIKE_STYLE_BONUS * w;
       return 0;
     }
+    case 'rage':
+      // впасть в ярость: правило-гейт платит и премию — актив жмётся, как
+      // только условие правила сработало («если врагов больше — ярись»).
+      // Оценивать выгоду ярости инстинктами не пытаемся (сколько боя осталось —
+      // юнит не знает); в этом и смысл: КОГДА тратить, решает слово игрока
+      return cand.action === 'rage' ? RAGE_RULE_BONUS * w : 0;
   }
 }
 

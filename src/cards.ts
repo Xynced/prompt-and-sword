@@ -1,6 +1,6 @@
 import type { Condition, Preference, Rule } from './ir.js';
 import { LENS_RU, applyLens } from './lens.js';
-import type { AoeSpec, LensId, WeaponSpec } from './types.js';
+import type { ActiveSpec, AoeSpec, LensId, WeaponSpec } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -103,6 +103,8 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'бью на упреждение: замахиваюсь туда, куда враг придёт, а не где стоит';
     case 'castRitual':
       return 'замахиваюсь ритуалом: трачу ход на большую зону, на мгновенный залп не размениваюсь';
+    case 'rage':
+      return 'впадаю в ярость: бью сильнее, но и получаю больнее — до конца боя, назад пути нет';
   }
 }
 
@@ -143,6 +145,18 @@ export function describeWeapon(w: WeaponSpec): string {
 /** Строка оружейного набора: у мастера несколько — через «;». */
 export function describeWeapons(weapons: readonly WeaponSpec[]): string {
   return weapons.map(describeWeapon).join('; ');
+}
+
+/**
+ * Строка классового актива — цифры размена игрок видит до того, как возьмёт
+ * слово-гейт (тот же контракт, что у оружия носителя АОЕ).
+ */
+export function describeActive(active: ActiveSpec): string {
+  const parts: string[] = [];
+  if (active.rage) {
+    parts.push(`ярость (урон ×${active.rage.dmgMult}, входящий ×${active.rage.vulnMult}, до конца боя)`);
+  }
+  return parts.join(' · ');
 }
 
 /** Помечена ли строка искажением линзы (по аннотации source). */

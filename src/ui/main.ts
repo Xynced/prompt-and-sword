@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { describeWeapons, understandingCard } from '../cards.js';
+import { describeActive, describeWeapons, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -317,7 +317,8 @@ function abilityLine(archetypeId: string): string {
   const a = arch.ability;
   // оружие видно всегда, даже до слова «накрыть скопление»: слово берут
   // осознанно, зная, есть ли в партии кому им махать
-  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}`;
+  const act = arch.active ? ` · актив: ${describeActive(arch.active)}` : '';
+  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${act}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {
@@ -463,6 +464,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('act.barrage')) out.push({ value: { id: 'act.barrage' }, label: 'накрыть скопление' });
   if (has('act.preempt')) out.push({ value: { id: 'act.preempt' }, label: 'бить на упреждение' });
   if (has('act.castRitual')) out.push({ value: { id: 'act.castRitual' }, label: 'замахиваться ритуалом' });
+  if (has('act.rage')) out.push({ value: { id: 'act.rage' }, label: 'впасть в ярость' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -630,6 +632,9 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending?.parts.push(`${nm(e.unit)} падает`);
         break;
       }
+      case 'rage':
+        pending?.parts.push('впадает в ярость');
+        break;
       case 'cover':
         pending?.parts.push(
           e.ally

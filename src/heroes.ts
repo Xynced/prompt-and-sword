@@ -1,6 +1,6 @@
 import type { Rule } from './ir.js';
 import type { PhraseDraft } from './constructor.js';
-import type { Pos, WeaponSpec } from './types.js';
+import type { ActiveSpec, Pos, WeaponSpec } from './types.js';
 import { type Rng, shuffle } from './rng.js';
 
 /**
@@ -26,6 +26,8 @@ export interface HeroArchetype {
   stats: { maxHp: number; speed: number; move: number };
   /** Оружие варианта класса; у мастера — несколько, выбирает по ситуации. */
   weapons: WeaponSpec[];
+  /** Классовый актив (ярость, лечение…); использование гейтится словом. */
+  active?: ActiveSpec;
   ability: { name: string; desc: string };
   /** Врождённые правила способности; в source — префикс «способность:». */
   innate: Rule[];
@@ -126,17 +128,20 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     ],
   },
   {
-    // варвар
+    // варвар: единственный носитель актива ярости (план классов). Врождённое
+    // правило само вводит его в ярость на затяжке; слово «впасть в ярость»
+    // позволяет игроку выбрать момент раньше и лучше
     id: 'ulv',
     name: 'Ульв',
     role: 'front',
     stats: { maxHp: 68, speed: 6, move: 2 },
     weapons: [{ name: 'секира', dmg: 9, range: 1 }],
-    ability: { name: 'Ярость', desc: 'если бой затянулся — бросается на ближайшего' },
+    active: { rage: { dmgMult: 1.3, vulnMult: 1.2 } },
+    ability: { name: 'Ярость', desc: 'если бой затянулся — впадает в ярость' },
     innate: [
       r({
         when: { kind: 'battleDrags' },
-        then: { kind: 'attack', target: 'nearest' },
+        then: { kind: 'rage' },
         weight: 2,
         source: 'способность: Ярость',
       }),

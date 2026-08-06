@@ -197,6 +197,9 @@ function verboseRun(setName: string, seed: number): void {
       case 'aoeHit':
         console.log(`  ${nm(e.unit)} накрыт: ${e.dmg} урона, hp=${e.hp}`);
         break;
+      case 'rage':
+        console.log(`  ${nm(e.unit)} впадает в ярость`);
+        break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);
         break;
