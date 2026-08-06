@@ -1,6 +1,6 @@
 import type { Rule } from './ir.js';
 import type { PhraseDraft } from './constructor.js';
-import type { ActiveSpec, Pos, WeaponSpec } from './types.js';
+import type { ActiveSpec, PassiveSpec, Pos, WeaponSpec } from './types.js';
 import { type Rng, shuffle } from './rng.js';
 
 /**
@@ -26,8 +26,10 @@ export interface HeroArchetype {
   stats: { maxHp: number; speed: number; move: number };
   /** Оружие варианта класса; у мастера — несколько, выбирает по ситуации. */
   weapons: WeaponSpec[];
-  /** Классовый актив (ярость, лечение…); использование гейтится словом. */
+  /** Классовый актив (ярость, стена…); использование гейтится словом/правилом. */
   active?: ActiveSpec;
+  /** Классовые пассивы — всегда включены, слов не требуют. */
+  passives?: PassiveSpec;
   ability: { name: string; desc: string };
   /** Врождённые правила способности; в source — префикс «способность:». */
   innate: Rule[];
@@ -43,6 +45,10 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     role: 'front',
     stats: { maxHp: 80, speed: 5, move: 2 },
     weapons: [{ name: 'меч и щит', dmg: 8, range: 1, affinity: { attack: 1, selflessAttack: -1 } }],
+    // щит держит союзника крепче общего прикрытия; «Стена» кроет весь строй —
+    // гейт защитными правилами, своего слова не нужно
+    active: { wall: { usesPerBattle: 1 } },
+    passives: { shieldwall: { cover: 0.4 } },
     ability: { name: 'Оплот', desc: 'сам встаёт между врагом и самым раненым из своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'coverRetreat' }, weight: 0.9, source: 'способность: Оплот' }),
@@ -55,7 +61,10 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     role: 'ranged',
     stats: { maxHp: 48, speed: 6, move: 2 },
     weapons: [{ name: 'длинный лук', dmg: 6, range: 5 }],
-    ability: { name: 'Подранок', desc: 'не может не добить раненого' },
+    // метит добычу самим выстрелом: его цель — «помеченная» для всей партии.
+    // Актив «кого метить» не нужен: ответ уже в его атаках (решение шага 3)
+    passives: { markOnHit: true },
+    ability: { name: 'Подранок', desc: 'не может не добить раненого — и метит добычу для своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 0.8, source: 'способность: Подранок' }),
     ],
@@ -97,7 +106,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     role: 'front',
     stats: { maxHp: 96, speed: 3, move: 1 },
     weapons: [{ name: 'щит-башня', dmg: 5, range: 1 }],
-    ability: { name: 'Глыба', desc: 'где поставили — там и стоит' },
+    passives: { steadfast: true },
+    ability: { name: 'Глыба', desc: 'где поставили — там и стоит; глухая оборона даётся дёшево' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 0.8, source: 'способность: Глыба' }),
     ],
@@ -109,7 +119,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     role: 'melee',
     stats: { maxHp: 44, speed: 7, move: 3 },
     weapons: [{ name: 'кинжалы', dmg: 7, range: 1, affinity: { weakAttack: 1 } }],
-    ability: { name: 'Из-за спины', desc: 'заходит сбоку и бьёт вдвоём' },
+    passives: { sneak: { flankMult: 1.75 } },
+    ability: { name: 'Из-за спины', desc: 'заходит сбоку и бьёт вдвоём — в спину больнее прочих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.2, source: 'способность: Из-за спины' }),
     ],
@@ -154,7 +165,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     role: 'ranged',
     stats: { maxHp: 36, speed: 6, move: 1 },
     weapons: [{ name: 'тяжёлый арбалет', dmg: 7, range: 6, affinity: { attack: 1, weakAttack: -1 } }],
-    ability: { name: 'Скрадывание', desc: 'не выходит на линию вражеского выстрела' },
+    passives: { shadow: { mult: 1.25 } },
+    ability: { name: 'Скрадывание', desc: 'не выходит на линию вражеского выстрела — и бьёт из тени больнее' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'avoidLineOfFire' }, weight: 1, source: 'способность: Скрадывание' }),
     ],

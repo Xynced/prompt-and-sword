@@ -64,6 +64,7 @@ export const AP_COST: Record<ActionKind, number> = {
   attack: 2,
   selflessAttack: 2,
   shieldAlly: 2,
+  wall: 2,
   fullCover: 3,
   // замах — весь ход: зона объявлена, бьёт в начале следующего хода кастера
   aoeRitual: 3,
@@ -71,12 +72,16 @@ export const AP_COST: Record<ActionKind, number> = {
 };
 
 /**
- * Цена действия для конкретного юнита. Единственное отклонение от констант:
- * осторожный шаг медленному (`move: 1`) стоит 2 AP — он не может за ход и
- * осторожно зайти на шипы, и нормально ударить.
+ * Цена действия для конкретного юнита. Отклонения от констант:
+ * - осторожный шаг медленному (`move: 1`) стоит 2 AP — он не может за ход и
+ *   осторожно зайти на шипы, и нормально ударить;
+ * - глухая защита бастиону (пассив «незыблемость») — 2 AP: его «сегодня не
+ *   воюю» дешевле, чем у всех.
  */
 export function apCostFor(action: ActionKind, u: CombatUnit): number {
-  return action === 'carefulStep' && u.move <= 1 ? 2 : AP_COST[action];
+  if (action === 'carefulStep' && u.move <= 1) return 2;
+  if (action === 'fullCover' && u.passives?.steadfast) return 2;
+  return AP_COST[action];
 }
 
 /** Множитель урона по виду атаки; 0 — действие не атака (залп — не атака: бьёт площадь, не цель). */
@@ -91,6 +96,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   aoeLine: 0,
   aoeRitual: 0,
   rage: 0,
+  wall: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -112,6 +118,8 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   aoeLine: 0,
   aoeRitual: 0,
   rage: 0,
+  // стена кроет группу — своя ветка исполнения, генерическая не нужна
+  wall: 0,
   wait: 0,
 };
 
@@ -203,6 +211,38 @@ export function blastReady(u: CombatUnit): boolean {
 /** Готова ли ярость: есть актив и юнит ещё не в ней (она до конца боя). */
 export function rageReady(u: CombatUnit): boolean {
   return !!u.active?.rage && !u.raged;
+}
+
+/** Готова ли стена: есть актив и лимит на бой не выбран. */
+export function wallReady(u: CombatUnit): boolean {
+  const wall = u.active?.wall;
+  return !!wall && (u.wallUses ?? 0) < wall.usesPerBattle;
+}
+
+/**
+ * Множитель урона атаки из тени (пассив Мары): действует, пока из клетки
+ * from юнита не держит на прицеле ни один вражеский стрелок (дальность + LoS
+ * сквозь камни и тела — та же геометрия, что у слова «вне линии огня»).
+ */
+export function shadowMult(
+  self: CombatUnit,
+  from: Pos,
+  units: readonly CombatUnit[],
+  blocked: (p: Pos) => boolean,
+): number {
+  const mult = self.passives?.shadow?.mult;
+  if (!mult) return 1;
+  const spotted = units.some(
+    (e) =>
+      e.alive &&
+      e.side !== self.side &&
+      e.range > 1 &&
+      dist(e.pos, from) <= e.range &&
+      hasLoS(e.pos, from, (p) =>
+        blocked(p) || units.some((u) => u.alive && u !== self && u !== e && posEq(u.pos, p)),
+      ),
+  );
+  return spotted ? 1 : mult;
 }
 
 /** Множитель своего урона от ярости (атаки оружием; касты не трогает). */
@@ -586,15 +626,29 @@ export function generateCandidates(
     out.push({ to: here, action: 'rage' });
   }
 
-  // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем
+  // стена: щитоносец кроет себя и смежных союзников. Своего слова нет —
+  // гейт защитными правилами («защищать», «прикрывать отход»): у кого в
+  // приказах защита, тот и вспоминает про стену
+  if (
+    ap >= AP_COST.wall &&
+    allowed('wall') &&
+    wallReady(self) &&
+    fired.some((r) => r.then.kind === 'protect' || r.then.kind === 'coverRetreat')
+  ) {
+    out.push({ to: here, action: 'wall' });
+  }
+
+  // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем.
+  // Цена через apCostFor: бастиону глухая защита за 2 очка (незыблемость)
   for (const action of ['cover', 'fullCover'] as const) {
-    if (ap >= AP_COST[action] && allowed(action) && coverLevelOf(action) > self.coverLevel) {
+    if (ap >= apCostFor(action, self) && allowed(action) && coverLevelOf(action) > self.coverLevel) {
       out.push({ to: here, action });
     }
   }
   if (ap >= AP_COST.shieldAlly && allowed('shieldAlly')) {
+    const level = self.passives?.shieldwall?.cover ?? coverLevelOf('shieldAlly');
     for (const a of alliesOf(self, units) as Fighter[]) {
-      if (a.id !== self.id && coverLevelOf('shieldAlly') > a.coverLevel) {
+      if (a.id !== self.id && level > a.coverLevel) {
         out.push({ to: here, action: 'shieldAlly', targetId: a.id });
       }
     }
@@ -728,6 +782,10 @@ function scorePreference(
       if (cand.action === 'shieldAlly' && cand.targetId === ally.id) {
         return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units);
       }
+      // стена исполняет «защищать», если подопечный в её накрытии
+      if (cand.action === 'wall' && dist(self.pos, ally.pos) <= 1) {
+        return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units);
+      }
       let s = -0.4 * dist(cand.to, ally.pos) * w;
       const threat = resolveSelector('nearest', ally as Fighter, units);
       if (
@@ -796,6 +854,9 @@ function scorePreference(
         );
       if (!wounded) return 0;
       if (cand.action === 'shieldAlly' && cand.targetId === wounded.id) {
+        return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units);
+      }
+      if (cand.action === 'wall' && dist(self.pos, wounded.pos) <= 1) {
         return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units);
       }
       const threat = resolveSelector('nearest', wounded, units);
@@ -1002,7 +1063,8 @@ export function scoreCandidate(
     const weapon = candWeapon(self, cand);
     const target = units.find((u) => u.id === cand.targetId)!;
     const expDmg = Math.min(
-      expectedAttackDamage(self, cand.action, target, ctx, cand.to, weapon),
+      expectedAttackDamage(self, cand.action, target, ctx, cand.to, weapon) *
+        shadowMult(self, cand.to, units, ctx.blocked),
       target.hp,
     );
     const lethal = expDmg >= target.hp;
@@ -1086,10 +1148,23 @@ export function scoreCandidate(
   if (cand.action === 'shieldAlly' && cand.targetId) {
     const ally = units.find((u) => u.id === cand.targetId);
     if (ally?.alive) {
-      const spared = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel) * COVER;
+      // щитоносец («стена щита» Грома) кроет союзника сильнее общего COVER
+      const level = self.passives?.shieldwall?.cover ?? COVER;
+      const spared = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel) * level;
       const v = (spared / ally.maxHp) * 6 * instincts.survival;
       if (v !== 0) factors.push({ label: 'инстинкт:прикрыть своего', value: v });
     }
+  }
+  if (cand.action === 'wall') {
+    // стена: суммарно спасённый урон по себе и смежным союзникам — та же
+    // валюта, что у щита одному
+    let v = 0;
+    for (const a of alliesOf(self, units)) {
+      if (a.id !== self.id && dist(a.pos, self.pos) > 1) continue;
+      v += (threatAt(a.pos, a as Fighter, units) * (1 - a.coverLevel) * COVER) / a.maxHp;
+    }
+    v *= 6 * instincts.survival;
+    if (v !== 0) factors.push({ label: 'инстинкт:стена', value: v });
   }
 
   for (const rule of firedRules) {

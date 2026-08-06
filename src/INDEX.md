@@ -6,7 +6,7 @@
 
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
-| [types.ts](types.ts) | Базовые типы: сторона, позиция, юнит, виды действий, оружие (урон/дальность на нём), площадные формы, классовые активы, id линз | `Side`, `Pos`, `ActionKind`, `LensId`, `CombatUnit`, `WeaponSpec`, `AoeSpec`, `ActiveSpec` |
+| [types.ts](types.ts) | Базовые типы: сторона, позиция, юнит, виды действий, оружие (урон/дальность на нём), площадные формы, классовые активы и пассивы, id линз | `Side`, `Pos`, `ActionKind`, `LensId`, `CombatUnit`, `WeaponSpec`, `AoeSpec`, `ActiveSpec`, `PassiveSpec` |
 | [rng.ts](rng.ts) | Seeded RNG — единственный источник случайности | `mulberry32`, `shuffle` |
 | [grid.ts](grid.ts) | Сетка 18×18: дистанция (Чебышёв), LoS, каменное укрытие, фланг, взвешенные обход и достижимость (бурелом/подъём — 2 очка) | `GRID_W/H`, `dist`, `hasLoS`, `hasTerrainCover`, `isFlanking`, `reachableTiles`, `EntryCost` |
 | [terrain.ts](terrain.ts) | Поле из клеток со свойствами (камень/высота/опасность/бурелом), 12 арен-сценариев ASCII-схемами, пулы по тегам | `Tile`, `ArenaTag`, `TERRAIN_LAYOUTS`, `pickTerrain` |
@@ -14,7 +14,7 @@
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», вычисление условий и селекторов | `Rule`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
 | [vocab.ts](vocab.ts) | Словарь концептов (43: условия, селекторы, действия, манера удара, пространство, активы), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
 | [lens.ts](lens.ts) | Линзы характеров — детерминированные трансформации IR (10 в пуле), инстинкты и тяга к видам действий | `applyLens`, `rollLenses`, `biasFor`, `ActionBias`, `LENS_POOL`, `LENS_RU` |
-| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; кандидаты атак по каждому оружию, аффинность манер; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady`, `weaponsOf`, `rageReady` |
+| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; кандидаты атак по каждому оружию, аффинность манер; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady`, `weaponsOf`, `rageReady`, `wallReady`, `shadowMult` |
 | [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, площадные касты (телеграф ритуала, залп в начале хода кастера), event-sourced лог, превью спавнов | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult`, `spawnPreview` |
 | [metrics.ts](metrics.ts) | Поведенческий отпечаток боя для статистики и сравнения | `fingerprint`, `Fingerprint` |
 
@@ -23,7 +23,7 @@
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
 | [constructor.ts](constructor.ts) | Конструктор фраз: `PhraseDraft` (чипсы словаря) → IR без LLM; закрытый концепт — ошибка | `compilePhrase`, `PhraseDraft`, `CompileResult` |
-| [cards.ts](cards.ts) | Обратный перевод IR после линзы → карточка «как понял» (искажения ⚠); описания оружия и активов для разведки и карточек | `understandingCard`, `describeWeapon`, `describeWeapons`, `describeActive` |
+| [cards.ts](cards.ts) | Обратный перевод IR после линзы → карточка «как понял» (искажения ⚠); описания оружия, активов и пассивов для разведки и карточек | `understandingCard`, `describeWeapon`, `describeWeapons`, `describeActive`, `describePassives` |
 | [compiler/schema.ts](compiler/schema.ts) | JSON-схема tool use из **открытого** словаря + программная валидация выхода | `buildCompileSchema`, `validateOutput`, `CompilerOutput` |
 | [compiler/prompt.ts](compiler/prompt.ts) | Системный промпт компилятора (версионируется для ключа кэша) | `buildSystemPrompt`, `PROMPT_VERSION` |
 | [compiler/compile.ts](compiler/compile.ts) | LLM-вызов: свободный текст → `PhraseDraft`, гейт через `compilePhrase` | `compileFreeText`, `anthropicModelCall`, `DEFAULT_MODEL` |

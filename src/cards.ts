@@ -1,6 +1,6 @@
 import type { Condition, Preference, Rule } from './ir.js';
 import { LENS_RU, applyLens } from './lens.js';
-import type { ActiveSpec, AoeSpec, LensId, WeaponSpec } from './types.js';
+import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponSpec } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -156,6 +156,20 @@ export function describeActive(active: ActiveSpec): string {
   if (active.rage) {
     parts.push(`ярость (урон ×${active.rage.dmgMult}, входящий ×${active.rage.vulnMult}, до конца боя)`);
   }
+  if (active.wall) {
+    parts.push(`стена (прикрытие себе и смежным, ${active.wall.usesPerBattle} на бой)`);
+  }
+  return parts.join(' · ');
+}
+
+/** Строка классовых пассивов — читается с карточки героя и разведки. */
+export function describePassives(p: PassiveSpec): string {
+  const parts: string[] = [];
+  if (p.shieldwall) parts.push(`щит союзнику −${Math.round(p.shieldwall.cover * 100)}%`);
+  if (p.markOnHit) parts.push('метит цель ударом');
+  if (p.steadfast) parts.push('глухая оборона за 2 очка');
+  if (p.shadow) parts.push(`из тени урон ×${p.shadow.mult}`);
+  if (p.sneak) parts.push(`фланг ×${p.sneak.flankMult}`);
   return parts.join(' · ');
 }
 

@@ -200,6 +200,9 @@ function verboseRun(setName: string, seed: number): void {
       case 'rage':
         console.log(`  ${nm(e.unit)} впадает в ярость`);
         break;
+      case 'mark':
+        console.log(`  ${nm(e.unit)} метит ${nm(e.target)}`);
+        break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);
         break;

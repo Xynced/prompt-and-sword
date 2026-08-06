@@ -1,10 +1,10 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
-import { AP_PER_TURN, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
+import { AP_PER_TURN, COVER, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
 import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
-import type { ActiveSpec, AoeSpec, LensId, Pos, Side, WeaponSpec } from './types.js';
+import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, Pos, Side, WeaponSpec } from './types.js';
 import {
   type ActionKind,
   type Decision,
@@ -27,7 +27,9 @@ import {
   rageReady,
   rageVulnMult,
   rangeAt,
+  shadowMult,
   shoveDest,
+  wallReady,
   weaponsOf,
 } from './scoring.js';
 
@@ -56,6 +58,8 @@ export interface UnitSpec {
   aoe?: AoeSpec;
   /** Классовые активы (план классов); без спеки кандидатов действия нет. */
   active?: ActiveSpec;
+  /** Классовые пассивы (план классов); всегда включены, слов не требуют. */
+  passives?: PassiveSpec;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
 }
@@ -78,6 +82,8 @@ export type BattleEvent =
   | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos }
   /** Вошёл в ярость: урон и уязвимость по спеке актива — до конца боя. */
   | { t: 'rage'; unit: string }
+  /** Охотник пометил цель: тег marked для всей его стороны (прежняя метка снята). */
+  | { t: 'mark'; unit: string; target: string }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
@@ -134,6 +140,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     lenses: spec.lenses,
     aoe: spec.aoe ?? weapons?.find((w) => w.aoe)?.aoe,
     active: spec.active,
+    passives: spec.passives,
     compiled: applyLens(spec.lenses, spec.rules),
   };
 }
@@ -286,8 +293,14 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
               .filter((u) => u.alive && u.side === unit.side && u !== unit)
               .map((u) => u.pos);
             const flank = weapon.range === 1 && isFlanking(unit.pos, target.pos, allyPositions);
+            // фланговый множитель: у плута «в спину» — свой, острее общего
+            const flankMult = flank ? unit.passives?.sneak?.flankMult ?? 1.5 : 1;
             const raw = rollDamage(
-              weapon.dmg * rageDmgMult(unit) * attackMult(action) * (flank ? 1.5 : 1),
+              weapon.dmg *
+                rageDmgMult(unit) *
+                shadowMult(unit, unit.pos, units, blocked) *
+                attackMult(action) *
+                flankMult,
               rng,
             );
             // каменное укрытие цели не складывается с прикрытием — берётся максимум
@@ -315,6 +328,14 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             if (target.hp === 0) {
               target.alive = false;
               events.push({ t: 'die', unit: target.id });
+            } else if (unit.passives?.markOnHit && !target.tags.includes('marked')) {
+              // охотник метит добычу самим ударом: одна метка на стороне цели,
+              // прежняя снимается — стая идёт за охотником
+              for (const u of units) {
+                if (u.side === target.side) u.tags = u.tags.filter((t) => t !== 'marked');
+              }
+              target.tags.push('marked');
+              events.push({ t: 'mark', unit: unit.id, target: target.id });
             }
           }
         } else if (action === 'shove' && targetId) {
@@ -380,10 +401,26 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             unit.raged = true;
             events.push({ t: 'rage', unit: unit.id });
           }
+        } else if (action === 'wall') {
+          // стена: прикрытие себе и всем смежным союзникам; снимается у
+          // каждого в начале ЕГО хода — та же жизнь, что у щита одному
+          if (wallReady(unit)) {
+            unit.wallUses = (unit.wallUses ?? 0) + 1;
+            unit.coverLevel = Math.max(unit.coverLevel, COVER);
+            events.push({ t: 'cover', unit: unit.id, level: unit.coverLevel });
+            for (const a of units) {
+              if (a.alive && a !== unit && a.side === unit.side && dist(a.pos, unit.pos) <= 1) {
+                a.coverLevel = Math.max(a.coverLevel, COVER);
+                events.push({ t: 'cover', unit: unit.id, level: a.coverLevel, ally: a.id });
+              }
+            }
+          }
         } else if (action === 'shieldAlly' && targetId) {
           const ally = units.find((u) => u.id === targetId)!;
           if (ally.alive) {
-            ally.coverLevel = Math.max(ally.coverLevel, coverLevelOf(action));
+            // щитоносец («стена щита») кроет союзника сильнее общего уровня
+            const level = unit.passives?.shieldwall?.cover ?? coverLevelOf(action);
+            ally.coverLevel = Math.max(ally.coverLevel, level);
             events.push({ t: 'cover', unit: unit.id, level: ally.coverLevel, ally: ally.id });
           }
         } else if (coverLevelOf(action) > 0) {

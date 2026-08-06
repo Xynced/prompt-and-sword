@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { describeActive, describeWeapons, understandingCard } from '../cards.js';
+import { describeActive, describePassives, describeWeapons, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -318,7 +318,8 @@ function abilityLine(archetypeId: string): string {
   // оружие видно всегда, даже до слова «накрыть скопление»: слово берут
   // осознанно, зная, есть ли в партии кому им махать
   const act = arch.active ? ` · актив: ${describeActive(arch.active)}` : '';
-  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${act}`;
+  const pas = arch.passives ? ` · ${describePassives(arch.passives)}` : '';
+  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${act}${pas}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {
@@ -634,6 +635,9 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       }
       case 'rage':
         pending?.parts.push('впадает в ярость');
+        break;
+      case 'mark':
+        pending?.parts.push(`метит ${nm(e.target)}`);
         break;
       case 'cover':
         pending?.parts.push(

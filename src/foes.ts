@@ -1,6 +1,6 @@
 import type { Rule } from './ir.js';
 import type { UnitSpec } from './battle.js';
-import { describeActive, describeAoe, describeWeapons } from './cards.js';
+import { describeActive, describeAoe, describePassives, describeWeapons } from './cards.js';
 import { applyLens } from './lens.js';
 
 /** Фабрики врагов. Новый враг = новый набор правил, не новый арт. */
@@ -18,6 +18,7 @@ export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: str
     if (s.weapons?.length) lines.push(`оружие: ${describeWeapons(s.weapons)}`);
     else if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
     if (s.active) lines.push(`актив: ${describeActive(s.active)}`);
+    if (s.passives) lines.push(`пассив: ${describePassives(s.passives)}`);
     return { name: s.name, lines };
   });
 }
