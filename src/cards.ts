@@ -1,5 +1,5 @@
 import type { Condition, Preference, Rule } from './ir.js';
-import { LENS_RU, applyLens } from './lens.js';
+import { applyLens } from './lens.js';
 import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponSpec } from './types.js';
 
 /**
@@ -192,13 +192,21 @@ export function describePassives(p: PassiveSpec): string {
 }
 
 /** Помечена ли строка искажением линзы (по аннотации source). */
-const LENS_MARK_RE = new RegExp(`\\((?:${Object.values(LENS_RU).join('|')}):`);
-
 function lensMark(rule: Rule): string {
-  if (LENS_MARK_RE.test(rule.source)) return ' ⚠ понял по-своему';
-  if (rule.source.startsWith('инстинкт')) return ' ⚠ инстинкт';
+  if (rule.marks?.some((m) => m.kind !== 'instinct')) return ' ⚠ понял по-своему';
+  if (rule.marks?.some((m) => m.kind === 'instinct')) return ' ⚠ инстинкт';
   if (rule.source.startsWith('способность')) return ' · способность';
   return '';
+}
+
+/**
+ * Механический перевод одного правила ПОСЛЕ линз — фактическое поведение.
+ * Для интела врагов: source искажённого правила больше не описывает то, что
+ * юнит будет делать, — переводим само правило.
+ */
+export function ruleRu(r: Rule, names: Record<string, string> = {}): string {
+  const nm = (id: string): string => names[id] ?? id;
+  return `${condRu(r.when, nm)}${prefRu(r.then, nm)}`;
 }
 
 /**

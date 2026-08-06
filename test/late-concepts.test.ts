@@ -94,7 +94,7 @@ describe('линзы и поздний словарь', () => {
   it('трус: «приманка» = просто отойти', () => {
     const c = applyLens(['coward'], [rule({ kind: 'bait' })]);
     expect(c.rules[0]!.then).toEqual({ kind: 'retreat' });
-    expect(c.rules[0]!.source).toContain('трус');
+    expect(c.rules[0]!.marks).toEqual([{ lens: 'coward', kind: 'reword', from: { kind: 'bait' } }]);
   });
 
   it('трус: размен и фланг — неохотно (штраф веса)', () => {
@@ -107,20 +107,20 @@ describe('линзы и поздний словарь', () => {
     const c = applyLens(['fanatic'], [rule({ kind: 'coverRetreat' }), rule({ kind: 'avoidLineOfFire' })]);
     expect(c.rules[0]!.then).toEqual({ kind: 'attack', target: 'nearest' });
     expect(c.rules[1]!.then).toEqual({ kind: 'attack', target: 'nearest' });
-    for (const r of c.rules) expect(r.source).toContain('фанатик');
+    for (const r of c.rules) expect(r.marks?.[0]).toMatchObject({ lens: 'fanatic', kind: 'reword' });
   });
 
   it('трус: «держать дистанцию» исполняет рьяно (буст веса)', () => {
     const c = applyLens(['coward'], [rule({ kind: 'standoff' }, 2)]);
     expect(c.rules[0]!.then).toEqual({ kind: 'standoff' });
     expect(c.rules[0]!.weight).toBeCloseTo(2.6);
-    expect(c.rules[0]!.source).toContain('трус');
+    expect(c.rules[0]!.marks).toEqual([{ lens: 'coward', kind: 'reweight', mult: 1.3 }]);
   });
 
   it('фанатик: «держать дистанцию» превращается в атаку ближайшего', () => {
     const c = applyLens(['fanatic'], [rule({ kind: 'standoff' })]);
     expect(c.rules[0]!.then).toEqual({ kind: 'attack', target: 'nearest' });
-    expect(c.rules[0]!.source).toContain('фанатик');
+    expect(c.rules[0]!.marks).toEqual([{ lens: 'fanatic', kind: 'reword', from: { kind: 'standoff' } }]);
   });
 
   it('буквалист: «держать дистанцию» не искажает', () => {

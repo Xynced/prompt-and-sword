@@ -39,16 +39,20 @@ describe('линза: plain', () => {
 });
 
 describe('линза: трус', () => {
-  it('«прикрывать» превращается в «стоять позади»', () => {
+  it('«прикрывать» превращается в «стоять позади», source остаётся словами игрока', () => {
     const c = applyLens(['coward'], [protect()]);
     const r = c.rules[0]!;
     expect(r.then).toEqual({ kind: 'behind', ref: { type: 'ally', id: 'mage' } });
-    expect(r.source).toContain('трус');
+    expect(r.source).toBe('прикрывай мага');
+    expect(r.marks).toEqual([
+      { lens: 'coward', kind: 'reword', from: { kind: 'protect', ally: 'mage' } },
+    ]);
   });
 
   it('атакующие правила получают штраф веса', () => {
     const c = applyLens(['coward'], [attack(2)]);
     expect(c.rules[0]!.weight).toBeCloseTo(1.4);
+    expect(c.rules[0]!.marks).toEqual([{ lens: 'coward', kind: 'reweight', mult: 0.7 }]);
   });
 
   it('добавляется правило бегства при hp<30%', () => {
@@ -56,6 +60,7 @@ describe('линза: трус', () => {
     const flee = c.rules.find((r) => r.then.kind === 'retreat')!;
     expect(flee.when).toEqual({ kind: 'hpBelow', who: 'self', frac: 0.3 });
     expect(flee.weight).toBe(100);
+    expect(flee.marks).toEqual([{ lens: 'coward', kind: 'instinct' }]);
   });
 
   it('инстинкты: самосохранение выше, агрессия ниже', () => {
@@ -71,7 +76,8 @@ describe('линза: фанатик', () => {
     const r = c.rules[0]!;
     expect(r.then).toEqual({ kind: 'attack', target: 'nearest' });
     expect(r.when).toEqual(retreat().when); // условие сохраняется
-    expect(r.source).toContain('фанатик');
+    expect(r.source).toBe('ранен — отходи');
+    expect(r.marks).toEqual([{ lens: 'fanatic', kind: 'reword', from: { kind: 'retreat' } }]);
   });
 
   it('игнорирует зоны контроля, агрессия выше', () => {
@@ -96,7 +102,7 @@ describe('линза: мститель', () => {
     const c = applyLens(['avenger'], [attack()]);
     const r = c.rules.find((x) => x.then.kind === 'attack' && x.then.target === 'attacker')!;
     expect(r.weight).toBe(2.5);
-    expect(r.source).toContain('инстинкт мстителя');
+    expect(r.marks).toEqual([{ lens: 'avenger', kind: 'instinct' }]);
     expect(c.instincts.aggression).toBeGreaterThan(1);
   });
 });
@@ -112,7 +118,9 @@ describe('линза: дуэлянт', () => {
     };
     const c = applyLens(['duelist'], [weakest]);
     expect(c.rules[0]!.then).toEqual({ kind: 'attack', target: 'mostDangerous' });
-    expect(c.rules[0]!.source).toContain('дуэлянт');
+    expect(c.rules[0]!.marks).toEqual([
+      { lens: 'duelist', kind: 'reword', from: { kind: 'attack', target: 'weakest' } },
+    ]);
   });
 
   it('«фланг» → «атакуй в лоб»', () => {
@@ -132,7 +140,9 @@ describe('линза: славолюб', () => {
   it('любая атака перенацеливается на вожака', () => {
     const c = applyLens(['gloryhound'], [attack()]);
     expect(c.rules[0]!.then).toEqual({ kind: 'attack', target: 'leader' });
-    expect(c.rules[0]!.source).toContain('славолюб');
+    expect(c.rules[0]!.marks).toEqual([
+      { lens: 'gloryhound', kind: 'reword', from: { kind: 'attack', target: 'nearest' } },
+    ]);
   });
 
   it('атака вожака не помечается', () => {
@@ -153,7 +163,7 @@ describe('линза: наседка', () => {
     const c = applyLens(['guardian'], [protect()]);
     expect(c.rules[0]!.weight).toBeCloseTo(2.8);
     const cover = c.rules.find((x) => x.then.kind === 'coverRetreat')!;
-    expect(cover.source).toContain('инстинкт наседки');
+    expect(cover.marks).toEqual([{ lens: 'guardian', kind: 'instinct' }]);
     expect(c.instincts.survival).toBeGreaterThan(1);
     expect(c.instincts.aggression).toBeLessThan(1);
   });
@@ -163,7 +173,7 @@ describe('линза: параноик', () => {
   it('добавляет «вне линии огня», самосохранение выше', () => {
     const c = applyLens(['paranoid'], [attack()]);
     const r = c.rules.find((x) => x.then.kind === 'avoidLineOfFire')!;
-    expect(r.source).toContain('инстинкт параноика');
+    expect(r.marks).toEqual([{ lens: 'paranoid', kind: 'instinct' }]);
     expect(c.instincts.survival).toBeGreaterThan(1);
   });
 });
@@ -204,7 +214,7 @@ describe('линза: позёр', () => {
     const c = applyLens(['showman'], [flank]);
     expect(c.rules[0]!.weight).toBeCloseTo(3);
     const bait = c.rules.find((x) => x.then.kind === 'bait')!;
-    expect(bait.source).toContain('инстинкт позёра');
+    expect(bait.marks).toEqual([{ lens: 'showman', kind: 'instinct' }]);
   });
 });
 
@@ -221,7 +231,9 @@ describe('линзы и активы (план классов, шаг 4)', () =>
     const c = applyLens(['fanatic'], [rageWhenDrags()]);
     expect(c.rules[0]!.when).toEqual({ kind: 'always' });
     expect(c.rules[0]!.then).toEqual({ kind: 'rage' });
-    expect(c.rules[0]!.source).toContain('фанатик: ярость не ждёт повода');
+    expect(c.rules[0]!.marks).toEqual([
+      { lens: 'fanatic', kind: 'recondition', from: { kind: 'battleDrags' } },
+    ]);
   });
 
   it('трус в ярость не впадает — уходит в глухую оборону', () => {
@@ -229,7 +241,7 @@ describe('линзы и активы (план классов, шаг 4)', () =>
     const r = c.rules.find((x) => x.source.includes('способность: Ярость'))!;
     expect(r.then).toEqual({ kind: 'brace' });
     expect(r.when).toEqual({ kind: 'battleDrags' }); // условие трус не трогает
-    expect(r.source).toContain('трус: в ярость? лучше в глухую оборону');
+    expect(r.marks).toEqual([{ lens: 'coward', kind: 'reword', from: { kind: 'rage' } }]);
   });
 
   it('наседка тянется к стене сильнее, чем к щиту одному', () => {

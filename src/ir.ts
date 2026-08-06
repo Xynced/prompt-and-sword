@@ -1,4 +1,4 @@
-import type { CombatUnit } from './types.js';
+import type { CombatUnit, LensId } from './types.js';
 import { dist } from './grid.js';
 
 /**
@@ -103,13 +103,27 @@ export type Preference =
   | { kind: 'bless' }
   | { kind: 'feint' };
 
+/**
+ * Структурная пометка линзы: что характер сделал с правилом (план линз).
+ * Заполняется в applyLens; source остаётся чистой формулировкой игрока,
+ * а текст «как понял» строят из пометок карточка и журнал боя.
+ */
+export type LensMark =
+  | { lens: LensId; kind: 'reword'; from: Preference }
+  | { lens: LensId; kind: 'recondition'; from: Condition }
+  | { lens: LensId; kind: 'reweight'; mult: number }
+  /** Правило добавлено самой линзой, а не игроком. */
+  | { lens: LensId; kind: 'instinct' };
+
 export interface Rule {
   when: Condition;
   then: Preference;
   weight: number;
   scope: 'self';
-  /** Откуда правило (текст принципа / пометка линзы) — идёт в лог решений. */
+  /** Откуда правило (формулировка принципа) — идёт в лог решений. */
   source: string;
+  /** Следы линз; отсутствие поля = правило понято дословно. */
+  marks?: LensMark[];
 }
 
 export type CompiledPrinciple = Rule[];
