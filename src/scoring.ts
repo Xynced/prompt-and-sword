@@ -160,6 +160,21 @@ export function aoeDamage(caster: CombatUnit, mult: number, target: CombatUnit):
   );
 }
 
+/**
+ * Суммарный урон висящих зон замаха по юниту, стоящему в p. Считаются зоны
+ * ОБЕИХ сторон — friendly fire, своя зона жжёт и своих (и самого кастера).
+ * Это канал опасности для уклонения: юниты выходят из зон инстинктом, без
+ * отдельного кода — тот же приём, что с шипами.
+ */
+export function zoneDangerAt(p: Pos, units: readonly CombatUnit[], target: CombatUnit): number {
+  let dmg = 0;
+  for (const u of units) {
+    if (!u.alive || !u.pendingRitual || !u.aoe?.ritual) continue;
+    if (dist(u.pendingRitual.at, p) <= AOE_RITUAL_RADIUS) dmg += aoeDamage(u, u.aoe.ritual.mult, target);
+  }
+  return dmg;
+}
+
 /** Перемещения: у обоих `to` — новая клетка; осторожный шаг не будит опасность. */
 export const isMovement = (a: ActionKind): boolean => a === 'move' || a === 'carefulStep';
 
@@ -699,19 +714,28 @@ function scorePreference(
     case 'avoidHazard': {
       // обходить опасное: сильный штраф шагу на опасную клетку, слабый —
       // осторожному входу (слово говорит «не лезь», а не «лезь аккуратно»);
-      // стоящему на опасной клетке — премия за уход на чистую
+      // стоящему на опасной клетке — премия за уход на чистую. Зона замаха —
+      // то же опасное место, но осторожный шаг от взрыва не спасает
+      const zoned = zoneDangerAt(cand.to, units, self) > 0;
+      if (zoned) return -2.2 * w;
       if (ctx.hazardAt(cand.to)) return (cand.action === 'carefulStep' ? -1 : -2.2) * w;
-      if (ctx.hazardAt(self.pos) && isMovement(cand.action)) return 1.5 * w;
+      if (
+        (ctx.hazardAt(self.pos) || zoneDangerAt(self.pos, units, self) > 0) &&
+        isMovement(cand.action)
+      ) {
+        return 1.5 * w;
+      }
       return 0;
     }
     case 'shove': {
-      // толкать: тем ценнее, чем опаснее клетка назначения. В шипы — сильнее
-      // полного удара (гарантированный урон + сбитая позиция); на чистую
+      // толкать: тем ценнее, чем опаснее клетка назначения. В шипы или в зону
+      // замаха — сильнее полного удара (урон + сбитая позиция); на чистую
       // клетку — мелкая выгода, соперник слабого удара, а не полного
       if (cand.action !== 'shove' || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
       const dest = shoveDest(self.pos, target.pos);
-      return (ctx.hazardAt(dest) ? 3.5 : 0.8) * w;
+      const danger = ctx.hazardAt(dest) || zoneDangerAt(dest, units, target) > 0;
+      return (danger ? 3.5 : 0.8) * w;
     }
     case 'barrage': {
       // накрыть скопление: премия только от двух накрытых врагов — и растёт с
@@ -789,6 +813,14 @@ export function scoreCandidate(
       label: 'инстинкт:опасная клетка',
       value: -(HAZARD_DMG / self.maxHp) * 6 * instincts.survival,
     });
+  }
+  // зона замаха: бьёт присутствие в момент залпа, поэтому штраф — полю, а не
+  // действию «шаг»: любой кандидат, оканчивающийся в зоне, платит, и выход
+  // из зоны снимает штраф сам собой. Осторожный шаг от взрыва не спасает.
+  // Трус (survival ×2.2) разбегается, фанатик стоит — искажения бесплатно
+  const zoneDmg = zoneDangerAt(cand.to, units, self);
+  if (zoneDmg > 0) {
+    factors.push({ label: 'инстинкт:зона замаха', value: -(zoneDmg / self.maxHp) * 6 * instincts.survival });
   }
   if (!instincts.ignoreZoC && zocOf(self, units)(cand.to)) {
     factors.push({ label: 'инстинкт:зона контроля', value: -1.5 * instincts.survival });

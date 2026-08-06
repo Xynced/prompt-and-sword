@@ -2,12 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { applyLens } from '../src/lens.js';
 import {
   type Fighter,
+  decide,
   generateCandidates,
+  isAttack,
+  isMovement,
   ritualReady,
+  zoneDangerAt,
 } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
+import { dist } from '../src/grid.js';
 import { expectedDamage } from '../src/tuning.js';
-import type { AoeSpec, CombatUnit, Pos, Side } from '../src/types.js';
+import type { AoeSpec, CombatUnit, LensId, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
 
 /**
@@ -147,6 +152,18 @@ describe('ритуал в бою (гать, сид 4)', () => {
     }
   });
 
+  it('подвижные манекены выходят из зоны: первый ритуал бьёт пусто', () => {
+    const runner = (id: string, spawn: Pos): UnitSpec => ({
+      id, name: id, side: 'party', maxHp: 30, atk: 1, range: 1, speed: 1, move: 2,
+      lenses: ['plain'], rules: [], spawn,
+    });
+    const r = runBattle(4, [caster(), runner('d1', { x: 8, y: 5 }), runner('d2', { x: 9, y: 5 })]);
+    const firstFire = r.events.findIndex((e) => e.t === 'aoeCast' && e.form === 'ritual');
+    expect(firstFire).toBeGreaterThan(-1);
+    // между замахом и залпом у каждого был ход — из зоны вышли, жертв нет
+    expect(r.events[firstFire + 1]!.t).not.toBe('aoeHit');
+  });
+
   it('смерть кастера между замахом и залпом отменяет зону', () => {
     // убийца медленнее кастера (ходит после замаха), но бьёт насмерть.
     // Кастер — фанатик: не прячется в глухую защиту от соседа с топором,
@@ -167,5 +184,79 @@ describe('ритуал в бою (гать, сид 4)', () => {
     // зона умерла вместе с кастером: залпа ритуала нет
     expect(evOf(r.events, 'aoeCast').filter((c) => c.form === 'ritual').length).toBe(0);
     expect(r.winner).toBe('party');
+  });
+});
+
+describe('уклонение от зоны замаха (канал опасности)', () => {
+  // враг-кастер с висящей зоной 5×5 у (8,8): урон 16 по цели в 20 hp.
+  // Сам кастер далеко и обездвижен — угрозой в скоринге не участвует
+  const pendingCaster = (): Fighter => {
+    const c = fighter('z', 'foe', { x: 16, y: 16 }, {
+      atk: 9, move: 0, aoe: { ritual: { range: 12, mult: 3 } },
+    });
+    c.pendingRitual = { at: { x: 8, y: 8 } };
+    return c;
+  };
+  const withLens = (f: Fighter, lenses: LensId[], rules: Rule[]): Fighter => {
+    f.compiled = applyLens(lenses, rules);
+    return f;
+  };
+  const atkRule = [rule({ kind: 'attack', target: 'nearest' })];
+
+  it('канал видит зону: урон суммируется по накрытым клеткам, вне зоны — ноль', () => {
+    const caster = pendingCaster();
+    const target = fighter('t', 'party', { x: 8, y: 8 });
+    expect(zoneDangerAt({ x: 8, y: 8 }, [caster, target], target)).toBe(16);
+    expect(zoneDangerAt({ x: 10, y: 10 }, [caster, target], target)).toBe(16); // край зоны
+    expect(zoneDangerAt({ x: 11, y: 8 }, [caster, target], target)).toBe(0);
+  });
+
+  it('юнит без правил выходит из зоны между замахом и залпом', () => {
+    const caster = pendingCaster();
+    const subject = fighter('s', 'party', { x: 8, y: 8 });
+    const d = decide(subject, [subject, caster]);
+    expect(isMovement(d.chosen.action)).toBe(true);
+    expect(dist(d.chosen.to, { x: 8, y: 8 })).toBeGreaterThan(2);
+  });
+
+  it('трус бросает цель и выходит; фанатик остаётся бить', () => {
+    const caster = pendingCaster();
+    const prey = fighter('g', 'foe', { x: 8, y: 7 }, { move: 0 });
+
+    const coward = withLens(fighter('cw', 'party', { x: 8, y: 8 }), ['coward'], atkRule);
+    const dc = decide(coward, [coward, prey, caster]);
+    expect(isMovement(dc.chosen.action)).toBe(true);
+    expect(dist(dc.chosen.to, { x: 8, y: 8 })).toBeGreaterThan(2);
+
+    const fanatic = withLens(fighter('fn', 'party', { x: 8, y: 8 }), ['fanatic'], atkRule);
+    const df = decide(fanatic, [fanatic, prey, caster]);
+    expect(isAttack(df.chosen.action)).toBe(true);
+    expect(df.chosen.targetId).toBe('g');
+  });
+
+  it('слово «обходить опасное» уводит из зоны даже ради удара; без слова — бьёт', () => {
+    const caster = pendingCaster();
+    const prey = fighter('g', 'foe', { x: 8, y: 7 }, { move: 0 });
+
+    const плотный = fighter('p', 'party', { x: 8, y: 8 }, {}, atkRule);
+    expect(isAttack(decide(плотный, [плотный, prey, caster]).chosen.action)).toBe(true);
+
+    const осторожный = fighter('o', 'party', { x: 8, y: 8 }, {}, [...atkRule, rule({ kind: 'avoidHazard' })]);
+    const d = decide(осторожный, [осторожный, prey, caster]);
+    expect(isMovement(d.chosen.action)).toBe(true);
+    expect(dist(d.chosen.to, { x: 8, y: 8 })).toBeGreaterThan(2);
+  });
+
+  it('толчок в зону замаха обыгрывает атаку — комбо с союзным ритуалом', () => {
+    // союзник замахнулся у (8,4); толкнуть врага с (8,7) на (8,6) — в зону
+    const allyCaster = fighter('z', 'party', { x: 2, y: 2 }, {
+      atk: 9, move: 0, aoe: { ritual: { range: 12, mult: 3 } },
+    });
+    allyCaster.pendingRitual = { at: { x: 8, y: 4 } };
+    const pusher = fighter('s', 'party', { x: 8, y: 8 }, {}, [...atkRule, rule({ kind: 'shove' })]);
+    const enemy = fighter('e', 'foe', { x: 8, y: 7 }, { move: 0 });
+    const d = decide(pusher, [pusher, enemy, allyCaster]);
+    expect(d.chosen.action).toBe('shove');
+    expect(d.chosen.targetId).toBe('e');
   });
 });
