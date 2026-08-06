@@ -103,8 +103,9 @@ export function shaman(behindId: string): UnitSpec {
     speed: 5,
     move: 1,
     lenses: ['plain'],
-    // носитель залпа (план АОЕ): взрыв 3×3 — первая причина держать интервал
-    aoe: { blast: { range: 4, mult: 0.75 } },
+    // носитель АОЕ: залп 3×3 — первая причина держать интервал; ритуал 5×5
+    // с перезарядкой 3 — телеграфированный, из него выходят или прикрываются
+    aoe: { blast: { range: 4, mult: 0.75 }, ritual: { range: 4, mult: 1.2, cooldown: 3 } },
     rules: [
       rule({
         when: { kind: 'always' },
@@ -174,6 +175,9 @@ export function warlord(): UnitSpec {
     move: 2,
     tags: ['leader'],
     lenses: ['fanatic'],
+    // ритуал «дыхание орды»: рейд-механика финала — замах виден за ход, из
+    // зоны выходят, медленные прикрываются; перезарядка 3 задаёт ритм боя
+    aoe: { ritual: { range: 4, mult: 1.2, cooldown: 3 } },
     rules: [
       rule({
         when: { kind: 'always' },
@@ -182,6 +186,7 @@ export function warlord(): UnitSpec {
         source: 'вождь орды: ломать самых опасных',
       }),
       rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 1.5, source: 'вождь орды: крови не жалеть' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'barrage' }, weight: 1.5, source: 'вождь орды: дыхание орды' }),
     ],
   };
 }

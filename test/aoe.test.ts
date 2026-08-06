@@ -169,7 +169,8 @@ describe('залп в бою (гать, сид 4)', () => {
     const specs = [
       dummy('d1', 'party', { x: 8, y: 5 }, 6),
       dummy('d2', 'party', { x: 9, y: 5 }, 6),
-      { ...shaman('nobody'), spawn: { x: 8, y: 8 } },
+      // ритуал отрезан: здесь проверяется именно залп (ритуал — ritual.test.ts)
+      { ...shaman('nobody'), aoe: { blast: { range: 4, mult: 0.75 } }, spawn: { x: 8, y: 8 } },
     ];
     const r = runBattle(4, specs);
     expect(r.terrain.name).toBe('гать');

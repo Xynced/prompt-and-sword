@@ -582,8 +582,17 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending?.parts.push(`толкает ${nm(e.target)} в ${cellName(e.to.x, e.to.y)}`);
         break;
       }
+      case 'telegraph':
+        pending?.parts.push(`начинает замах: накроет 5×5 у ${cellName(e.at.x, e.at.y)}`);
+        break;
       case 'aoeCast':
-        pending?.parts.push(`накрывает залпом ${cellName(e.at.x, e.at.y)}`);
+        if (e.form === 'ritual') {
+          // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр
+          flush();
+          pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`] };
+        } else {
+          pending?.parts.push(`накрывает залпом ${cellName(e.at.x, e.at.y)}`);
+        }
         break;
       case 'aoeHit': {
         const u = units.get(e.unit)!;

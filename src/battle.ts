@@ -9,9 +9,11 @@ import {
   type ActionKind,
   type Decision,
   type Fighter,
+  AOE_RITUAL_RADIUS,
   aoeDamage,
   aoeVictims,
   apCostFor,
+  ritualReady,
   attackMult,
   coverLevelOf,
   decide,
@@ -59,8 +61,10 @@ export type BattleEvent =
   | { t: 'move'; unit: string; from: Pos; to: Pos }
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
-  | { t: 'aoeCast'; unit: string; form: 'blast'; at: Pos }
+  | { t: 'aoeCast'; unit: string; form: 'blast' | 'ritual'; at: Pos }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
+  /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
+  | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
   | {
       t: 'attack';
       unit: string;
@@ -172,6 +176,33 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
 
     for (const unit of order) {
       if (!unit.alive) continue;
+
+      // висящая зона ритуала бьёт в начале хода кастера — ДО сброса прикрытий:
+      // «не могу выйти — прикрываюсь» работает, прикрытия жертв ещё активны.
+      // Смерть кастера отменяет зону сама собой: мёртвый хода не получает
+      if (unit.pendingRitual) {
+        const { at } = unit.pendingRitual;
+        unit.pendingRitual = undefined;
+        const mult = unit.aoe?.ritual?.mult ?? 1;
+        events.push({ t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at } });
+        for (const v of aoeVictims(at, units, AOE_RITUAL_RADIUS)) {
+          const dmg = aoeDamage(unit, mult, v);
+          v.hp = Math.max(0, v.hp - dmg);
+          v.lastAttackerId = unit.id;
+          events.push({ t: 'aoeHit', unit: v.id, by: unit.id, dmg, hp: v.hp });
+          if (v.hp === 0) {
+            v.alive = false;
+            events.push({ t: 'die', unit: v.id });
+          }
+        }
+        const w = winnerOf(units);
+        if (w) {
+          events.push({ t: 'end', winner: w, rounds: round });
+          return { winner: w, rounds: round, events, units, terrain };
+        }
+        if (!unit.alive) continue; // накрыл сам себя
+      }
+
       // прикрытие и открытость держатся до своего следующего хода
       unit.coverLevel = 0;
       unit.exposed = false;
@@ -268,6 +299,23 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
                 events.push({ t: 'die', unit: target.id });
               }
             }
+          }
+        } else if (action === 'aoeRitual' && at) {
+          // замах: зона объявлена, урон — в начале следующего хода кастера.
+          // Перезарядка и лимит списываются на замахе, а не на залпе
+          const ritual = unit.aoe?.ritual;
+          if (
+            ritual &&
+            ritualReady(unit, round) &&
+            dist(unit.pos, at) <= ritual.range &&
+            hasLoS(unit.pos, at, blocked)
+          ) {
+            unit.pendingRitual = { at: { ...at } };
+            unit.lastRitualRound = round;
+            unit.ritualUses = (unit.ritualUses ?? 0) + 1;
+            // dmg — номинал по чистой цели, для телеграфии в логе и разведке
+            const nominal = Math.max(1, Math.round(expectedDamage(unit.atk) * ritual.mult));
+            events.push({ t: 'telegraph', unit: unit.id, at: { ...at }, dmg: nominal });
           }
         } else if (action === 'aoeBlast' && at) {
           // залп: фиксированный урон всем в 3×3 вокруг центра — обеим сторонам

@@ -14,6 +14,7 @@ export type ActionKind =
   | 'selflessAttack'
   | 'shove'
   | 'aoeBlast'
+  | 'aoeRitual'
   | 'cover'
   | 'fullCover'
   | 'shieldAlly'
@@ -27,6 +28,12 @@ export type ActionKind =
 export interface AoeSpec {
   /** Залп: мгновенный взрыв 3×3 вокруг центра в дальности range; урон mult × ожидаемый удар, фиксированный. */
   blast?: { range: number; mult: number };
+  /**
+   * Ритуал: телеграфированная зона 5×5 — замах весь ход (3 AP), бьёт всех,
+   * кто в зоне в начале **следующего** хода кастера; смерть кастера отменяет.
+   * cooldown — раундов между замахами; usesPerBattle — жёсткий лимит на бой.
+   */
+  ritual?: { range: number; mult: number; cooldown?: number; usesPerBattle?: number };
 }
 
 export type LensId =
@@ -66,6 +73,12 @@ export interface CombatUnit {
   lenses: LensId[];
   /** Площадное оружие носителя АОЕ; у большинства юнитов отсутствует. */
   aoe?: AoeSpec;
+  /** Висящая зона ритуала: центр 5×5; бьёт в начале следующего хода кастера. */
+  pendingRitual?: { at: Pos };
+  /** Раунд последнего замаха ритуала — перезарядка. */
+  lastRitualRound?: number;
+  /** Потраченных применений ритуала в этом бою — лимит usesPerBattle. */
+  ritualUses?: number;
   /** Кто последним нанёс мне урон — для селектора «кто атаковал меня». */
   lastAttackerId?: string;
 }

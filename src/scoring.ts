@@ -60,6 +60,8 @@ export const AP_COST: Record<ActionKind, number> = {
   selflessAttack: 2,
   shieldAlly: 2,
   fullCover: 3,
+  // замах — весь ход: зона объявлена, бьёт в начале следующего хода кастера
+  aoeRitual: 3,
   wait: 0,
 };
 
@@ -81,6 +83,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   carefulStep: 0,
   shove: 0,
   aoeBlast: 0,
+  aoeRitual: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -99,6 +102,7 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   selflessAttack: 0,
   shove: 0,
   aoeBlast: 0,
+  aoeRitual: 0,
   wait: 0,
 };
 
@@ -112,6 +116,24 @@ export function shoveDest(pusher: Pos, target: Pos): Pos {
 
 /** Радиус залпа: 3×3 вокруг центра (Чебышёв). */
 export const AOE_BLAST_RADIUS = 1;
+
+/** Радиус ритуала: 5×5 вокруг центра (Чебышёв). */
+export const AOE_RITUAL_RADIUS = 2;
+
+/** Радиус зоны по виду каста. */
+export const aoeRadius = (a: ActionKind): number => (a === 'aoeRitual' ? AOE_RITUAL_RADIUS : AOE_BLAST_RADIUS);
+
+/**
+ * Готов ли ритуал юнита в этом раунде: нет висящей зоны, перезарядка прошла,
+ * лимит применений на бой не выбран.
+ */
+export function ritualReady(u: CombatUnit, round: number): boolean {
+  const ritual = u.aoe?.ritual;
+  if (!ritual || u.pendingRitual) return false;
+  if (ritual.cooldown && u.lastRitualRound !== undefined && round - u.lastRitualRound < ritual.cooldown) return false;
+  if (ritual.usesPerBattle !== undefined && (u.ritualUses ?? 0) >= ritual.usesPerBattle) return false;
+  return true;
+}
 
 /** Живые юниты обеих сторон в зоне — friendly fire включён для всех. */
 export function aoeVictims<T extends CombatUnit>(
@@ -300,6 +322,7 @@ export function generateCandidates(
   units: readonly Fighter[],
   ctx: ScoreCtx = makeCtx(),
   ap: number = AP_PER_TURN,
+  round = 1,
 ): Candidate[] {
   const here = self.pos;
   const { blocked } = ctx;
@@ -354,31 +377,33 @@ export function generateCandidates(
     }
   }
 
-  // залп: мгновенный взрыв 3×3 вокруг центра в дальности каста. Оружие —
-  // spec.aoe (носителей единицы), гейт — правило «накрыть скопление»: инстинкты
-  // каста не знают, без слова кандидатов нет (прецедент толчка — иначе поле
-  // играло бы само). Центры — не скан поля, а окрестности врагов: только
-  // клетки, где зона накрывает хотя бы одного
-  const blast = self.aoe?.blast;
-  if (
-    blast &&
-    ap >= AP_COST.aoeBlast &&
-    allowed('aoeBlast') &&
-    self.compiled.rules.some((r) => r.then.kind === 'barrage')
-  ) {
-    const seen = new Set<string>();
-    for (const e of enemiesOf(self, units)) {
-      for (let dx = -AOE_BLAST_RADIUS; dx <= AOE_BLAST_RADIUS; dx++) {
-        for (let dy = -AOE_BLAST_RADIUS; dy <= AOE_BLAST_RADIUS; dy++) {
-          const at = { x: e.pos.x + dx, y: e.pos.y + dy };
-          const key = posKey(at);
-          if (seen.has(key)) continue;
-          seen.add(key);
-          if (!inBounds(at) || blocked(at) || dist(here, at) > blast.range) continue;
-          // до центра зоны нужна линия видимости сквозь камни (каменоломня —
-          // контр шамана); тела взрыв не заслоняют — он навесной
-          if (!hasLoS(here, at, blocked)) continue;
-          out.push({ to: here, action: 'aoeBlast', at });
+  // площадные касты: залп (мгновенный, 3×3) и ритуал (телеграф, 5×5, замах
+  // весь ход). Оружие — spec.aoe (носителей единицы), гейт — правило «накрыть
+  // скопление»: инстинкты каста не знают, без слова кандидатов нет (прецедент
+  // толчка — иначе поле играло бы само). Центры — не скан поля, а окрестности
+  // врагов: только клетки, где зона накрывает хотя бы одного
+  if (self.aoe && self.compiled.rules.some((r) => r.then.kind === 'barrage')) {
+    const forms: { action: ActionKind; form?: { range: number }; ready: boolean }[] = [
+      { action: 'aoeBlast', form: self.aoe.blast, ready: true },
+      { action: 'aoeRitual', form: self.aoe.ritual, ready: ritualReady(self, round) },
+    ];
+    for (const { action, form, ready } of forms) {
+      if (!form || !ready || ap < AP_COST[action] || !allowed(action)) continue;
+      const radius = aoeRadius(action);
+      const seen = new Set<string>();
+      for (const e of enemiesOf(self, units)) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          for (let dy = -radius; dy <= radius; dy++) {
+            const at = { x: e.pos.x + dx, y: e.pos.y + dy };
+            const key = posKey(at);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            if (!inBounds(at) || blocked(at) || dist(here, at) > form.range) continue;
+            // до центра зоны нужна линия видимости сквозь камни (каменоломня —
+            // контр шамана); тела взрыв не заслоняют — он навесной
+            if (!hasLoS(here, at, blocked)) continue;
+            out.push({ to: here, action, at });
+          }
         }
       }
     }
@@ -690,10 +715,12 @@ function scorePreference(
     }
     case 'barrage': {
       // накрыть скопление: премия только от двух накрытых врагов — и растёт с
-      // их числом. По одному залп не жмут (обычная атака выгоднее по урону):
-      // залп — ответ на кучность, а не кнопка урона
-      if (cand.action !== 'aoeBlast' || !cand.at) return 0;
-      const covered = aoeVictims(cand.at, units).filter((v) => v.side !== self.side).length;
+      // их числом. По одному касты не жмут (обычная атака выгоднее по урону):
+      // АОЕ — ответ на кучность, а не кнопка урона
+      if ((cand.action !== 'aoeBlast' && cand.action !== 'aoeRitual') || !cand.at) return 0;
+      const covered = aoeVictims(cand.at, units, aoeRadius(cand.action)).filter(
+        (v) => v.side !== self.side,
+      ).length;
       return covered >= 2 ? 1.5 * covered * w : 0;
     }
   }
@@ -730,15 +757,17 @@ export function scoreCandidate(
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
   }
 
-  // залп: та же валюта, что у агрессии, но суммой по накрытым. Свои в зоне
-  // (friendly fire) — в минус, плоским весом: это арифметика вреда своим, а не
-  // вкус характера (искажение фанатика «в замес — так в замес» — шаг линз)
-  if (cand.action === 'aoeBlast' && cand.at && self.aoe?.blast) {
-    const { mult } = self.aoe.blast;
+  // площадной каст: та же валюта, что у агрессии, но суммой по накрытым.
+  // Свои в зоне (friendly fire) — в минус, плоским весом: это арифметика
+  // вреда своим, а не вкус характера (искажение фанатика — шаг линз).
+  // Ритуал оценивается по текущим позициям: без слова упреждения кастер целит
+  // в скопление «где стоят» — зона читаема и уворачиваема, это норма
+  const aoeForm = cand.action === 'aoeBlast' ? self.aoe?.blast : cand.action === 'aoeRitual' ? self.aoe?.ritual : undefined;
+  if (aoeForm && cand.at) {
     let foes = 0;
     let own = 0;
-    for (const v of aoeVictims(cand.at, units)) {
-      const dmg = Math.min(aoeDamage(self, mult, v), v.hp);
+    for (const v of aoeVictims(cand.at, units, aoeRadius(cand.action))) {
+      const dmg = Math.min(aoeDamage(self, aoeForm.mult, v), v.hp);
       const val = (dmg / v.maxHp) * 6 + (dmg >= v.hp ? 4 : 0);
       if (v.side !== self.side) foes += val;
       else own += val;
@@ -829,7 +858,7 @@ export function decide(
     };
   }
 
-  const candidates = generateCandidates(self, units, ctx, ap);
+  const candidates = generateCandidates(self, units, ctx, ap, round);
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = scoreCandidate(cand, self, units, fired, ctx);
