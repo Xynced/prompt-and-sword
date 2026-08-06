@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
-import { foeIntel, rat, wolf } from '../src/foes.js';
+import { foeIntel, rat, slinger, wolf } from '../src/foes.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
 import type { Rule } from '../src/ir.js';
 import { posEq } from '../src/grid.js';
@@ -129,5 +129,35 @@ describe('стая: волчья охота', () => {
     expect(intel[0]!.lines).toContain('крыса: вцепиться в ближайшего');
     expect(intel[0]!.lines.some((l) => l.startsWith('оружие: зубы'))).toBe(true);
     expect(intel[1]!.lines.some((l) => l.includes('фланг ×2'))).toBe(true);
+  });
+});
+
+describe('застрельщики: кобольды-пращники', () => {
+  const slingers = () => Array.from({ length: 4 }, (_, i) => slinger(i + 1));
+
+  it('спеки: праща и нож (два оружия), из-за камней, без линзы труса', () => {
+    const k = slinger(1);
+    expect(k.weapons!.map((w) => w.name)).toEqual(['праща', 'кривой нож']);
+    expect(k.lenses).toEqual(['plain']); // трус срезан: бегун наматывал круги до ничьей
+    expect(k.rules.some((rl) => rl.then.kind === 'standoff')).toBe(true);
+    expect(k.rules.some((rl) => rl.then.kind === 'behindCover')).toBe(true);
+    expect(k.rules.some((rl) => rl.then.kind === 'attack' && rl.then.target === 'weakest')).toBe(true);
+  });
+
+  it('погонь до ничьей нет: каждый бой решается до 30-го раунда', () => {
+    for (let s = 1; s <= 20; s++) {
+      const res = runBattle(s * 17 + 3, [...partyWith([]), ...slingers()], 'late');
+      expect(res.winner).not.toBe('draw');
+    }
+  });
+
+  it('смоук: перестрелка наказывает раненую партию заметно больнее полной', () => {
+    const wounded = (): UnitSpec[] =>
+      partyWith([]).map((h) => ({ ...h, hp: Math.ceil(h.maxHp * 0.6) }));
+    const full = sweep(() => partyWith([]), slingers, 'late');
+    const hurt = sweep(wounded, slingers, 'late');
+    expect(full.hpFrac).toBeGreaterThan(0.65); // полной партии перестрелка почти бесплатна
+    expect(hurt.hpFrac).toBeLessThan(0.45); // раненая платит по-настоящему
+    expect(hurt.wins).toBeGreaterThanOrEqual(17); // но это давление, не стена
   });
 });
