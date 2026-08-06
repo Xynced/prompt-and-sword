@@ -301,19 +301,38 @@ export function aoeVictims<T extends CombatUnit>(
 }
 
 /**
+ * Действующее прикрытие цели: своё действие плюс выданное союзником — второе
+ * живо, только пока защитник жив и смежен с прикрытым. Проверка в момент
+ * чтения (как у перехвата): уведённый толчком подопечный или ушедший/павший
+ * щитоносец гасят чужое прикрытие сами собой, своё остаётся.
+ */
+export function effectiveCover(target: CombatUnit, units: readonly CombatUnit[]): number {
+  const g = target.guardedBy;
+  if (!g) return target.coverLevel;
+  const protector = units.find((u) => u.id === g.id);
+  const held = protector !== undefined && protector.alive && dist(protector.pos, target.pos) <= 1;
+  return Math.max(target.coverLevel, held ? g.level : 0);
+}
+
+/**
  * Урон площадного каста по цели: фиксированный, строго без rng (прецедент
  * шипов — новый вызов rng() сдвинул бы последовательность боя и переписал
  * фикстуры; и одно число в логе у всех накрытых читается лучше). Каменное
  * укрытие от взрыва не спасает (это не выстрел), прикрытие от действий и
  * открытость — работают.
  */
-export function aoeDamage(caster: CombatUnit, mult: number, target: CombatUnit): number {
+export function aoeDamage(
+  caster: CombatUnit,
+  mult: number,
+  target: CombatUnit,
+  units: readonly CombatUnit[] = [target],
+): number {
   return Math.max(
     1,
     Math.round(
       expectedDamage(caster.atk) *
         mult *
-        (1 - target.coverLevel) *
+        (1 - effectiveCover(target, units)) *
         (target.exposed ? SELFLESS_VULN_MULT : 1) *
         rageVulnMult(target),
     ),
@@ -362,7 +381,7 @@ export function zoneDangerAt(p: Pos, units: readonly CombatUnit[], target: Comba
   let dmg = 0;
   for (const u of units) {
     if (!u.alive || !u.pendingRitual || !u.aoe?.ritual) continue;
-    if (dist(u.pendingRitual.at, p) <= AOE_RITUAL_RADIUS) dmg += aoeDamage(u, u.aoe.ritual.mult, target);
+    if (dist(u.pendingRitual.at, p) <= AOE_RITUAL_RADIUS) dmg += aoeDamage(u, u.aoe.ritual.mult, target, units);
   }
   return dmg;
 }
@@ -723,10 +742,12 @@ export function generateCandidates(
       out.push({ to: here, action });
     }
   }
+  // щит кроет только смежного: прикрытие живёт, пока щитоносец рядом,
+  // поэтому и выдать его дальнему нельзя — сначала подойди
   if (ap >= AP_COST.shieldAlly && allowed('shieldAlly')) {
     const level = self.passives?.shieldwall?.cover ?? coverLevelOf('shieldAlly');
     for (const a of alliesOf(self, units) as Fighter[]) {
-      if (a.id !== self.id && level > a.coverLevel) {
+      if (a.id !== self.id && dist(here, a.pos) === 1 && level > effectiveCover(a, units)) {
         out.push({ to: here, action: 'shieldAlly', targetId: a.id });
       }
     }
@@ -800,7 +821,7 @@ const BLESS_RULE_BONUS = 2.5;
 const FEINT_RULE_BONUS = 3.2;
 
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
-  const risk = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel);
+  const risk = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units));
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
 }
 
@@ -813,11 +834,12 @@ function expectedAttackDamage(
   self: Fighter,
   action: ActionKind,
   target: CombatUnit,
+  units: readonly CombatUnit[],
   ctx: ScoreCtx,
   from: Pos,
   weapon: WeaponSpec = weaponsOf(self)[0]!,
 ): number {
-  const mitigation = Math.max(target.coverLevel, ctx.coverFrom(from, target.pos));
+  const mitigation = Math.max(effectiveCover(target, units), ctx.coverFrom(from, target.pos));
   return (
     expectedDamage(weapon.dmg) *
       rageDmgMult(self) *
@@ -931,7 +953,7 @@ function scorePreference(
       if (!isAttack(cand.action) || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
       const expDmg = Math.min(
-        expectedAttackDamage(self, cand.action, target, ctx, cand.to, candWeapon(self, cand)),
+        expectedAttackDamage(self, cand.action, target, units, ctx, cand.to, candWeapon(self, cand)),
         target.hp,
       );
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
@@ -1197,7 +1219,7 @@ export function scoreCandidate(
     const weapon = candWeapon(self, cand);
     const target = units.find((u) => u.id === cand.targetId)!;
     const expDmg = Math.min(
-      expectedAttackDamage(self, cand.action, target, ctx, cand.to, weapon) *
+      expectedAttackDamage(self, cand.action, target, units, ctx, cand.to, weapon) *
         shadowMult(self, cand.to, units, ctx.blocked) *
         retributionMult(self, target, units),
       target.hp,
@@ -1232,7 +1254,7 @@ export function scoreCandidate(
     let foes = 0;
     let own = 0;
     for (const v of castVictims(cand.action, cand.at, self, units, ctx.blocked)) {
-      const dmg = Math.min(aoeDamage(self, aoeForm.mult, v), v.hp);
+      const dmg = Math.min(aoeDamage(self, aoeForm.mult, v, units), v.hp);
       let val = (dmg / v.maxHp) * 6 + (dmg >= v.hp ? 4 : 0);
       // ритуал бьёт через ход: жертва у края зоны выйдет одним шагом, из
       // середины — не успеет. Глубина в зоне — ожидаемая доля попадания;
@@ -1293,7 +1315,7 @@ export function scoreCandidate(
     if (ally?.alive) {
       // щитоносец («стена щита» Грома) кроет союзника сильнее общего COVER
       const level = self.passives?.shieldwall?.cover ?? COVER;
-      const spared = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel) * level;
+      const spared = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units)) * level;
       const v = (spared / ally.maxHp) * 6 * instincts.survival;
       if (v !== 0) factors.push({ label: 'инстинкт:прикрыть своего', value: v });
     }
@@ -1304,7 +1326,7 @@ export function scoreCandidate(
     let v = 0;
     for (const a of alliesOf(self, units)) {
       if (a.id !== self.id && dist(a.pos, self.pos) > 1) continue;
-      v += (threatAt(a.pos, a as Fighter, units) * (1 - a.coverLevel) * COVER) / a.maxHp;
+      v += (threatAt(a.pos, a as Fighter, units) * (1 - effectiveCover(a, units)) * COVER) / a.maxHp;
     }
     v *= 6 * instincts.survival;
     if (v !== 0) factors.push({ label: 'инстинкт:стена', value: v });

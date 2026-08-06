@@ -19,6 +19,7 @@ import {
   attackMult,
   coverLevelOf,
   decide,
+  effectiveCover,
   heightDmgBonus,
   isAttack,
   isMovement,
@@ -222,7 +223,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
   // fire), с событием aoeHit и смертями; порядок жертв — порядок в units
   const applyAoe = (caster: Fighter, mult: number, victims: readonly Fighter[]): void => {
     for (const v of victims) {
-      const dmg = aoeDamage(caster, mult, v);
+      const dmg = aoeDamage(caster, mult, v, units);
       v.hp = Math.max(0, v.hp - dmg);
       v.lastAttackerId = caster.id;
       events.push({ t: 'aoeHit', unit: v.id, by: caster.id, dmg, hp: v.hp });
@@ -282,8 +283,10 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
         events.push({ t: 'moodShift', unit: unit.id, lens: drift.lens });
       }
 
-      // прикрытие, открытость и перехват держатся до своего следующего хода
+      // прикрытие (своё и выданное), открытость и перехват держатся до
+      // своего следующего хода
       unit.coverLevel = 0;
+      unit.guardedBy = undefined;
       unit.exposed = false;
       unit.interceptUsed = false;
 
@@ -381,7 +384,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
               rng,
             );
             // каменное укрытие цели не складывается с прикрытием — берётся максимум
-            const mitigation = Math.max(target.coverLevel, ctx.coverFrom(unit.pos, target.pos));
+            const mitigation = Math.max(effectiveCover(target, units), ctx.coverFrom(unit.pos, target.pos));
             const dmg = Math.max(
               1,
               Math.round(
@@ -501,8 +504,8 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             events.push({ t: 'cover', unit: unit.id, level: unit.coverLevel });
             for (const a of units) {
               if (a.alive && a !== unit && a.side === unit.side && dist(a.pos, unit.pos) <= 1) {
-                a.coverLevel = Math.max(a.coverLevel, COVER);
-                events.push({ t: 'cover', unit: unit.id, level: a.coverLevel, ally: a.id });
+                if (COVER > (a.guardedBy?.level ?? 0)) a.guardedBy = { id: unit.id, level: COVER };
+                events.push({ t: 'cover', unit: unit.id, level: a.guardedBy!.level, ally: a.id });
               }
             }
           }
@@ -532,11 +535,12 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           }
         } else if (action === 'shieldAlly' && targetId) {
           const ally = units.find((u) => u.id === targetId)!;
-          if (ally.alive) {
+          // щит кроет только смежного; прикрытие живёт, пока щитоносец рядом
+          if (ally.alive && dist(unit.pos, ally.pos) === 1) {
             // щитоносец («стена щита») кроет союзника сильнее общего уровня
             const level = unit.passives?.shieldwall?.cover ?? coverLevelOf(action);
-            ally.coverLevel = Math.max(ally.coverLevel, level);
-            events.push({ t: 'cover', unit: unit.id, level: ally.coverLevel, ally: ally.id });
+            if (level > (ally.guardedBy?.level ?? 0)) ally.guardedBy = { id: unit.id, level };
+            events.push({ t: 'cover', unit: unit.id, level: ally.guardedBy!.level, ally: ally.id });
           }
         } else if (coverLevelOf(action) > 0) {
           unit.coverLevel = Math.max(unit.coverLevel, coverLevelOf(action));
