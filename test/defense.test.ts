@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { isFlanking } from '../src/grid.js';
-import { wolf } from '../src/foes.js';
+import { thug, wolf } from '../src/foes.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
 import type { Rule } from '../src/ir.js';
 
@@ -107,5 +107,83 @@ describe('строй ломает фланги', () => {
     }
     expect(hpGuard).toBeGreaterThan(hpNaive); // строй бережёт, а не топит
     expect(flanksGuard).toBeLessThan(flanksNaive); // потому что спины прикрыты
+  });
+});
+
+describe('перехват телохранителя', () => {
+  const protectWard = r({ when: { kind: 'always' }, then: { kind: 'protect', ally: 'ward' }, weight: 2, source: 'защищай подопечного' });
+  const scene = (guardRules: Rule[], guardLenses: UnitSpec['lenses'] = ['plain']): UnitSpec[] => [
+    // толстые тела и move 0: сцена меряет перехват, не исход
+    { id: 'ward', name: 'ward', side: 'party', maxHp: 600, atk: 5, range: 1, speed: 4, move: 0, lenses: ['plain'], rules: [atkNearest], spawn: { x: 5, y: 8 } },
+    { id: 'guard', name: 'guard', side: 'party', maxHp: 600, atk: 5, range: 1, speed: 3, move: 0, lenses: guardLenses, rules: guardRules, spawn: { x: 5, y: 7 } },
+    { id: 'foe1', name: 'foe1', side: 'foe', maxHp: 600, atk: 6, range: 1, speed: 7, move: 0, lenses: ['plain'], rules: [atkNearest], spawn: { x: 6, y: 9 } },
+  ];
+  const firstRound = (events: readonly BattleEvent[]): BattleEvent[] => {
+    const out: BattleEvent[] = [];
+    let round = 0;
+    for (const e of events) {
+      if (e.t === 'round') round = e.n;
+      if (round === 1) out.push(e);
+    }
+    return out;
+  };
+
+  it('страж со сработавшим «защищать» принимает первый удар; второй в том же раунде проходит', () => {
+    const res = runBattle(5, scene([protectWard]));
+    const r1 = firstRound(res.events);
+    const foeHits = r1.filter((e): e is Extract<BattleEvent, { t: 'attack' }> => e.t === 'attack' && e.unit === 'foe1');
+    expect(r1.some((e) => e.t === 'intercept' && e.unit === 'guard' && e.target === 'ward')).toBe(true);
+    expect(foeHits[0]!.target).toBe('guard'); // первый удар перехвачен
+    expect(foeHits.slice(1).some((e) => e.target === 'ward')).toBe(true); // перехват один в раунд
+  });
+
+  it('правило на другого подопечного не перехватывает', () => {
+    const other = r({ when: { kind: 'always' }, then: { kind: 'protect', ally: 'foe-other' }, weight: 2, source: 'защищай другого' });
+    const res = runBattle(5, scene([other, atkNearest]));
+    expect(res.events.some((e) => e.t === 'intercept')).toBe(false);
+  });
+
+  it('несработавшее условие — нет перехвата', () => {
+    const gated = r({ when: { kind: 'hpBelow', who: 'self', frac: 0.01 }, then: { kind: 'protect', ally: 'ward' }, weight: 2, source: 'защищай при смерти' });
+    const res = runBattle(5, scene([gated, atkNearest]));
+    expect(res.events.some((e) => e.t === 'intercept')).toBe(false);
+  });
+
+  it('трус телохранителем не работает: линза превращает «защищать» в «стоять позади»', () => {
+    const res = runBattle(5, scene([protectWard, atkNearest], ['coward']));
+    expect(res.events.some((e) => e.t === 'intercept')).toBe(false);
+  });
+
+  it('смоук: связка «прикрывай Лию» + «Лия в строю» бьёт засаду; охранять бегающую нельзя', () => {
+    const ambush = () => [thug(), wolf(1), wolf(2)];
+    const naive = () => [
+      hero('grom', 0, [atkNearest]),
+      hero('lia', 1, [atkNearest]),
+      hero('zhalo', 2, [atkNearest]),
+    ];
+    // двусторонняя дисциплина: страж прикрывает, подопечный держится рядом —
+    // односторонняя нянька (Гром бегает за Лией) так и остаётся ловушкой темпа
+    const pair = () => [
+      hero('grom', 0, [atkNearest, r({ when: { kind: 'always' }, then: { kind: 'protect', ally: 'lia' }, weight: 1.5, source: 'прикрывай Лию' })]),
+      hero('lia', 1, [atkNearest, r({ when: { kind: 'always' }, then: { kind: 'behind', ref: { type: 'ally', id: 'grom' } }, weight: 1.5, source: 'держись за Громом' })]),
+      hero('zhalo', 2, [atkNearest]),
+    ];
+    let hpNaive = 0;
+    let hpPair = 0;
+    let intercepts = 0;
+    for (let s = 1; s <= 20; s++) {
+      const seed = s * 17 + 3;
+      const n = runBattle(seed, [...naive(), ...ambush()], 'late');
+      const g = runBattle(seed, [...pair(), ...ambush()], 'late');
+      const frac = (res: typeof n): number => {
+        const pu = res.units.filter((u) => u.side === 'party');
+        return pu.reduce((a, u) => a + (u.alive ? u.hp : 0), 0) / pu.reduce((a, u) => a + u.maxHp, 0);
+      };
+      hpNaive += frac(n);
+      hpPair += frac(g);
+      intercepts += g.events.filter((e) => e.t === 'intercept').length;
+    }
+    expect(intercepts).toBeGreaterThanOrEqual(8); // телохранитель реально ловит удары
+    expect(hpPair).toBeGreaterThan(hpNaive); // связка бережёт против охоты на тыл
   });
 });

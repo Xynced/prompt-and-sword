@@ -665,6 +665,9 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       case 'feint':
         pending?.parts.push(`финтит: ${nm(e.target)} открыт`);
         break;
+      case 'intercept':
+        pending?.parts.push(`${nm(e.unit)} принимает удар, предназначенный ${nm(e.target)}`);
+        break;
       case 'cover':
         pending?.parts.push(
           e.ally

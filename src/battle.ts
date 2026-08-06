@@ -1,7 +1,7 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { AP_PER_TURN, COVER, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
-import type { Rule } from './ir.js';
+import { type Rule, evalCondition } from './ir.js';
 import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
 import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, Pos, Side, WeaponSpec } from './types.js';
@@ -98,6 +98,8 @@ export type BattleEvent =
   | { t: 'bless'; unit: string; target: string; mult: number }
   /** Финт: цель открыта (входящий ×SELFLESS_VULN_MULT) до её следующего хода. */
   | { t: 'feint'; unit: string; target: string }
+  /** Перехват: телохранитель принимает удар, предназначенный подопечному. */
+  | { t: 'intercept'; unit: string; target: string }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
@@ -267,9 +269,10 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
         events.push({ t: 'regen', unit: unit.id, amount, hp: unit.hp });
       }
 
-      // прикрытие и открытость держатся до своего следующего хода
+      // прикрытие, открытость и перехват держатся до своего следующего хода
       unit.coverLevel = 0;
       unit.exposed = false;
+      unit.interceptUsed = false;
 
       // поля дистанций считаем раз на ход: за ход этого юнита никто, кроме
       // него, не двигается, поэтому кэш ctx остаётся верным для всех действий
@@ -310,13 +313,38 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           }
         } else if (isAttack(action) && targetId) {
           if (action === 'selflessAttack') unit.exposed = true;
-          const target = units.find((u) => u.id === targetId)!;
+          const aimed = units.find((u) => u.id === targetId)!;
           // урон, дальность и «стрелковость» — по оружию кандидата
           const weapon: WeaponSpec = weaponsOf(unit)[decision.chosen.weapon ?? 0]!;
           if (
-            target.alive &&
-            dist(unit.pos, target.pos) <= rangeAt(unit, heightAt(unit.pos), weapon.range)
+            aimed.alive &&
+            dist(unit.pos, aimed.pos) <= rangeAt(unit, heightAt(unit.pos), weapon.range)
           ) {
+            // перехват (план защиты): смежный телохранитель со сработавшим
+            // правилом «защищать(цель)» принимает удар на себя — раз в раунд.
+            // Линза уже решает за него: у труса protect превращается в behind,
+            // и перехватывать становится нечем
+            const guardian = units
+              .filter(
+                (g) =>
+                  g.alive &&
+                  g !== aimed &&
+                  g.side === aimed.side &&
+                  !g.interceptUsed &&
+                  dist(g.pos, aimed.pos) === 1 &&
+                  g.compiled.rules.some(
+                    (rl) =>
+                      rl.then.kind === 'protect' &&
+                      rl.then.ally === aimed.id &&
+                      evalCondition(rl.when, g, units, round),
+                  ),
+              )
+              .sort((a, b) => (a.id < b.id ? -1 : 1))[0];
+            const target = guardian ?? aimed;
+            if (guardian) {
+              guardian.interceptUsed = true;
+              events.push({ t: 'intercept', unit: guardian.id, target: aimed.id });
+            }
             const allyPositions = units
               .filter((u) => u.alive && u.side === unit.side && u !== unit)
               .map((u) => u.pos);

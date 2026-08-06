@@ -215,6 +215,9 @@ function verboseRun(setName: string, seed: number): void {
       case 'feint':
         console.log(`  ${nm(e.unit)} финтит: ${nm(e.target)} открыт`);
         break;
+      case 'intercept':
+        console.log(`  ${nm(e.unit)} принимает удар, предназначенный ${nm(e.target)}`);
+        break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);
         break;

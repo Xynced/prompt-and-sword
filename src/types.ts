@@ -189,4 +189,6 @@ export interface CombatUnit {
   blastUses?: number;
   /** Кто последним нанёс мне урон — для селектора «кто атаковал меня». */
   lastAttackerId?: string;
+  /** Телохранитель уже перехватил удар — до своего следующего хода (план защиты). */
+  interceptUsed?: boolean;
 }
