@@ -1,7 +1,7 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { describeActive, describePassives, describeWeapons, understandingCard } from '../cards.js';
+import { describeActive, describePassives, describeWeapons, driftQuip, lensQuip, understandingCard } from '../cards.js';
 import {
   type ConditionDraft,
   type PhraseDraft,
@@ -12,7 +12,7 @@ import {
 import { type ModelCall, anthropicModelCall, compileFreeText } from '../compiler/compile.js';
 import type { CompilerCache } from '../compiler/cache.js';
 import type { CompilerOutput } from '../compiler/schema.js';
-import type { Rule } from '../ir.js';
+import { BATTLE_DRAGS_ROUND, type Rule } from '../ir.js';
 import { CONCEPTS, type ConceptId } from '../vocab.js';
 import {
   type MapNode,
@@ -44,7 +44,7 @@ import { foeIntel } from '../foes.js';
 import { heroArchetype } from '../heroes.js';
 import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../playtest.js';
 import { exportBuild, importBuild } from '../share.js';
-import { LENS_RU } from '../lens.js';
+import { LENS_RU, applyLens } from '../lens.js';
 import type { LensId, Side, WeaponSpec } from '../types.js';
 
 /**
@@ -78,6 +78,8 @@ let tactician = false;
 let editorOpen = false;
 let editHero = run.heroes[0]!.id;
 let aftermathOpen = false;
+/** Реплики характеров, раскрывшиеся в текущем бою, — для разбора после боя. */
+let battleReveals: Reveal[] = [];
 /** Оверлей «свиток боя» — полный лог решений. */
 let logOpen = false;
 /** Карточка юнита (герой или враг) — по клику на фишку или имя в реестре. */
@@ -127,8 +129,20 @@ const API_KEY: string | undefined = ENV.VITE_COMPILER_API_KEY ?? ENV.VITE_ANTHRO
 const COMPILER_MODEL: string | undefined = ENV.VITE_COMPILER_MODEL;
 const COMPILER_BASE_URL: string | undefined = ENV.VITE_COMPILER_BASE_URL;
 const textMode: Record<string, boolean> = {};
-/** Свободный текст — режим по умолчанию, когда компилятор доступен; без ключа — только чипсы. */
-const inText = (heroId: string): boolean => textMode[heroId] ?? !!API_KEY;
+
+/**
+ * Debug-режим (план линз): игроку характеры не показываются — он выучивает их
+ * по бою; кнопка возвращает теги линз, подсказки, чипсы и полную карточку.
+ */
+let debugLenses = false;
+
+/**
+ * Свободный текст — режим по умолчанию, когда компилятор доступен; без ключа —
+ * только чипсы. Вне debug-режима чипсы при живом компиляторе скрыты совсем:
+ * игрок видит только свои слова и «как прочёл» (план линз).
+ */
+const inText = (heroId: string): boolean =>
+  API_KEY ? !debugLenses || (textMode[heroId] ?? true) : false;
 const heroText: Record<string, string> = {};
 const heroUncertainty: Record<string, string[]> = {};
 const compiling: Record<string, boolean> = {};
@@ -295,6 +309,12 @@ function lensTag(lenses: readonly LensId[]): string {
   return lenses.map((l) => LENS_RU[l]).join('+');
 }
 
+/** Тег линз в разметке — только в debug-режиме: характер скрыт, выучивается по бою. */
+function lensTagHtml(lenses: readonly LensId[], cls = 'r-tag'): string {
+  if (!debugLenses) return '';
+  return `<span class="${cls}${lenses.includes('fanatic') ? ' fanatic' : ''}">${lensTag(lenses)}</span>`;
+}
+
 /** Ярлык класса героя («воин», «следопыт») — рядом с именем в карточках. */
 function classTag(archetypeId: string): string {
   return `<span class="r-tag klass">${esc(heroArchetype(archetypeId).class)}</span>`;
@@ -368,6 +388,7 @@ function readingLines(h: {
     [...rules, ...heroArchetype(h.archetypeId).innate],
     names,
     heroUncertainty[h.id] ?? [],
+    debugLenses,
   ).lines;
 }
 
@@ -536,7 +557,21 @@ const CELL = 100 / GRID_W;
 
 const cellName = (x: number, y: number): string => String.fromCharCode(97 + x) + (GRID_H - y);
 
-function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
+/** Раскрытая в бою реплика характера — для колаута и разбора после боя. */
+interface Reveal {
+  unit: string;
+  name: string;
+  side: Side;
+  lens: LensId;
+  quip: string;
+}
+
+function buildFrames(
+  result: BattleResult,
+  leaderIds: Set<string>,
+  specs: readonly UnitSpec[],
+  names: Record<string, string>,
+): { frames: Frame[]; reveals: Reveal[] } {
   const units = new Map<string, FrameUnit>();
   const nm = (id: string): string => units.get(id)?.name ?? id;
   const snap = (): FrameUnit[] => [...units.values()].map((u) => ({ ...u }));
@@ -544,7 +579,54 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
   const activeZones = new Map<string, { x: number; y: number }>();
   const out: Frame[] = [];
   let round = 0;
-  let pending: { actorId: string; factors: Frame['factors']; parts: string[] } | null = null;
+  let pending: { actorId: string; factors: Frame['factors']; parts: string[]; callout?: string } | null = null;
+
+  // искажённые линзами правила по юнитам: source → правила с пометками
+  // (расщепление даёт на фразу пару правил с разными условиями); реплика
+  // раскрывается при первом срабатывании (правило вошло в топ-факторы)
+  const twistedByUnit = new Map<string, Map<string, Rule[]>>();
+  const lensesByUnit = new Map<string, readonly LensId[]>();
+  for (const s of specs) {
+    lensesByUnit.set(s.id, s.lenses);
+    const bySource = new Map<string, Rule[]>();
+    for (const r of applyLens(s.lenses, s.rules).rules) {
+      if (!r.marks?.length) continue;
+      bySource.set(r.source, [...(bySource.get(r.source) ?? []), r]);
+    }
+    if (bySource.size) twistedByUnit.set(s.id, bySource);
+  }
+  // условие правила против состояния кадра: различает честную и ситуационную
+  // половины расщеплённой фразы (у них общий source в лейбле фактора);
+  // неизвестные условия считаем истинными — реплика лучше молчания
+  const condHolds = (cond: Rule['when'], selfId: string, round: number): boolean => {
+    const all = [...units.values()];
+    const self = units.get(selfId);
+    if (!self) return true;
+    switch (cond.kind) {
+      case 'hpBelow':
+      case 'hpAbove': {
+        const u = cond.who === 'self' ? self : all.find((x) => x.id === (cond.who as { ally: string }).ally);
+        if (!u || !u.alive) return false;
+        return cond.kind === 'hpBelow' ? u.hp < cond.frac * u.maxHp : u.hp >= cond.frac * u.maxHp;
+      }
+      case 'outnumbered':
+        return (
+          all.filter((x) => x.alive && x.side !== self.side).length >
+          all.filter((x) => x.alive && x.side === self.side).length
+        );
+      case 'battleDrags':
+        return round >= BATTLE_DRAGS_ROUND;
+      default:
+        return true;
+    }
+  };
+  const revealed = new Set<string>();
+  const reveals: Reveal[] = [];
+  const reveal = (unitId: string, lens: LensId, quip: string): void => {
+    const u = units.get(unitId)!;
+    reveals.push({ unit: unitId, name: u.name, side: u.side, lens, quip });
+    if (pending && pending.callout === undefined) pending.callout = `${u.name}: «${quip}»`;
+  };
 
   const flush = (): void => {
     if (!pending) return;
@@ -556,6 +638,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       factors: pending.factors,
       units: snap(),
       zones: [...activeZones.values()].map((z) => ({ ...z })),
+      ...(pending.callout !== undefined ? { callout: pending.callout } : {}),
     });
     pending = null;
   };
@@ -579,10 +662,41 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         flush();
         round = e.n;
         break;
-      case 'decision':
+      case 'decision': {
         flush();
         pending = { actorId: e.unit, factors: e.factors, parts: [] };
+        // раскрытие характера: искажённое правило впервые вошло в топ-факторы
+        const twisted = twistedByUnit.get(e.unit);
+        for (const f of e.factors) {
+          if (!twisted || !f.label.startsWith('правило:')) continue;
+          const rs = twisted.get(f.label.slice('правило:'.length));
+          // из правил фразы говорит активная сейчас половина (поздняя — ситуационная)
+          const r = rs
+            ?.slice()
+            .reverse()
+            .find((x) => condHolds(x.when, e.unit, round));
+          const key = r && `${e.unit}:${r.source}:${JSON.stringify(r.when)}`;
+          if (!r || !key || revealed.has(key)) continue;
+          revealed.add(key);
+          // из нескольких пометок озвучиваем последнее переписывание смысла;
+          // сдвиг веса — только если смысл никто не тронул
+          const marks = r.marks!;
+          const mark = marks.filter((m) => m.kind === 'reword' || m.kind === 'recondition').at(-1) ?? marks.at(-1)!;
+          reveal(e.unit, mark.lens, lensQuip(mark, names, r));
+          break; // одна реплика на кадр
+        }
+        // достройка пропусков: ни одно правило не сработало — герой решает сам
+        if (e.firedCount === 0 && !revealed.has(`${e.unit}:gap`)) {
+          revealed.add(`${e.unit}:gap`);
+          const literalist = lensesByUnit.get(e.unit)?.includes('literalist') ?? false;
+          reveal(
+            e.unit,
+            literalist ? 'literalist' : 'plain',
+            literalist ? 'Правила на это нет. Стою и защищаюсь.' : 'Приказов на такое нет — решаю сам.',
+          );
+        }
         break;
+      }
       case 'move': {
         const u = units.get(e.unit)!;
         u.x = e.to.x;
@@ -659,6 +773,15 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending = { actorId: e.unit, factors: [], parts: [`зарастает: +${e.amount}`] };
         break;
       }
+      case 'moodShift': {
+        // сдвиг характера — свой кадр с репликой; попадает и в разбор после боя
+        flush();
+        const quip = driftQuip(e.lens);
+        const u = units.get(e.unit)!;
+        reveals.push({ unit: e.unit, name: u.name, side: u.side, lens: e.lens, quip });
+        pending = { actorId: e.unit, factors: [], parts: [`«${quip}»`], callout: `${u.name}: «${quip}»` };
+        break;
+      }
       case 'bless':
         pending?.parts.push(`благословляет ${nm(e.target)} (урон ×${e.mult})`);
         break;
@@ -719,7 +842,7 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
     }
   }
   first.units = [...spawned.values()];
-  return [first, ...out];
+  return { frames: [first, ...out], reveals };
 }
 
 function glyphOf(name: string): string {
@@ -737,7 +860,8 @@ function startBattle(): void {
   // foeSpecs — с применённой меткой: бой на экране и бой в забеге (playFight) — один бой
   const foes = foeSpecs(run);
   const leaderIds = new Set(foes.filter((f) => f.tags?.includes('leader')).map((f) => f.id));
-  battle = runBattle(battleSeed(run), [...heroSpecs(run), ...foes], arenaForNode(node));
+  const specs = [...heroSpecs(run), ...foes];
+  battle = runBattle(battleSeed(run), specs, arenaForNode(node));
   recordEvent({
     t: 'battle',
     node: node.kind,
@@ -749,7 +873,7 @@ function startBattle(): void {
   fightsAtNode++;
   rewroteSinceBattle = false;
   deployPick = null;
-  frames = buildFrames(battle, leaderIds);
+  ({ frames, reveals: battleReveals } = buildFrames(battle, leaderIds, specs, heroNames(run)));
   frameIdx = 0;
   playing = true;
   aftermathOpen = false;
@@ -815,7 +939,7 @@ function rosterHtml(compact: boolean): string {
         return `<div class="roster-row dead">
           <div class="numerals">✝</div>
           <div class="r-body"><div class="r-head"><span class="r-name">${esc(h.name)}</span>
-            <span class="r-tag">${lensTag(h.lenses)}</span>
+            ${lensTagHtml(h.lenses)}
             <span class="r-hp">пал(а)</span></div></div>
         </div>`;
       }
@@ -829,7 +953,7 @@ function rosterHtml(compact: boolean): string {
           <div class="r-head">
             <span class="r-name clickable" data-action="unit-card" data-unit="${h.id}" title="карточка юнита">${esc(h.name)}</span>
             ${classTag(h.archetypeId)}
-            <span class="r-tag ${h.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(h.lenses)}</span>
+            ${lensTagHtml(h.lenses)}
             <span class="r-hp ${low ? 'low' : ''}" data-hp="${h.id}">${hpTxt}</span>
           </div>
           <div class="orders-text" ${compact ? 'style="font-size:12.5px"' : ''}>${
@@ -1019,8 +1143,9 @@ function nodePanelHtml(): string {
         <div class="btn-row"><button class="primary" data-action="event-take">забрать</button></div>`);
     }
     if (offer.mercenary) {
-      parts.push(`<div class="desc">У костра сидит наёмник ${esc(offer.mercenary.name)}
-        [${lensTag(offer.mercenary.lenses)}] — займёт место павшего, но прежние принципы
+      parts.push(`<div class="desc">У костра сидит наёмник ${esc(offer.mercenary.name)}${
+        debugLenses ? ` [${lensTag(offer.mercenary.lenses)}]` : ''
+      } — займёт место павшего, но прежние принципы
         прочтёт по-своему.</div>
         <div class="btn-row"><button data-action="event-hire">нанять</button></div>`);
     }
@@ -1055,6 +1180,7 @@ function mapScreenHtml(): string {
         <span>словарь: <b>${run.vocab.length}</b> слов</span><span>·</span>
         <span>узел ${run.at + 1} из ${run.map.length}</span>
         <span class="spacer"></span>
+        <button class="linkish" data-action="toggle-debug">${debugLenses ? 'debug: скрыть характеры' : 'debug'}</button>
         <button class="linkish" data-action="export-journal">журнал плейтеста</button>
         <span>${
           run.resolved && run.status === 'ongoing'
@@ -1330,11 +1456,11 @@ function editorHtml(): string {
     .map((h) => {
       if (!h.alive) {
         return `<div class="eh-card dead"><div class="nm"><span>${esc(h.name)}</span>
-          <span class="ch">${lensTag(h.lenses)}</span></div>
+          ${lensTagHtml(h.lenses, 'ch')}</div>
           <div class="sub">пал(а) в бою</div></div>`;
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
-        <div class="nm"><span>${esc(h.name)}</span><span class="ch">${lensTag(h.lenses)}</span></div>
+        <div class="nm"><span>${esc(h.name)}</span>${lensTagHtml(h.lenses, 'ch')}</div>
         <div class="sub klass-line">${esc(heroArchetype(h.archetypeId).class)}</div>
         <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine({ ...h.stats, weapons: heroArchetype(h.archetypeId).weapons }, h.hp)}</div>
         <div class="sub ability">${esc(abilityLine(h.archetypeId))}</div>
@@ -1384,7 +1510,8 @@ function editorHtml(): string {
         })
         .join('');
 
-  const toggle = API_KEY
+  // вне debug чипсы при живом компиляторе скрыты — тумблер не показываем
+  const toggle = API_KEY && debugLenses
     ? `<button class="mini" data-action="toggle-text" data-hero="${eh.id}">${inTextMode ? '⬒ чипсы' : '✎ текстом'}</button>`
     : '';
   const err = editError[eh.id] ? `<div class="error">${esc(editError[eh.id]!)}</div>` : '';
@@ -1401,7 +1528,7 @@ function editorHtml(): string {
       <div class="cols">
         <div class="heroes-col">
           ${heroCards}
-          <div class="lens-hint">${eh.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>
+          ${debugLenses ? `<div class="lens-hint">${eh.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>` : ''}
         </div>
         <div class="slots-col">
           ${intentBlock}
@@ -1451,6 +1578,20 @@ function aftermathHtml(): string {
     !won && node.kind === 'lesson'
       ? `<div>это ничего не стоило: урок прощает — перепиши приказ и переиграй</div>`
       : '';
+  // разбор (план линз): только то, что реально сработало в этом бою —
+  // непроявившиеся прочтения остаются загадкой на следующий
+  const partyReveals = battleReveals.filter((r) => r.side === 'party');
+  const debrief = partyReveals.length
+    ? `<div class="a-debrief">
+        <span class="kicker">разбор — как они тебя поняли</span>
+        ${partyReveals
+          .map(
+            (r) =>
+              `<div><b>${esc(r.name)}</b> — «${esc(r.quip)}»${debugLenses ? ` <span class="why">(${LENS_RU[r.lens]})</span>` : ''}</div>`,
+          )
+          .join('')}
+      </div>`
+    : '';
   return `<div class="overlay">
     <div class="modal aftermath ${won ? '' : 'loss'}">
       <div class="a-title">${title}</div>
@@ -1461,6 +1602,7 @@ function aftermathHtml(): string {
         ${lessonLine}
         <div>перепиши одну фразу и переиграй тот же бой — в этом вся игра</div>
       </div>
+      ${debrief}
       <div class="btn-row" style="margin-top:4px">
         <button data-action="open-editor">переписать приказы</button>
         <button data-action="sparring">↻ те же кости</button>
@@ -1485,12 +1627,14 @@ function unitCardHtml(id: string): string {
   const hero = run.heroes.find((h) => h.id === id);
   if (hero) {
     const live = unitHpInBattle(id) ?? (hero.alive ? { hp: hero.hp, alive: true } : undefined);
-    const hints = hero.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('');
+    const hints = debugLenses
+      ? `<div class="lens-hint">${hero.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>`
+      : '';
     return `<div class="overlay"><div class="modal unit-card">
       <div class="head">
         <span class="title">${esc(hero.name)}</span>
         ${classTag(hero.archetypeId)}
-        <span class="r-tag ${hero.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(hero.lenses)}</span>
+        ${lensTagHtml(hero.lenses)}
         <span class="meta">${live?.alive === false || !hero.alive ? 'пал(а)' : 'наш отряд'}</span>
       </div>
       <div class="stat-line">${statLine({ ...hero.stats, weapons: heroArchetype(hero.archetypeId).weapons }, live?.hp)}</div>
@@ -1505,7 +1649,7 @@ function unitCardHtml(id: string): string {
         <span class="kicker">как прочёл</span>
         ${readNoteHtml(readingLines(hero), false)}
       </div>
-      <div class="lens-hint">${hints}</div>
+      ${hints}
       <div class="foot-row"><span class="spacer"></span><button class="primary" data-action="close-card">закрыть</button></div>
     </div></div>`;
   }
@@ -1519,7 +1663,7 @@ function unitCardHtml(id: string): string {
   return `<div class="overlay"><div class="modal unit-card">
     <div class="head">
       <span class="title">${esc(spec.name)}</span>
-      <span class="r-tag ${spec.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(spec.lenses)}</span>
+      ${lensTagHtml(spec.lenses)}
       <span class="meta">${live?.alive === false ? 'пал' : 'противник'}</span>
     </div>
     <div class="stat-line">${statLine(spec, live?.hp)}</div>
@@ -1795,6 +1939,10 @@ function bind(): void {
         }
         case 'compile-text':
           void compileHeroText(el.dataset.hero!);
+          break;
+        case 'toggle-debug':
+          debugLenses = !debugLenses;
+          render();
           break;
         case 'toggle-play':
           if (frameIdx >= frames.length - 1) {

@@ -80,27 +80,32 @@ describe('линза искажает манеру удара', () => {
     const c = applyLens(['coward'], [styleRule('strikeDesperate')]);
     const r = c.rules[0]!;
     expect(r.then.kind).toBe('strikeHard');
-    expect(r.source).toContain('трус');
+    expect(r.marks).toEqual([{ lens: 'coward', kind: 'reword', from: { kind: 'strikeDesperate' } }]);
   });
 
   it('фанатик: любая манера → «бей отчаянно»', () => {
     for (const kind of ['strikeOften', 'strikeHard'] as const) {
       const c = applyLens(['fanatic'], [styleRule(kind)]);
       expect(c.rules[0]!.then.kind).toBe('strikeDesperate');
-      expect(c.rules[0]!.source).toContain('фанатик');
+      expect(c.rules[0]!.marks).toEqual([{ lens: 'fanatic', kind: 'reword', from: { kind } }]);
     }
   });
 
-  it('горячка: «бей наверняка» → «бей часто»', () => {
+  it('горячка: «бей наверняка» расщепляется — терпение кончается, когда бой затянулся', () => {
     const c = applyLens(['hothead'], [styleRule('strikeHard')]);
-    expect(c.rules[0]!.then.kind).toBe('strikeOften');
-    expect(c.rules[0]!.source).toContain('горячка');
+    const [a, b] = c.rules;
+    expect(a!.then.kind).toBe('strikeHard'); // пока бой свеж — честно
+    expect(a!.marks).toBeUndefined();
+    expect(b!.when).toEqual({ kind: 'battleDrags' });
+    expect(b!.then.kind).toBe('strikeOften');
+    expect(b!.marks).toEqual([{ lens: 'hothead', kind: 'reword', from: { kind: 'strikeHard' } }]);
   });
 
-  it('искажение видно в карточке понимания до боя', () => {
+  it('до боя виден только факт искажения; детали манеры — в debug', () => {
     const card = understandingCard({ name: 'Гром', lenses: ['fanatic'] }, [styleRule('strikeHard')]);
-    expect(card.lines[0]).toContain('отчаянно');
-    expect(card.lines[0]).toContain('⚠');
+    expect(card.lines[0]).toBe('манера: strikeHard ⚠ понял по-своему');
+    const dbg = understandingCard({ name: 'Гром', lenses: ['fanatic'] }, [styleRule('strikeHard')], {}, [], true);
+    expect(dbg.lines[0]).toContain('отчаянно');
   });
 });
 

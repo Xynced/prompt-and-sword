@@ -1,4 +1,4 @@
-import type { CombatUnit } from './types.js';
+import type { CombatUnit, LensId } from './types.js';
 import { dist } from './grid.js';
 
 /**
@@ -58,13 +58,23 @@ export const BATTLE_DRAGS_ROUND = 5;
 export type Condition =
   | { kind: 'always' }
   | { kind: 'hpBelow'; who: 'self' | { ally: string }; frac: number }
+  /** Зеркало hpBelow — «пока цел»: для контекстных прочтений линз (план линз); слова игрока пока нет. */
+  | { kind: 'hpAbove'; who: 'self' | { ally: string }; frac: number }
   | { kind: 'outnumbered' }
   | { kind: 'allyInDanger'; ally: string }
   | { kind: 'battleDrags' }
   | { kind: 'initiativeEdge' }
   | { kind: 'allyFallen' }
   | { kind: 'surrounded' }
-  | { kind: 'underCharge' };
+  | { kind: 'underCharge' }
+  // условия-триггеры плана линз (дрейф и контекстные прочтения);
+  // слов игрока пока нет — открытие решает words-план, врагам можно сразу
+  /** Кровь уже пролилась — кто-то в бою ранен или пал (любой стороной). */
+  | { kind: 'firstBlood' }
+  /** Вожак противника пал. */
+  | { kind: 'leaderDown' }
+  /** Меня уже били в этом бою (есть последний обидчик). */
+  | { kind: 'wasHit' };
 
 /** Ссылка на позицию-якорь для пространственных предпочтений. */
 export type PosRef = { type: 'ally'; id: string } | { type: 'enemy'; sel: Selector };
@@ -103,13 +113,27 @@ export type Preference =
   | { kind: 'bless' }
   | { kind: 'feint' };
 
+/**
+ * Структурная пометка линзы: что характер сделал с правилом (план линз).
+ * Заполняется в applyLens; source остаётся чистой формулировкой игрока,
+ * а текст «как понял» строят из пометок карточка и журнал боя.
+ */
+export type LensMark =
+  | { lens: LensId; kind: 'reword'; from: Preference }
+  | { lens: LensId; kind: 'recondition'; from: Condition }
+  | { lens: LensId; kind: 'reweight'; mult: number }
+  /** Правило добавлено самой линзой, а не игроком. */
+  | { lens: LensId; kind: 'instinct' };
+
 export interface Rule {
   when: Condition;
   then: Preference;
   weight: number;
   scope: 'self';
-  /** Откуда правило (текст принципа / пометка линзы) — идёт в лог решений. */
+  /** Откуда правило (формулировка принципа) — идёт в лог решений. */
   source: string;
+  /** Следы линз; отсутствие поля = правило понято дословно. */
+  marks?: LensMark[];
 }
 
 export type CompiledPrinciple = Rule[];
@@ -140,6 +164,11 @@ export function evalCondition(
       const u = cond.who === 'self' ? self : byId(units, cond.who.ally);
       return !!u && u.alive && u.hp < cond.frac * u.maxHp;
     }
+    case 'hpAbove': {
+      // точный комплемент hpBelow: при равном frac активна ровно одна половина расщепления
+      const u = cond.who === 'self' ? self : byId(units, cond.who.ally);
+      return !!u && u.alive && u.hp >= cond.frac * u.maxHp;
+    }
     case 'outnumbered':
       return enemiesOf(self, units).length > alliesOf(self, units).length;
     case 'allyInDanger': {
@@ -164,6 +193,13 @@ export function evalCondition(
       // враги накатывают: хотя бы один дотянется до меня за свой ход
       // (два шага + дальность — та же формула, что strikeReach в скоринге)
       return enemiesOf(self, units).some((e) => dist(e.pos, self.pos) <= e.move * 2 + e.range);
+    case 'firstBlood':
+      // выводимо из состояния: кровь пролилась = у кого-то не полное hp или кто-то пал
+      return units.some((u) => !u.alive || u.hp < u.maxHp);
+    case 'leaderDown':
+      return units.some((u) => !u.alive && u.side !== self.side && u.tags?.includes('leader'));
+    case 'wasHit':
+      return self.lastAttackerId !== undefined;
   }
 }
 

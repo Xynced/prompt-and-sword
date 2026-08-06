@@ -413,6 +413,8 @@ export interface Decision {
   candidateCount: number;
   /** Сколько сработавших правил были условными (when ≠ always) — для метрик. */
   condRules: number;
+  /** Сколько правил сработало всего; 0 — решение целиком достроено инстинктами (план линз). */
+  firedCount: number;
 }
 
 const MAX_DIST = Math.max(GRID_W, GRID_H) - 1;
@@ -1345,9 +1347,11 @@ export function decide(
     return {
       chosen: { to: self.pos, action },
       score: 0,
-      factors: [{ label: 'буквалист: нет правила на ситуацию — защищаюсь', value: 0 }],
+      // имя линзы в лейбл не пишем: характеры скрыты от игрока (план линз)
+      factors: [{ label: 'нет правила на ситуацию — защищаюсь', value: 0 }],
       candidateCount: 1,
       condRules,
+      firedCount: 0,
     };
   }
 
@@ -1373,7 +1377,7 @@ export function decide(
     .slice()
     .sort((f1, f2) => Math.abs(f2.value) - Math.abs(f1.value))
     .slice(0, 3);
-  return { chosen: b.cand, score: b.score, factors: top, candidateCount: candidates.length, condRules };
+  return { chosen: b.cand, score: b.score, factors: top, candidateCount: candidates.length, condRules, firedCount: fired.length };
 }
 
 export { describePreference };

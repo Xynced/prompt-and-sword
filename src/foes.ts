@@ -1,7 +1,7 @@
 import type { Rule } from './ir.js';
 import type { Pos } from './types.js';
 import type { UnitSpec } from './battle.js';
-import { describeActive, describeAoe, describePassives, describeWeapons } from './cards.js';
+import { describeActive, describeAoe, describePassives, describeWeapons, ruleRu } from './cards.js';
 import { applyLens } from './lens.js';
 
 /** Фабрики врагов. Новый враг = новый набор правил, не новый арт. */
@@ -15,7 +15,13 @@ const rule = (r: Omit<Rule, 'scope'>): Rule => ({ ...r, scope: 'self' });
  */
 export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: string[] }[] {
   return specs.map((s) => {
-    const lines = applyLens(s.lenses, s.rules).rules.map((r) => r.source);
+    // source искажённого линзой правила описывает уже не то, что враг будет
+    // делать, — для таких строк печатаем перевод фактического поведения
+    const lines = applyLens(s.lenses, s.rules).rules.map((r) =>
+      r.marks?.some((m) => m.kind === 'reword' || m.kind === 'recondition')
+        ? `${r.source} → ${ruleRu(r)}`
+        : r.source,
+    );
     if (s.weapons?.length) lines.push(`оружие: ${describeWeapons(s.weapons)}`);
     else if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
     if (s.active) lines.push(`актив: ${describeActive(s.active)}`);

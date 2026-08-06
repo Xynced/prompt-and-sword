@@ -1,5 +1,5 @@
-import type { Condition, Preference, Rule } from './ir.js';
-import { LENS_RU, applyLens } from './lens.js';
+import type { Condition, LensMark, Preference, Rule } from './ir.js';
+import { applyLens } from './lens.js';
 import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponSpec } from './types.js';
 
 /**
@@ -32,6 +32,10 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return c.who === 'self'
         ? `если моё hp ниже ${Math.round(c.frac * 100)}% — `
         : `если hp ${nm(c.who.ally)} ниже ${Math.round(c.frac * 100)}% — `;
+    case 'hpAbove':
+      return c.who === 'self'
+        ? `пока моё hp не ниже ${Math.round(c.frac * 100)}% — `
+        : `пока hp ${nm(c.who.ally)} не ниже ${Math.round(c.frac * 100)}% — `;
     case 'outnumbered':
       return 'если врагов больше, чем нас — ';
     case 'allyInDanger':
@@ -46,6 +50,12 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если меня окружили — ';
     case 'underCharge':
       return 'если враги накатывают — ';
+    case 'firstBlood':
+      return 'если пролилась первая кровь — ';
+    case 'leaderDown':
+      return 'если вожак врага пал — ';
+    case 'wasHit':
+      return 'если меня уже били — ';
   }
 }
 
@@ -191,35 +201,157 @@ export function describePassives(p: PassiveSpec): string {
   return parts.join(' · ');
 }
 
-/** Помечена ли строка искажением линзы (по аннотации source). */
-const LENS_MARK_RE = new RegExp(`\\((?:${Object.values(LENS_RU).join('|')}):`);
-
+/** Помечена ли строка искажением линзы (по пометкам marks) — для debug-карточки. */
 function lensMark(rule: Rule): string {
-  if (LENS_MARK_RE.test(rule.source)) return ' ⚠ понял по-своему';
-  if (rule.source.startsWith('инстинкт')) return ' ⚠ инстинкт';
+  if (rule.marks?.some((m) => m.kind !== 'instinct')) return ' ⚠ понял по-своему';
+  if (rule.marks?.some((m) => m.kind === 'instinct')) return ' ⚠ инстинкт';
   if (rule.source.startsWith('способность')) return ' · способность';
   return '';
+}
+
+/**
+ * Реплика персонажа от первого лица — раскрытие искажения в журнале боя
+ * (план линз). Имя линзы не называет: игрок выводит характер сам, полные
+ * подписи — в debug. Реплика строится по последней пометке правила; rule —
+ * само сработавшее правило: по его условию различаются контекстные прочтения
+ * (расщепления одной фразы на честное и ситуационное правила).
+ */
+export function lensQuip(m: LensMark, names: Record<string, string> = {}, rule?: Rule): string {
+  const nm = (id: string): string => names[id] ?? id;
+  const from = m.kind === 'reword' ? m.from.kind : undefined;
+  switch (m.lens) {
+    case 'plain':
+      return 'Понял как написано.';
+    case 'coward':
+      if (m.kind === 'instinct') return 'Всё, с меня хватит — я отсюда.';
+      if (m.kind === 'recondition') return 'Прикрываю, прикрываю. Пока сам цел, конечно.';
+      if (m.kind === 'reweight')
+        return m.mult < 1 ? 'Нападать? Иду… но без охоты.' : 'Дистанция — это святое.';
+      if (m.kind === 'reword' && m.from.kind === 'protect')
+        return rule?.when.kind === 'hpBelow'
+          ? `Прикрывать ${nm(m.from.ally)}? Прикрывал, пока цел был. Теперь — из-за спины.`
+          : `Прикрывать ${nm(m.from.ally)}? Постою за спиной — оттуда тоже всё видно.`;
+      if (from === 'bait') return 'Приманкой пусть смелые работают. Я просто отойду.';
+      if (from === 'strikeDesperate') return 'Отчаянно не могу. В полную силу — куда ни шло.';
+      if (from === 'rage') return 'В ярость? Уж лучше в глухую оборону.';
+      break;
+    case 'fanatic':
+      if (m.kind === 'recondition') return 'Ярость не ждёт повода.';
+      if (from === 'retreat') return 'Отступать? Отступлю, когда все лягут.';
+      if (from === 'coverRetreat') return 'Отход не прикрывают — добивают!';
+      if (from === 'avoidLineOfFire') return 'Под огонь — так под огонь. Вперёд!';
+      if (from === 'standoff') return 'Моя дистанция — длина клинка.';
+      if (from === 'brace') return 'Щиты — для трусов.';
+      if (from === 'strikeOften' || from === 'strikeHard') return 'Бить — так со всей ярости!';
+      break;
+    case 'literalist':
+      return 'Правила на это нет. Стою и защищаюсь.';
+    case 'avenger':
+      return 'Кто меня ударил — тот умрёт.';
+    case 'duelist':
+      if (from === 'attack')
+        return rule?.when.kind === 'outnumbered'
+          ? 'Нас меньше. Ладно — война есть война.'
+          : 'Слабых не добиваю. Вызываю сильнейшего.';
+      if (from === 'flank') return 'В спину не бью — только лицом к лицу.';
+      break;
+    case 'gloryhound':
+      return 'Достойная цель — только вожак.';
+    case 'guardian':
+      if (m.kind === 'instinct') return 'Самый раненый из наших — за мной.';
+      if (m.kind === 'reword' && m.from.kind === 'protect')
+        return `${nm(m.from.ally)} ранен(а)? Всё. Остальное подождёт.`;
+      return 'Своих не бросаю.';
+    case 'paranoid':
+      return 'Стрелки. Везде стрелки. Я — в сторонку.';
+    case 'hothead':
+      if (from === 'strikeHard')
+        return rule?.when.kind === 'battleDrags'
+          ? 'Сколько можно возиться! Бью как бьётся.'
+          : 'Пока ты примеряешься — я уже трижды ударил.';
+      if (from === 'holdPosition') return 'Стоять на месте? Невыносимо.';
+      if (from === 'bait') return 'Приманивать? Просто нападу.';
+      if (from === 'brace') return 'Отсиживаться за щитом? Невыносимо.';
+      break;
+    case 'showman':
+      return m.kind === 'instinct' ? 'Пусть весь их строй смотрит на меня.' : 'Эффектный заход — это по мне.';
+  }
+  return 'Понял по-своему.';
+}
+
+/** Реплика эмоционального сдвига (событие moodShift) — момент, когда характер защёлкнулся. */
+export function driftQuip(lens: LensId): string {
+  switch (lens) {
+    case 'avenger':
+      return 'Они убили нашего. Дальше я слушаю только ярость.';
+    case 'coward':
+      return 'Хватит с меня. Я хочу жить.';
+    case 'hothead':
+      return 'Кровь! Наконец-то. Понеслась!';
+    case 'gloryhound':
+      return 'Вожак пал… Ради чего теперь стараться.';
+    default:
+      return 'Что-то во мне переменилось.';
+  }
+}
+
+/**
+ * Механический перевод одного правила ПОСЛЕ линз — фактическое поведение.
+ * Для интела врагов: source искажённого правила больше не описывает то, что
+ * юнит будет делать, — переводим само правило.
+ */
+export function ruleRu(r: Rule, names: Record<string, string> = {}): string {
+  const nm = (id: string): string => names[id] ?? id;
+  return `${condRu(r.when, nm)}${prefRu(r.then, nm)}`;
 }
 
 /**
  * Строит карточку понимания: сырые правила героя → линзы → текст.
  * Та же applyLens, что и в бою — карточка не может разойтись с поведением.
  * uncertainty — заметки LLM-компилятора («не знает слова X»), тоже видны до боя.
+ *
+ * Карточка-эхо (план линз): до боя виден только ФАКТ искажения — понятые
+ * дословно строки печатаются переводом, искажённые — формулировкой игрока с
+ * пометкой «понял по-своему», инстинкт-правила линз скрыты вовсе. Содержание
+ * искажений раскрывается в журнале боя. debug возвращает полную карточку.
  */
 export function understandingCard(
   hero: { name: string; lenses: LensId[] },
   rawRules: Rule[],
   names: Record<string, string> = {},
   uncertainty: readonly string[] = [],
+  debug = false,
 ): UnderstandingCard {
   const nm = (id: string): string => names[id] ?? id;
   const compiled = applyLens(hero.lenses, rawRules);
-  const lines = compiled.rules.map(
-    (r) => `${condRu(r.when, nm)}${prefRu(r.then, nm)}${lensMark(r)}`,
-  );
-  for (const u of uncertainty) lines.push(`⚠ ${u}`);
-  if (hero.lenses.includes('literalist')) {
-    lines.push('нет правила на ситуацию — стою и защищаюсь ⚠ буквалист');
+  const lines: string[] = [];
+  if (debug) {
+    for (const r of compiled.rules) lines.push(`${ruleRu(r, names)}${lensMark(r)}`);
+    for (const u of uncertainty) lines.push(`⚠ ${u}`);
+    if (hero.lenses.includes('literalist')) {
+      lines.push('нет правила на ситуацию — стою и защищаюсь ⚠ буквалист');
+    }
+    return { heroName: hero.name, lenses: hero.lenses, lines };
   }
+  // расщепление даёт из одной фразы пару правил (честное + ситуационное) —
+  // фраза с хотя бы одним искажённым правилом печатается «понял по-своему» один раз
+  const twistedSources = new Set(
+    compiled.rules
+      .filter((r) => r.marks?.length && !r.marks.some((m) => m.kind === 'instinct'))
+      .map((r) => r.source),
+  );
+  const echoed = new Set<string>();
+  for (const r of compiled.rules) {
+    if (r.marks?.some((m) => m.kind === 'instinct')) continue; // характер, не приказ
+    if (twistedSources.has(r.source)) {
+      if (!echoed.has(r.source)) {
+        echoed.add(r.source);
+        lines.push(`${r.source} ⚠ понял по-своему`);
+      }
+      continue;
+    }
+    lines.push(`${ruleRu(r, names)}${r.source.startsWith('способность') ? ' · способность' : ''}`);
+  }
+  for (const u of uncertainty) lines.push(`⚠ не понял вообще: ${u}`);
   return { heroName: hero.name, lenses: hero.lenses, lines };
 }
