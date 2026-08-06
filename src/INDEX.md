@@ -34,7 +34,7 @@
 
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
-| [heroes.ts](heroes.ts) | Пул из 16 героев — 8 классов pf2e × 2 варианта (оружие, актив, пассив, способность), сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
+| [heroes.ts](heroes.ts) | Пул из 16 героев — 8 классов pf2e × 2 варианта (класс-ярлык, оружие, актив, пассив, способность), сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
 | [foes.ts](foes.ts) | Фабрики врагов (принципы в том же IR) + разведка перед боем | `grunt`, `warChief`, `shaman`, …, `foeIntel` |
 | [run.ts](run.ts) | Забег: ветвящаяся карта 15 узлов, состояние партии, расстановка перед боем, скрипторий, события, трофеи, босс | `generateMap`, `RunState`, `foesForNode`, `arenaForNode`, `setDeploy` |
 | [sparring.ts](sparring.ts) | «Переиграть с теми же костями»: тот же seed, новые принципы, дифф исходов | `sparring`, `SparringDiff` |

@@ -230,6 +230,9 @@ button.primary:disabled:hover { background: var(--ink); }
   color: rgba(31, 27, 22, 0.65);
 }
 .r-tag.fanatic { background: var(--red); color: #f7f0e1; border-color: var(--red); }
+/* класс героя: тише линзы — рамки нет, только капитель */
+.r-tag.klass { border: none; padding: 2px 0; color: var(--ink-45); }
+.eh-card .sub.klass-line { font: 400 9px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-45); }
 .r-hp { margin-left: auto; font: 400 10px/1 var(--mono); color: var(--ink-45); white-space: nowrap; }
 .r-hp.low { color: var(--red); }
 .orders-text { font: 400 13.5px/1.4 var(--serif); }

@@ -295,6 +295,11 @@ function lensTag(lenses: readonly LensId[]): string {
   return lenses.map((l) => LENS_RU[l]).join('+');
 }
 
+/** Ярлык класса героя («воин-щитоносец») — рядом с именем в карточках. */
+function klassTag(archetypeId: string): string {
+  return `<span class="r-tag klass">${esc(heroArchetype(archetypeId).klass)}</span>`;
+}
+
 /**
  * Строка параметров юнита: hp текущее/макс, оружие (урон/дальность — на нём,
  * план классов), инициатива, шаг. Шортхенд atk/range — для юнитов без спеки
@@ -807,6 +812,7 @@ function rosterHtml(compact: boolean): string {
         <div class="r-body">
           <div class="r-head">
             <span class="r-name clickable" data-action="unit-card" data-unit="${h.id}" title="карточка юнита">${esc(h.name)}</span>
+            ${klassTag(h.archetypeId)}
             <span class="r-tag ${h.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(h.lenses)}</span>
             <span class="r-hp ${low ? 'low' : ''}" data-hp="${h.id}">${hpTxt}</span>
           </div>
@@ -1313,6 +1319,7 @@ function editorHtml(): string {
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
         <div class="nm"><span>${esc(h.name)}</span><span class="ch">${lensTag(h.lenses)}</span></div>
+        <div class="sub klass-line">${esc(heroArchetype(h.archetypeId).klass)}</div>
         <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine({ ...h.stats, weapons: heroArchetype(h.archetypeId).weapons }, h.hp)}</div>
         <div class="sub ability">${esc(abilityLine(h.archetypeId))}</div>
       </div>`;
@@ -1466,6 +1473,7 @@ function unitCardHtml(id: string): string {
     return `<div class="overlay"><div class="modal unit-card">
       <div class="head">
         <span class="title">${esc(hero.name)}</span>
+        ${klassTag(hero.archetypeId)}
         <span class="r-tag ${hero.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(hero.lenses)}</span>
         <span class="meta">${live?.alive === false || !hero.alive ? 'пал(а)' : 'наш отряд'}</span>
       </div>
