@@ -58,6 +58,8 @@ export const BATTLE_DRAGS_ROUND = 5;
 export type Condition =
   | { kind: 'always' }
   | { kind: 'hpBelow'; who: 'self' | { ally: string }; frac: number }
+  /** Зеркало hpBelow — «пока цел»: для контекстных прочтений линз (план линз); слова игрока пока нет. */
+  | { kind: 'hpAbove'; who: 'self' | { ally: string }; frac: number }
   | { kind: 'outnumbered' }
   | { kind: 'allyInDanger'; ally: string }
   | { kind: 'battleDrags' }
@@ -153,6 +155,11 @@ export function evalCondition(
     case 'hpBelow': {
       const u = cond.who === 'self' ? self : byId(units, cond.who.ally);
       return !!u && u.alive && u.hp < cond.frac * u.maxHp;
+    }
+    case 'hpAbove': {
+      // точный комплемент hpBelow: при равном frac активна ровно одна половина расщепления
+      const u = cond.who === 'self' ? self : byId(units, cond.who.ally);
+      return !!u && u.alive && u.hp >= cond.frac * u.maxHp;
     }
     case 'outnumbered':
       return enemiesOf(self, units).length > alliesOf(self, units).length;

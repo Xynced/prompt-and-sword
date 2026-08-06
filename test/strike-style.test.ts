@@ -91,10 +91,14 @@ describe('линза искажает манеру удара', () => {
     }
   });
 
-  it('горячка: «бей наверняка» → «бей часто»', () => {
+  it('горячка: «бей наверняка» расщепляется — терпение кончается, когда бой затянулся', () => {
     const c = applyLens(['hothead'], [styleRule('strikeHard')]);
-    expect(c.rules[0]!.then.kind).toBe('strikeOften');
-    expect(c.rules[0]!.marks).toEqual([{ lens: 'hothead', kind: 'reword', from: { kind: 'strikeHard' } }]);
+    const [a, b] = c.rules;
+    expect(a!.then.kind).toBe('strikeHard'); // пока бой свеж — честно
+    expect(a!.marks).toBeUndefined();
+    expect(b!.when).toEqual({ kind: 'battleDrags' });
+    expect(b!.then.kind).toBe('strikeOften');
+    expect(b!.marks).toEqual([{ lens: 'hothead', kind: 'reword', from: { kind: 'strikeHard' } }]);
   });
 
   it('до боя виден только факт искажения; детали манеры — в debug', () => {

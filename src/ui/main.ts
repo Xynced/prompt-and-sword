@@ -12,7 +12,7 @@ import {
 import { type ModelCall, anthropicModelCall, compileFreeText } from '../compiler/compile.js';
 import type { CompilerCache } from '../compiler/cache.js';
 import type { CompilerOutput } from '../compiler/schema.js';
-import type { Rule } from '../ir.js';
+import { BATTLE_DRAGS_ROUND, type Rule } from '../ir.js';
 import { CONCEPTS, type ConceptId } from '../vocab.js';
 import {
   type MapNode,
@@ -581,18 +581,45 @@ function buildFrames(
   let round = 0;
   let pending: { actorId: string; factors: Frame['factors']; parts: string[]; callout?: string } | null = null;
 
-  // искажённые линзами правила по юнитам: source → правило с пометками;
-  // реплика раскрывается при первом срабатывании (правило вошло в топ-факторы)
-  const twistedByUnit = new Map<string, Map<string, Rule>>();
+  // искажённые линзами правила по юнитам: source → правила с пометками
+  // (расщепление даёт на фразу пару правил с разными условиями); реплика
+  // раскрывается при первом срабатывании (правило вошло в топ-факторы)
+  const twistedByUnit = new Map<string, Map<string, Rule[]>>();
   const lensesByUnit = new Map<string, readonly LensId[]>();
   for (const s of specs) {
     lensesByUnit.set(s.id, s.lenses);
-    const bySource = new Map<string, Rule>();
+    const bySource = new Map<string, Rule[]>();
     for (const r of applyLens(s.lenses, s.rules).rules) {
-      if (r.marks?.length && !bySource.has(r.source)) bySource.set(r.source, r);
+      if (!r.marks?.length) continue;
+      bySource.set(r.source, [...(bySource.get(r.source) ?? []), r]);
     }
     if (bySource.size) twistedByUnit.set(s.id, bySource);
   }
+  // условие правила против состояния кадра: различает честную и ситуационную
+  // половины расщеплённой фразы (у них общий source в лейбле фактора);
+  // неизвестные условия считаем истинными — реплика лучше молчания
+  const condHolds = (cond: Rule['when'], selfId: string, round: number): boolean => {
+    const all = [...units.values()];
+    const self = units.get(selfId);
+    if (!self) return true;
+    switch (cond.kind) {
+      case 'hpBelow':
+      case 'hpAbove': {
+        const u = cond.who === 'self' ? self : all.find((x) => x.id === (cond.who as { ally: string }).ally);
+        if (!u || !u.alive) return false;
+        return cond.kind === 'hpBelow' ? u.hp < cond.frac * u.maxHp : u.hp >= cond.frac * u.maxHp;
+      }
+      case 'outnumbered':
+        return (
+          all.filter((x) => x.alive && x.side !== self.side).length >
+          all.filter((x) => x.alive && x.side === self.side).length
+        );
+      case 'battleDrags':
+        return round >= BATTLE_DRAGS_ROUND;
+      default:
+        return true;
+    }
+  };
   const revealed = new Set<string>();
   const reveals: Reveal[] = [];
   const reveal = (unitId: string, lens: LensId, quip: string): void => {
@@ -642,14 +669,20 @@ function buildFrames(
         const twisted = twistedByUnit.get(e.unit);
         for (const f of e.factors) {
           if (!twisted || !f.label.startsWith('правило:')) continue;
-          const r = twisted.get(f.label.slice('правило:'.length));
-          if (!r || revealed.has(`${e.unit}:${r.source}`)) continue;
-          revealed.add(`${e.unit}:${r.source}`);
+          const rs = twisted.get(f.label.slice('правило:'.length));
+          // из правил фразы говорит активная сейчас половина (поздняя — ситуационная)
+          const r = rs
+            ?.slice()
+            .reverse()
+            .find((x) => condHolds(x.when, e.unit, round));
+          const key = r && `${e.unit}:${r.source}:${JSON.stringify(r.when)}`;
+          if (!r || !key || revealed.has(key)) continue;
+          revealed.add(key);
           // из нескольких пометок озвучиваем последнее переписывание смысла;
           // сдвиг веса — только если смысл никто не тронул
           const marks = r.marks!;
           const mark = marks.filter((m) => m.kind === 'reword' || m.kind === 'recondition').at(-1) ?? marks.at(-1)!;
-          reveal(e.unit, mark.lens, lensQuip(mark, names));
+          reveal(e.unit, mark.lens, lensQuip(mark, names, r));
           break; // одна реплика на кадр
         }
         // достройка пропусков: ни одно правило не сработало — герой решает сам

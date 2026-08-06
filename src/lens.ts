@@ -127,56 +127,87 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
       return { rules: rules.slice(), mods: {} };
 
     case 'coward': {
-      const out: Rule[] = rules.map((r) => {
+      const out: Rule[] = rules.flatMap((r): Rule[] => {
         if (r.then.kind === 'protect') {
-          // «прикрывать» у труса = стоять ПОЗАДИ объекта
-          return {
-            ...r,
-            then: { kind: 'behind', ref: { type: 'ally', id: r.then.ally } },
-            marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
-          };
+          // контекстное прочтение: прикрывает, пока сам цел (hpAbove гасит и
+          // перехват телохранителя — потрёпанный трус бросает пост); дальше
+          // встаёт ПОЗАДИ объекта. Условные правила не расщепляем (двух
+          // условий IR не выражает) — им остаётся старая прямая замена
+          if (r.when.kind !== 'always') {
+            return [
+              {
+                ...r,
+                then: { kind: 'behind', ref: { type: 'ally', id: r.then.ally } },
+                marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
+              },
+            ];
+          }
+          return [
+            {
+              ...r,
+              when: { kind: 'hpAbove', who: 'self', frac: 0.5 },
+              marks: marked(r, { lens: 'coward', kind: 'recondition', from: r.when }),
+            },
+            {
+              ...r,
+              when: { kind: 'hpBelow', who: 'self', frac: 0.5 },
+              then: { kind: 'behind', ref: { type: 'ally', id: r.then.ally } },
+              weight: r.weight * 1.5,
+              marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
+            },
+          ];
         }
         if (r.then.kind === 'bait') {
           // «приманка» требует смелости — трус просто отходит
-          return {
-            ...r,
-            then: { kind: 'retreat' },
-            marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
-          };
+          return [
+            {
+              ...r,
+              then: { kind: 'retreat' },
+              marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
+            },
+          ];
         }
         if (r.then.kind === 'attack' || r.then.kind === 'trade' || r.then.kind === 'flank') {
           // рискованные правила получают штраф веса
-          return {
-            ...r,
-            weight: r.weight * 0.7,
-            marks: marked(r, { lens: 'coward', kind: 'reweight', mult: 0.7 }),
-          };
+          return [
+            {
+              ...r,
+              weight: r.weight * 0.7,
+              marks: marked(r, { lens: 'coward', kind: 'reweight', mult: 0.7 }),
+            },
+          ];
         }
         if (r.then.kind === 'strikeDesperate') {
           // отчаянный размен требует смелости — трус хотя бы бьёт в полную силу
-          return {
-            ...r,
-            then: { kind: 'strikeHard' },
-            marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
-          };
+          return [
+            {
+              ...r,
+              then: { kind: 'strikeHard' },
+              marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
+            },
+          ];
         }
         if (r.then.kind === 'rage') {
           // ярость — «получать больнее до конца боя»?! трус на такое не подпишется
-          return {
-            ...r,
-            then: { kind: 'brace' },
-            marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
-          };
+          return [
+            {
+              ...r,
+              then: { kind: 'brace' },
+              marks: marked(r, { lens: 'coward', kind: 'reword', from: r.then }),
+            },
+          ];
         }
         if (r.then.kind === 'standoff') {
           // держать дистанцию — трусу по сердцу: исполняет рьяно
-          return {
-            ...r,
-            weight: r.weight * 1.3,
-            marks: marked(r, { lens: 'coward', kind: 'reweight', mult: 1.3 }),
-          };
+          return [
+            {
+              ...r,
+              weight: r.weight * 1.3,
+              marks: marked(r, { lens: 'coward', kind: 'reweight', mult: 1.3 }),
+            },
+          ];
         }
-        return r;
+        return [r];
       });
       // бежит при hp<30% несмотря ни на что
       out.push({
@@ -262,24 +293,37 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
     }
 
     case 'duelist': {
-      const out: Rule[] = rules.map((r) => {
+      const out: Rule[] = rules.flatMap((r): Rule[] => {
         if (r.then.kind === 'attack' && r.then.target === 'weakest') {
-          // добивать слабых — бесчестье
-          return {
+          // добивать слабых — бесчестье… пока силы равны; в меньшинстве —
+          // война есть война: ситуационное правило перевешивает
+          const challenge: Rule = {
             ...r,
             then: { kind: 'attack', target: 'mostDangerous' },
             marks: marked(r, { lens: 'duelist', kind: 'reword', from: r.then }),
           };
+          if (r.when.kind !== 'always') return [challenge];
+          return [
+            challenge,
+            {
+              ...r,
+              when: { kind: 'outnumbered' },
+              weight: r.weight * 1.5,
+              marks: marked(r, { lens: 'duelist', kind: 'reword', from: r.then }),
+            },
+          ];
         }
         if (r.then.kind === 'flank') {
           // бить в спину — бесчестье
-          return {
-            ...r,
-            then: { kind: 'attack', target: 'nearest' },
-            marks: marked(r, { lens: 'duelist', kind: 'reword', from: r.then }),
-          };
+          return [
+            {
+              ...r,
+              then: { kind: 'attack', target: 'nearest' },
+              marks: marked(r, { lens: 'duelist', kind: 'reword', from: r.then }),
+            },
+          ];
         }
-        return r;
+        return [r];
       });
       // вполсилы не бьёт — это оскорбление противника; толкаться — недостойно;
       // бить по площади, не глядя противнику в лицо, — тем более (план АОЕ)
@@ -304,15 +348,27 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
     }
 
     case 'guardian': {
-      const out: Rule[] = rules.map((r) =>
-        r.then.kind === 'protect' || r.then.kind === 'coverRetreat'
-          ? {
+      const out: Rule[] = rules.flatMap((r): Rule[] => {
+        if (r.then.kind !== 'protect' && r.then.kind !== 'coverRetreat') return [r];
+        const boosted: Rule = {
+          ...r,
+          weight: r.weight * 1.4,
+          marks: marked(r, { lens: 'guardian', kind: 'reweight', mult: 1.4 }),
+        };
+        // контекстное прочтение: подопечного потрепали — всё остальное подождёт
+        if (r.then.kind === 'protect' && r.when.kind === 'always') {
+          return [
+            boosted,
+            {
               ...r,
-              weight: r.weight * 1.4,
-              marks: marked(r, { lens: 'guardian', kind: 'reweight', mult: 1.4 }),
-            }
-          : r,
-      );
+              when: { kind: 'hpBelow', who: { ally: r.then.ally }, frac: 0.5 },
+              weight: r.weight * 2.5,
+              marks: marked(r, { lens: 'guardian', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        return [boosted];
+      });
       out.push({
         when: { kind: 'always' },
         then: { kind: 'coverRetreat' },
@@ -352,23 +408,42 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
     }
 
     case 'hothead': {
-      const out: Rule[] = rules.map((r) =>
-        r.then.kind === 'strikeHard'
-          ? {
-              // примеряться к полному замаху — невыносимо долго
-              ...r,
-              then: { kind: 'strikeOften' },
-              marks: marked(r, { lens: 'hothead', kind: 'reword', from: r.then }),
-            }
-          : r.then.kind === 'holdPosition' || r.then.kind === 'bait' || r.then.kind === 'brace'
-            ? {
-                // стоять, приманивать, отсиживаться за щитом — невыносимо
+      const out: Rule[] = rules.flatMap((r): Rule[] => {
+        if (r.then.kind === 'strikeHard') {
+          // терпения примеряться хватает, пока бой свеж; затянулся —
+          // ситуационное правило перевешивает: бьёт часто и как попало
+          if (r.when.kind !== 'always') {
+            return [
+              {
                 ...r,
-                then: { kind: 'attack', target: 'nearest' },
+                then: { kind: 'strikeOften' },
                 marks: marked(r, { lens: 'hothead', kind: 'reword', from: r.then }),
-              }
-            : r,
-      );
+              },
+            ];
+          }
+          return [
+            r,
+            {
+              ...r,
+              when: { kind: 'battleDrags' },
+              then: { kind: 'strikeOften' },
+              weight: r.weight * 1.5,
+              marks: marked(r, { lens: 'hothead', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        if (r.then.kind === 'holdPosition' || r.then.kind === 'bait' || r.then.kind === 'brace') {
+          // стоять, приманивать, отсиживаться за щитом — невыносимо
+          return [
+            {
+              ...r,
+              then: { kind: 'attack', target: 'nearest' },
+              marks: marked(r, { lens: 'hothead', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        return [r];
+      });
       return {
         rules: out,
         mods: {

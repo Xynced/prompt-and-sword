@@ -32,6 +32,10 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return c.who === 'self'
         ? `если моё hp ниже ${Math.round(c.frac * 100)}% — `
         : `если hp ${nm(c.who.ally)} ниже ${Math.round(c.frac * 100)}% — `;
+    case 'hpAbove':
+      return c.who === 'self'
+        ? `пока моё hp не ниже ${Math.round(c.frac * 100)}% — `
+        : `пока hp ${nm(c.who.ally)} не ниже ${Math.round(c.frac * 100)}% — `;
     case 'outnumbered':
       return 'если врагов больше, чем нас — ';
     case 'allyInDanger':
@@ -202,9 +206,11 @@ function lensMark(rule: Rule): string {
 /**
  * Реплика персонажа от первого лица — раскрытие искажения в журнале боя
  * (план линз). Имя линзы не называет: игрок выводит характер сам, полные
- * подписи — в debug. Реплика строится по последней пометке правила.
+ * подписи — в debug. Реплика строится по последней пометке правила; rule —
+ * само сработавшее правило: по его условию различаются контекстные прочтения
+ * (расщепления одной фразы на честное и ситуационное правила).
  */
-export function lensQuip(m: LensMark, names: Record<string, string> = {}): string {
+export function lensQuip(m: LensMark, names: Record<string, string> = {}, rule?: Rule): string {
   const nm = (id: string): string => names[id] ?? id;
   const from = m.kind === 'reword' ? m.from.kind : undefined;
   switch (m.lens) {
@@ -212,10 +218,13 @@ export function lensQuip(m: LensMark, names: Record<string, string> = {}): strin
       return 'Понял как написано.';
     case 'coward':
       if (m.kind === 'instinct') return 'Всё, с меня хватит — я отсюда.';
+      if (m.kind === 'recondition') return 'Прикрываю, прикрываю. Пока сам цел, конечно.';
       if (m.kind === 'reweight')
         return m.mult < 1 ? 'Нападать? Иду… но без охоты.' : 'Дистанция — это святое.';
       if (m.kind === 'reword' && m.from.kind === 'protect')
-        return `Прикрывать ${nm(m.from.ally)}? Постою за спиной — оттуда тоже всё видно.`;
+        return rule?.when.kind === 'hpBelow'
+          ? `Прикрывать ${nm(m.from.ally)}? Прикрывал, пока цел был. Теперь — из-за спины.`
+          : `Прикрывать ${nm(m.from.ally)}? Постою за спиной — оттуда тоже всё видно.`;
       if (from === 'bait') return 'Приманкой пусть смелые работают. Я просто отойду.';
       if (from === 'strikeDesperate') return 'Отчаянно не могу. В полную силу — куда ни шло.';
       if (from === 'rage') return 'В ярость? Уж лучше в глухую оборону.';
@@ -234,17 +243,26 @@ export function lensQuip(m: LensMark, names: Record<string, string> = {}): strin
     case 'avenger':
       return 'Кто меня ударил — тот умрёт.';
     case 'duelist':
-      if (from === 'attack') return 'Слабых не добиваю. Вызываю сильнейшего.';
+      if (from === 'attack')
+        return rule?.when.kind === 'outnumbered'
+          ? 'Нас меньше. Ладно — война есть война.'
+          : 'Слабых не добиваю. Вызываю сильнейшего.';
       if (from === 'flank') return 'В спину не бью — только лицом к лицу.';
       break;
     case 'gloryhound':
       return 'Достойная цель — только вожак.';
     case 'guardian':
-      return m.kind === 'instinct' ? 'Самый раненый из наших — за мной.' : 'Своих не бросаю.';
+      if (m.kind === 'instinct') return 'Самый раненый из наших — за мной.';
+      if (m.kind === 'reword' && m.from.kind === 'protect')
+        return `${nm(m.from.ally)} ранен(а)? Всё. Остальное подождёт.`;
+      return 'Своих не бросаю.';
     case 'paranoid':
       return 'Стрелки. Везде стрелки. Я — в сторонку.';
     case 'hothead':
-      if (from === 'strikeHard') return 'Пока ты примеряешься — я уже трижды ударил.';
+      if (from === 'strikeHard')
+        return rule?.when.kind === 'battleDrags'
+          ? 'Сколько можно возиться! Бью как бьётся.'
+          : 'Пока ты примеряешься — я уже трижды ударил.';
       if (from === 'holdPosition') return 'Стоять на месте? Невыносимо.';
       if (from === 'bait') return 'Приманивать? Просто нападу.';
       if (from === 'brace') return 'Отсиживаться за щитом? Невыносимо.';
@@ -293,10 +311,21 @@ export function understandingCard(
     }
     return { heroName: hero.name, lenses: hero.lenses, lines };
   }
+  // расщепление даёт из одной фразы пару правил (честное + ситуационное) —
+  // фраза с хотя бы одним искажённым правилом печатается «понял по-своему» один раз
+  const twistedSources = new Set(
+    compiled.rules
+      .filter((r) => r.marks?.length && !r.marks.some((m) => m.kind === 'instinct'))
+      .map((r) => r.source),
+  );
+  const echoed = new Set<string>();
   for (const r of compiled.rules) {
     if (r.marks?.some((m) => m.kind === 'instinct')) continue; // характер, не приказ
-    if (r.marks?.length) {
-      lines.push(`${r.source} ⚠ понял по-своему`);
+    if (twistedSources.has(r.source)) {
+      if (!echoed.has(r.source)) {
+        echoed.add(r.source);
+        lines.push(`${r.source} ⚠ понял по-своему`);
+      }
       continue;
     }
     lines.push(`${ruleRu(r, names)}${r.source.startsWith('способность') ? ' · способность' : ''}`);

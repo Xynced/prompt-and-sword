@@ -39,12 +39,17 @@ describe('линза: plain', () => {
 });
 
 describe('линза: трус', () => {
-  it('«прикрывать» превращается в «стоять позади», source остаётся словами игрока', () => {
+  it('«прикрывать» расщепляется: пока цел — прикрывает, потрёпан — стоит позади', () => {
     const c = applyLens(['coward'], [protect()]);
-    const r = c.rules[0]!;
-    expect(r.then).toEqual({ kind: 'behind', ref: { type: 'ally', id: 'mage' } });
-    expect(r.source).toBe('прикрывай мага');
-    expect(r.marks).toEqual([
+    const [a, b] = c.rules;
+    expect(a!.then).toEqual({ kind: 'protect', ally: 'mage' });
+    expect(a!.when).toEqual({ kind: 'hpAbove', who: 'self', frac: 0.5 });
+    expect(a!.marks).toEqual([{ lens: 'coward', kind: 'recondition', from: { kind: 'always' } }]);
+    expect(b!.then).toEqual({ kind: 'behind', ref: { type: 'ally', id: 'mage' } });
+    expect(b!.when).toEqual({ kind: 'hpBelow', who: 'self', frac: 0.5 });
+    expect(b!.weight).toBeCloseTo(3);
+    expect(b!.source).toBe('прикрывай мага');
+    expect(b!.marks).toEqual([
       { lens: 'coward', kind: 'reword', from: { kind: 'protect', ally: 'mage' } },
     ]);
   });
@@ -121,6 +126,11 @@ describe('линза: дуэлянт', () => {
     expect(c.rules[0]!.marks).toEqual([
       { lens: 'duelist', kind: 'reword', from: { kind: 'attack', target: 'weakest' } },
     ]);
+    // расщепление: в меньшинстве честь отступает — добивает, как и просили
+    const mercy = c.rules[1]!;
+    expect(mercy.when).toEqual({ kind: 'outnumbered' });
+    expect(mercy.then).toEqual({ kind: 'attack', target: 'weakest' });
+    expect(mercy.weight).toBeCloseTo(3);
   });
 
   it('«фланг» → «атакуй в лоб»', () => {
@@ -166,6 +176,17 @@ describe('линза: наседка', () => {
     expect(cover.marks).toEqual([{ lens: 'guardian', kind: 'instinct' }]);
     expect(c.instincts.survival).toBeGreaterThan(1);
     expect(c.instincts.aggression).toBeLessThan(1);
+  });
+
+  it('расщепление: подопечный ранен — защита перевешивает всё', () => {
+    const c = applyLens(['guardian'], [protect()]);
+    const escalated = c.rules[1]!;
+    expect(escalated.when).toEqual({ kind: 'hpBelow', who: { ally: 'mage' }, frac: 0.5 });
+    expect(escalated.then).toEqual({ kind: 'protect', ally: 'mage' });
+    expect(escalated.weight).toBeCloseTo(5);
+    expect(escalated.marks).toEqual([
+      { lens: 'guardian', kind: 'reword', from: { kind: 'protect', ally: 'mage' } },
+    ]);
   });
 });
 

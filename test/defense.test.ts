@@ -150,9 +150,20 @@ describe('перехват телохранителя', () => {
     expect(res.events.some((e) => e.t === 'intercept')).toBe(false);
   });
 
-  it('трус телохранителем не работает: линза превращает «защищать» в «стоять позади»', () => {
-    const res = runBattle(5, scene([protectWard, atkNearest], ['coward']));
-    expect(res.events.some((e) => e.t === 'intercept')).toBe(false);
+  it('трус-телохранитель работает, пока цел: потрёпанный бросает пост (план линз)', () => {
+    // расщепление труса: protect живёт под hpAbove 50% — перехват гаснет вместе с ним
+    const specs = scene([protectWard, atkNearest], ['coward']);
+    specs[1] = { ...specs[1]!, maxHp: 40 };
+    const res = runBattle(5, specs);
+    const events = res.events;
+    expect(events.some((e) => e.t === 'intercept' && e.unit === 'guard')).toBe(true);
+    // индекс удара, уронившего стража ниже 50% (20 hp)
+    let below = -1;
+    events.forEach((e, i) => {
+      if (below < 0 && e.t === 'attack' && e.target === 'guard' && e.targetHp < 20) below = i;
+    });
+    expect(below).toBeGreaterThan(-1);
+    expect(events.slice(below + 1).some((e) => e.t === 'intercept' && e.unit === 'guard')).toBe(false);
   });
 
   it('смоук: связка «прикрывай Лию» + «Лия в строю» бьёт засаду; охранять бегающую нельзя', () => {

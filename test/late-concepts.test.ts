@@ -267,8 +267,8 @@ describe('карточки: поздние концепты читаются', (
       rule({ kind: 'bait' }),
       rule({ kind: 'flank' }),
     ]);
-    expect(card.lines[0]).toBe('тест ⚠ понял по-своему'); // приманка → отход: скрыто
-    expect(card.lines[1]).toBe('тест ⚠ понял по-своему'); // фланг: штраф веса
+    // оба правила делят source «тест» — карточка группирует по фразе: одна строка
+    expect(card.lines).toEqual(['тест ⚠ понял по-своему']);
     const dbg = understandingCard({ name: 'Гром', lenses: ['coward'] }, [rule({ kind: 'bait' })], {}, [], true);
     expect(dbg.lines[0]).toContain('отхожу');
   });
