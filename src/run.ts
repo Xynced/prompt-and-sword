@@ -3,7 +3,7 @@ import { type PhraseDraft, compilePhrase } from './constructor.js';
 import { CORE_WORDS, type ConceptId, DEEP_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
-import { archer, berserker, grunt, hunter, packLeader, shaman, warChief, warlord } from './foes.js';
+import { archer, berserker, bonesetter, duelist, grunt, hunter, ogre, packLeader, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, warlord, wolf } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
 import { ARENA_H, type ArenaTag, PARTY_ZONE_MAX_X, pickTerrain, tileAt } from './terrain.js';
@@ -80,9 +80,11 @@ export const MAX_SLOTS = 6;
 /**
  * Перевязка после победы: доля maxHp. Поднята с 0.25, когда ранние бои
  * перестали быть бесплатными: без этого истощение слоёв 1–3 копится в лавину
- * (партия входит в слой 3 на ~55% hp и кривая проваливается).
+ * (партия входит в слой 3 на ~55% hp и кривая проваливается). 0.6 — план
+ * врагов: паттерны (масса, стая, артиллерия) берут плату здоровьем даже за
+ * победу, и на 0.5 истощение снова копилось лавиной к слою 5.
  */
-const PATCH_UP = 0.5;
+const PATCH_UP = 0.6;
 /** Привал: доля недостающего hp. */
 const REST_HEAL = 0.6;
 /** Наёмник приходит потрёпанным. */
@@ -151,17 +153,23 @@ export function foesForNode(node: MapNode): UnitSpec[] {
     case 'fight':
       if (node.layer <= 1)
         return node.slot === 0
-          ? [berserker(1), grunt(1), grunt(2), archer(1)]
+          ? Array.from({ length: 9 }, (_, i) => rat(i + 1)) // масса: тел больше, чем ходов
           : [packLeader(), berserker(1), archer(1)];
       if (node.layer <= 3)
         return node.slot === 0
-          ? [grunt(1), grunt(2), archer(1)]
-          : [grunt(1), grunt(2), grunt(3)];
-      return [berserker(1), grunt(1), grunt(2), archer(1)];
+          ? [wolf(1), wolf(2), wolf(3)] // стая: охота на хрупких
+          : [slinger(1), slinger(2), slinger(3), slinger(4)]; // застрельщики: камнем по раненым
+      return node.slot === 0
+        ? [raider(1), raider(2), bonesetter('raider1')] // ближники + лекарь: добивание вязнет
+        : [thug(), wolf(1), wolf(2)]; // засада: загонная охота на тыл
     case 'elite':
-      return node.layer <= 3
-        ? [grunt(1), grunt(2), shaman('grunt1')]
-        : [warChief(), shaman('chief'), archer(1)];
+      if (node.layer <= 3)
+        return node.slot === 1
+          ? [duelist(), soldier(1, 'soldier2'), soldier(2, 'soldier1')] // дуэль: вызов принимают всем строем
+          : [soldier(1, 'soldier2'), soldier(2, 'soldier1'), sergeant()]; // умная элита: порядок целей решает
+      return node.slot === 0
+        ? [ogre(), pyro(1), slinger(1)] // танк + кастеры: интервал или прорыв
+        : [troll(), slinger(1), slinger(2)]; // таймер: зарастает быстрее вялого урона
     case 'boss':
       // подобрано симом: 4-й враг делает бой нерешаемым (экономика действий);
       // охотник вместо берсерка — свита достаёт и кайтящих стрелков (после

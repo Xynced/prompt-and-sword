@@ -76,6 +76,8 @@ export interface PassiveSpec {
   sneak?: { flankMult: number };
   /** Кара (Заря): атаки ×mult по врагу, чей удар последним получил кто-то из своих. */
   retribution?: { mult: number };
+  /** Регенерация (тролль): +amount hp в начале своего хода, не выше максимума. */
+  regen?: { amount: number };
 }
 
 /**
@@ -187,4 +189,6 @@ export interface CombatUnit {
   blastUses?: number;
   /** Кто последним нанёс мне урон — для селектора «кто атаковал меня». */
   lastAttackerId?: string;
+  /** Телохранитель уже перехватил удар — до своего следующего хода (план защиты). */
+  interceptUsed?: boolean;
 }

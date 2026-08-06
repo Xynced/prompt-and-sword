@@ -80,9 +80,19 @@ export function hasTerrainCover(shooter: Pos, target: Pos, isBlocked: (p: Pos) =
 /**
  * Фланг: атакующий смежен с целью, и есть союзник атакующего, тоже смежный с целью,
  * с противоположной стороны (скалярное произведение направлений ≤ 0).
+ *
+ * Строй ломает фланги (план защиты): цель, стоящая вплотную к живому
+ * союзнику (`targetAllies`), не фланкируется — спина прикрыта. Правило мира
+ * для обеих сторон: фланг работает по одиночкам и растянутым.
  */
-export function isFlanking(attacker: Pos, target: Pos, allies: readonly Pos[]): boolean {
+export function isFlanking(
+  attacker: Pos,
+  target: Pos,
+  allies: readonly Pos[],
+  targetAllies: readonly Pos[] = [],
+): boolean {
   if (dist(attacker, target) !== 1) return false;
+  if (targetAllies.some((a) => dist(a, target) === 1)) return false;
   const v1 = { x: attacker.x - target.x, y: attacker.y - target.y };
   return allies.some((a) => {
     if (dist(a, target) !== 1 || posEq(a, attacker)) return false;

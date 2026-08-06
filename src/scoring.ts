@@ -34,6 +34,7 @@ import {
   FULL_COVER,
   HAZARD_DMG,
   HIGH_GROUND_DMG,
+  RIPOSTE_DMG,
   SELFLESS_ATK_MULT,
   SELFLESS_VULN_MULT,
   TERRAIN_COVER,
@@ -975,7 +976,13 @@ function scorePreference(
         const allies = units
           .filter((u) => u.alive && u.side === self.side && u !== self)
           .map((u) => u.pos);
-        if (self.range === 1 && isFlanking(cand.to, target.pos, allies)) s += 2.5 * w * apShare(cand.action);
+        // строй ломает фланги: премии за невозможный фланг не бывает
+        const targetAllies = units
+          .filter((u) => u.alive && u.side === target.side && u !== target)
+          .map((u) => u.pos);
+        if (self.range === 1 && isFlanking(cand.to, target.pos, allies, targetAllies)) {
+          s += 2.5 * w * apShare(cand.action);
+        }
       }
       if (self.range === 1) {
         const nearest = resolveSelector('nearest', self, units);
@@ -1196,6 +1203,14 @@ export function scoreCandidate(
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
+    // рипост (план защиты): ближний удар по глухой обороне вернётся раной —
+    // умный переключается на другую цель, настойчивый платит
+    if (weapon.range === 1 && !lethal && target.coverLevel >= FULL_COVER) {
+      factors.push({
+        label: 'рипост цели',
+        value: -(RIPOSTE_DMG / self.maxHp) * 6 * instincts.survival,
+      });
+    }
     // аффинность оружия к манере: мягкий вкус, слово игрока (±2.5) перебивает
     const aff = weapon.affinity?.[cand.action as 'weakAttack' | 'attack' | 'selflessAttack'];
     if (aff) factors.push({ label: 'оружие:манера', value: aff * WEAPON_AFFINITY_BONUS });
