@@ -276,6 +276,7 @@ export function heroSpecs(state: RunState): UnitSpec[] {
       rules: [...compileHero(state, h), ...heroArchetype(h.archetypeId).innate],
       hp: h.hp,
       ...h.stats,
+      aoe: heroArchetype(h.archetypeId).aoe,
       spawn: { ...deployedSpawn(state, h) },
     }));
 }

@@ -14,6 +14,7 @@ export type ActionKind =
   | 'selflessAttack'
   | 'shove'
   | 'aoeBlast'
+  | 'aoeLine'
   | 'aoeRitual'
   | 'cover'
   | 'fullCover'
@@ -28,6 +29,8 @@ export type ActionKind =
 export interface AoeSpec {
   /** Залп: мгновенный взрыв 3×3 вокруг центра в дальности range; урон mult × ожидаемый удар, фиксированный. */
   blast?: { range: number; mult: number };
+  /** Линия («волна клинка»): мгновенная полоса 1×len от себя в одном из 8 направлений; камень обрывает взмах. */
+  line?: { len: number; mult: number };
   /**
    * Ритуал: телеграфированная зона 5×5 — замах весь ход (3 AP), бьёт всех,
    * кто в зоне в начале **следующего** хода кастера; смерть кастера отменяет.

@@ -5,9 +5,11 @@ import {
   type Fighter,
   aoeDamage,
   aoeVictims,
+  castVictims,
   decide,
   generateCandidates,
   isAttack,
+  lineCells,
   makeCtx,
 } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
@@ -207,6 +209,39 @@ describe('залп в бою (гать, сид 4)', () => {
     expect(mateHits.length).toBeGreaterThan(0);
     expect(mateHits[0]!.by).toBe('c');
     expect(r.winner).toBe('party');
+  });
+
+  it('волна клинка в бою: полоса бьёт колонну, камень обрывает взмах', () => {
+    // спеллблейд с копьём и колонна врагов по прямой
+    const specs = [
+      {
+        ...dummy('c', 'party', { x: 6, y: 8 }, 60),
+        atk: 6, range: 2, speed: 9, move: 2,
+        aoe: { line: { len: 4, mult: 0.75 } },
+        rules: [rule({ kind: 'barrage' })],
+      },
+      dummy('f1', 'foe', { x: 7, y: 8 }, 30),
+      dummy('f2', 'foe', { x: 8, y: 8 }, 30),
+      dummy('f3', 'foe', { x: 9, y: 8 }, 30),
+    ];
+    const r = runBattle(4, specs);
+    const lines = castsIn(r.events).filter((c) => c.form === 'line');
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]!.at).toEqual({ x: 7, y: 8 }); // направление — вдоль колонны
+    const firstHits = hitsIn(r.events).slice(0, 3).map((h) => h.unit).sort();
+    expect(firstHits).toEqual(['f1', 'f2', 'f3']);
+  });
+
+  it('lineCells: камень и край поля обрывают полосу', () => {
+    const blocked = (p: Pos): boolean => p.x === 7 && p.y === 8;
+    expect(lineCells({ x: 5, y: 8 }, { x: 1, y: 0 }, 4, blocked)).toEqual([{ x: 6, y: 8 }]);
+    expect(lineCells({ x: 16, y: 8 }, { x: 1, y: 0 }, 4, () => false)).toEqual([{ x: 17, y: 8 }]);
+    // жертвы линии: только на клетках взмаха
+    const self = fighter('s', 'party', { x: 5, y: 8 }, { aoe: { line: { len: 4, mult: 0.75 } } });
+    const on = fighter('e1', 'foe', { x: 8, y: 8 });
+    const off = fighter('e2', 'foe', { x: 8, y: 9 });
+    const ids = castVictims('aoeLine', { x: 6, y: 8 }, self, [self, on, off], () => false).map((u) => u.id);
+    expect(ids).toEqual(['e1']);
   });
 
   it('без правила «накрыть скопление» залпов в логе нет — даже с оружием', () => {

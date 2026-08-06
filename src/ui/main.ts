@@ -590,6 +590,8 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
           // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр
           flush();
           pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`] };
+        } else if (e.form === 'line') {
+          pending?.parts.push(`рубит волной в сторону ${cellName(e.at.x, e.at.y)}`);
         } else {
           pending?.parts.push(`накрывает залпом ${cellName(e.at.x, e.at.y)}`);
         }

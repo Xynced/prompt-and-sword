@@ -189,7 +189,9 @@ function verboseRun(setName: string, seed: number): void {
         console.log(
           e.form === 'ritual'
             ? `  ${nm(e.unit)}: ритуал обрушивается на ${fmtPos(e.at)}`
-            : `  ${nm(e.unit)} накрывает залпом ${fmtPos(e.at)}`,
+            : e.form === 'line'
+              ? `  ${nm(e.unit)} рубит волной в сторону ${fmtPos(e.at)}`
+              : `  ${nm(e.unit)} накрывает залпом ${fmtPos(e.at)}`,
         );
         break;
       case 'aoeHit':

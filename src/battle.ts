@@ -13,6 +13,7 @@ import {
   aoeDamage,
   aoeVictims,
   apCostFor,
+  castVictims,
   ritualReady,
   attackMult,
   coverLevelOf,
@@ -61,7 +62,7 @@ export type BattleEvent =
   | { t: 'move'; unit: string; from: Pos; to: Pos }
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
-  | { t: 'aoeCast'; unit: string; form: 'blast' | 'ritual'; at: Pos }
+  | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
@@ -167,6 +168,21 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
   }
   let rounds = 0;
 
+  // общий урон площадного каста: фиксированный, по всем жертвам (friendly
+  // fire), с событием aoeHit и смертями; порядок жертв — порядок в units
+  const applyAoe = (caster: Fighter, mult: number, victims: readonly Fighter[]): void => {
+    for (const v of victims) {
+      const dmg = aoeDamage(caster, mult, v);
+      v.hp = Math.max(0, v.hp - dmg);
+      v.lastAttackerId = caster.id;
+      events.push({ t: 'aoeHit', unit: v.id, by: caster.id, dmg, hp: v.hp });
+      if (v.hp === 0) {
+        v.alive = false;
+        events.push({ t: 'die', unit: v.id });
+      }
+    }
+  };
+
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     rounds = round;
     events.push({ t: 'round', n: round });
@@ -183,18 +199,8 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
       if (unit.pendingRitual) {
         const { at } = unit.pendingRitual;
         unit.pendingRitual = undefined;
-        const mult = unit.aoe?.ritual?.mult ?? 1;
         events.push({ t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at } });
-        for (const v of aoeVictims(at, units, AOE_RITUAL_RADIUS)) {
-          const dmg = aoeDamage(unit, mult, v);
-          v.hp = Math.max(0, v.hp - dmg);
-          v.lastAttackerId = unit.id;
-          events.push({ t: 'aoeHit', unit: v.id, by: unit.id, dmg, hp: v.hp });
-          if (v.hp === 0) {
-            v.alive = false;
-            events.push({ t: 'die', unit: v.id });
-          }
-        }
+        applyAoe(unit, unit.aoe?.ritual?.mult ?? 1, aoeVictims(at, units, AOE_RITUAL_RADIUS));
         const w = winnerOf(units);
         if (w) {
           events.push({ t: 'end', winner: w, rounds: round });
@@ -323,16 +329,14 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           const blast = unit.aoe?.blast;
           if (blast && dist(unit.pos, at) <= blast.range && hasLoS(unit.pos, at, blocked)) {
             events.push({ t: 'aoeCast', unit: unit.id, form: 'blast', at: { ...at } });
-            for (const v of aoeVictims(at, units)) {
-              const dmg = aoeDamage(unit, blast.mult, v);
-              v.hp = Math.max(0, v.hp - dmg);
-              v.lastAttackerId = unit.id; // мститель запомнит накрывшего
-              events.push({ t: 'aoeHit', unit: v.id, by: unit.id, dmg, hp: v.hp });
-              if (v.hp === 0) {
-                v.alive = false;
-                events.push({ t: 'die', unit: v.id });
-              }
-            }
+            applyAoe(unit, blast.mult, aoeVictims(at, units));
+          }
+        } else if (action === 'aoeLine' && at) {
+          // волна клинка: мгновенная полоса от себя, `at` — клетка-направление
+          const line = unit.aoe?.line;
+          if (line && dist(unit.pos, at) === 1) {
+            events.push({ t: 'aoeCast', unit: unit.id, form: 'line', at: { ...at } });
+            applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked));
           }
         } else if (action === 'shieldAlly' && targetId) {
           const ally = units.find((u) => u.id === targetId)!;

@@ -56,6 +56,7 @@ export const AP_COST: Record<ActionKind, number> = {
   shove: 1,
   cover: 1,
   aoeBlast: 2,
+  aoeLine: 2,
   attack: 2,
   selflessAttack: 2,
   shieldAlly: 2,
@@ -83,6 +84,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   carefulStep: 0,
   shove: 0,
   aoeBlast: 0,
+  aoeLine: 0,
   aoeRitual: 0,
   cover: 0,
   fullCover: 0,
@@ -102,6 +104,7 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   selflessAttack: 0,
   shove: 0,
   aoeBlast: 0,
+  aoeLine: 0,
   aoeRitual: 0,
   wait: 0,
 };
@@ -122,6 +125,39 @@ export const AOE_RITUAL_RADIUS = 2;
 
 /** Радиус зоны по виду каста. */
 export const aoeRadius = (a: ActionKind): number => (a === 'aoeRitual' ? AOE_RITUAL_RADIUS : AOE_BLAST_RADIUS);
+
+/**
+ * Клетки линии («волны клинка»): от from в направлении dir (единичный вектор,
+ * 8 направлений), длиной len. Камень и край поля обрывают взмах; тела — нет.
+ */
+export function lineCells(from: Pos, dir: Pos, len: number, blocked: (p: Pos) => boolean): Pos[] {
+  const out: Pos[] = [];
+  for (let i = 1; i <= len; i++) {
+    const p = { x: from.x + dir.x * i, y: from.y + dir.y * i };
+    if (!inBounds(p) || blocked(p)) break;
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Жертвы каста-кандидата: для залпа и ритуала — зона вокруг центра `at`, для
+ * линии `at` — смежная клетка-направление, жертвы на клетках взмаха.
+ */
+export function castVictims<T extends CombatUnit>(
+  action: ActionKind,
+  at: Pos,
+  self: CombatUnit,
+  units: readonly T[],
+  blocked: (p: Pos) => boolean,
+): T[] {
+  if (action === 'aoeLine') {
+    const dir = { x: Math.sign(at.x - self.pos.x), y: Math.sign(at.y - self.pos.y) };
+    const cells = lineCells(self.pos, dir, self.aoe?.line?.len ?? 0, blocked);
+    return units.filter((u) => u.alive && cells.some((c) => posEq(c, u.pos)));
+  }
+  return aoeVictims(at, units, aoeRadius(action));
+}
 
 /**
  * Готов ли ритуал юнита в этом раунде: нет висящей зоны, перезарядка прошла,
@@ -418,6 +454,23 @@ export function generateCandidates(
             // контр шамана); тела взрыв не заслоняют — он навесной
             if (!hasLoS(here, at, blocked)) continue;
             out.push({ to: here, action, at });
+          }
+        }
+      }
+    }
+
+    // линия («волна клинка»): 8 направлений от себя, кандидат — только взмах,
+    // задевающий хотя бы одного врага; `at` кодирует направление смежной клеткой
+    const line = self.aoe.line;
+    if (line && ap >= AP_COST.aoeLine && allowed('aoeLine')) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const at = { x: here.x + dx, y: here.y + dy };
+          if (!inBounds(at)) continue;
+          const cells = lineCells(here, { x: dx, y: dy }, line.len, blocked);
+          if (enemiesOf(self, units).some((e) => cells.some((c) => posEq(c, e.pos)))) {
+            out.push({ to: here, action: 'aoeLine', at });
           }
         }
       }
@@ -741,8 +794,10 @@ function scorePreference(
       // накрыть скопление: премия только от двух накрытых врагов — и растёт с
       // их числом. По одному касты не жмут (обычная атака выгоднее по урону):
       // АОЕ — ответ на кучность, а не кнопка урона
-      if ((cand.action !== 'aoeBlast' && cand.action !== 'aoeRitual') || !cand.at) return 0;
-      const covered = aoeVictims(cand.at, units, aoeRadius(cand.action)).filter(
+      if ((cand.action !== 'aoeBlast' && cand.action !== 'aoeLine' && cand.action !== 'aoeRitual') || !cand.at) {
+        return 0;
+      }
+      const covered = castVictims(cand.action, cand.at, self, units, ctx.blocked).filter(
         (v) => v.side !== self.side,
       ).length;
       return covered >= 2 ? 1.5 * covered * w : 0;
@@ -786,11 +841,15 @@ export function scoreCandidate(
   // вреда своим, а не вкус характера (искажение фанатика — шаг линз).
   // Ритуал оценивается по текущим позициям: без слова упреждения кастер целит
   // в скопление «где стоят» — зона читаема и уворачиваема, это норма
-  const aoeForm = cand.action === 'aoeBlast' ? self.aoe?.blast : cand.action === 'aoeRitual' ? self.aoe?.ritual : undefined;
+  const aoeForm =
+    cand.action === 'aoeBlast' ? self.aoe?.blast
+    : cand.action === 'aoeLine' ? self.aoe?.line
+    : cand.action === 'aoeRitual' ? self.aoe?.ritual
+    : undefined;
   if (aoeForm && cand.at) {
     let foes = 0;
     let own = 0;
-    for (const v of aoeVictims(cand.at, units, aoeRadius(cand.action))) {
+    for (const v of castVictims(cand.action, cand.at, self, units, ctx.blocked)) {
       const dmg = Math.min(aoeDamage(self, aoeForm.mult, v), v.hp);
       const val = (dmg / v.maxHp) * 6 + (dmg >= v.hp ? 4 : 0);
       if (v.side !== self.side) foes += val;

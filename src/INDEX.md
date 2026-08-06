@@ -14,8 +14,8 @@
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», вычисление условий и селекторов | `Rule`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
 | [vocab.ts](vocab.ts) | Словарь концептов (37: условия, селекторы, действия, манера удара, пространство), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
 | [lens.ts](lens.ts) | Линзы характеров — детерминированные трансформации IR (10 в пуле), инстинкты и тяга к видам действий | `applyLens`, `rollLenses`, `biasFor`, `ActionBias`, `LENS_POOL`, `LENS_RU` |
-| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок и залп (оценка групп) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `aoeVictims` |
-| [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, event-sourced лог, превью спавнов | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult`, `spawnPreview` |
+| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady` |
+| [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, площадные касты (телеграф ритуала, залп в начале хода кастера), event-sourced лог, превью спавнов | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult`, `spawnPreview` |
 | [metrics.ts](metrics.ts) | Поведенческий отпечаток боя для статистики и сравнения | `fingerprint`, `Fingerprint` |
 
 ## Компиляция принципов (текст → IR → карточка)
