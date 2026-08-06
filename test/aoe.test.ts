@@ -271,13 +271,37 @@ describe('слова АОЕ: пулы, конструктор, карточки,
     { id: 'space.spread', kind: 'spread', card: 'держу интервал' },
     { id: 'act.barrage', kind: 'barrage', card: 'накрываю скопление' },
     { id: 'act.preempt', kind: 'preempt', card: 'бью на упреждение' },
+    { id: 'act.castRitual', kind: 'castRitual', card: 'замахиваюсь ритуалом' },
   ] as const;
 
-  it('пулы: интервал — CORE, накрыть скопление и упреждение — DEEP', () => {
+  it('пулы: интервал и накат — CORE, остальное — DEEP', () => {
     expect(CORE_WORDS).toContain('space.spread');
+    expect(CORE_WORDS).toContain('cond.underCharge');
     expect(DEEP_WORDS).toContain('act.barrage');
     expect(DEEP_WORDS).toContain('act.preempt');
+    expect(DEEP_WORDS).toContain('act.castRitual');
     for (const d of drafts) expect(STARTING_VOCAB).not.toContain(d.id);
+  });
+
+  it('условие «враги накатывают»: конструктор, карточка, схема', () => {
+    const FULL = Object.keys(CONCEPTS) as ConceptId[];
+    const draft = {
+      condition: { id: 'cond.underCharge' },
+      preference: { id: 'act.castRitual' },
+    } as const;
+    const ok = compilePhrase(draft, FULL);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.rule.when).toEqual({ kind: 'underCharge' });
+      expect(ok.rule.then).toEqual({ kind: 'castRitual' });
+      const card = understandingCard({ name: 'Лия', lenses: ['plain'] }, [ok.rule]);
+      expect(card.lines[0]).toContain('если враги накатывают — замахиваюсь ритуалом');
+    }
+    const closed = compilePhrase(draft, STARTING_VOCAB);
+    expect(closed.ok).toBe(false);
+    if (!closed.ok) expect(closed.missing.sort()).toEqual(['act.castRitual', 'cond.underCharge']);
+    expect(JSON.stringify(buildCompileSchema(FULL, []))).toContain('cond.underCharge');
+    expect(JSON.stringify(buildCompileSchema(STARTING_VOCAB, []))).not.toContain('cond.underCharge');
   });
 
   it('компилируются при открытом словаре, закрыты в стартовом; карточка читается', () => {

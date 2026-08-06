@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 10;
+export const PROMPT_VERSION = 11;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -68,6 +68,10 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
     '{"id":"act.barrage"} — накрыть скопление: бить площадными кастами (залп, волна, ритуал), когда зона накрывает двух и больше врагов; своих зона тоже бьёт; работает только у носителя площадного оружия',
   'act.preempt':
     '{"id":"act.preempt"} — бить на упреждение: манера ритуала — целить зону туда, куда враг придёт к моменту залпа, а не где он стоит',
+  'cond.underCharge':
+    '{"id":"cond.underCharge"} — условие: враги накатывают — хотя бы один враг способен дотянуться до меня за свой ход (шаги + дальность атаки)',
+  'act.castRitual':
+    '{"id":"act.castRitual"} — замахиваться ритуалом: тратить ход на телеграфированную зону 5×5 вместо мгновенного залпа; работает только у носителя ритуала',
 };
 
 export interface PromptContext {

@@ -44,6 +44,8 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если кто-то из наших пал — ';
     case 'surrounded':
       return 'если меня окружили — ';
+    case 'underCharge':
+      return 'если враги накатывают — ';
   }
 }
 
@@ -99,6 +101,8 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'держу интервал: не встаю вплотную к своим, пока у врага есть чем накрыть';
     case 'preempt':
       return 'бью на упреждение: замахиваюсь туда, куда враг придёт, а не где стоит';
+    case 'castRitual':
+      return 'замахиваюсь ритуалом: трачу ход на большую зону, на мгновенный залп не размениваюсь';
   }
 }
 

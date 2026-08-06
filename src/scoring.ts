@@ -413,6 +413,10 @@ export function generateCandidates(
   ctx: ScoreCtx = makeCtx(),
   ap: number = AP_PER_TURN,
   round = 1,
+  // правила для гейтов слов (толчок, касты): decide передаёт СРАБОТАВШИЕ —
+  // «если враги накатывают — накрыть скопление» открывает касты только при
+  // накате, а не самим фактом правила в приказах
+  fired: readonly Rule[] = self.compiled.rules,
 ): Candidate[] {
   const here = self.pos;
   const { blocked } = ctx;
@@ -453,11 +457,7 @@ export function generateCandidates(
   // за край не проходит и в кандидаты не попадает вовсе — скоринг не учится
   // «толкаться в стену». Инстинкты толчка не знают: без слова «толкать» в
   // правилах кандидатов нет — иначе поле начало бы играть само
-  if (
-    ap >= AP_COST.shove &&
-    allowed('shove') &&
-    self.compiled.rules.some((r) => r.then.kind === 'shove')
-  ) {
+  if (ap >= AP_COST.shove && allowed('shove') && fired.some((r) => r.then.kind === 'shove')) {
     for (const e of enemiesOf(self, units) as Fighter[]) {
       if (dist(here, e.pos) !== 1) continue;
       const dest = shoveDest(here, e.pos);
@@ -472,14 +472,16 @@ export function generateCandidates(
   // скопление»: инстинкты каста не знают, без слова кандидатов нет (прецедент
   // толчка — иначе поле играло бы само). Центры — не скан поля, а окрестности
   // врагов: только клетки, где зона накрывает хотя бы одного
-  if (self.aoe && self.compiled.rules.some((r) => r.then.kind === 'barrage')) {
+  // касты открывает «накрыть скопление» — или манера «замахиваться ритуалом»
+  // сама по себе (не требовать от игрока два глубоких слова разом)
+  if (self.aoe && fired.some((r) => r.then.kind === 'barrage' || r.then.kind === 'castRitual')) {
     const forms: { action: ActionKind; form?: { range: number }; ready: boolean }[] = [
       { action: 'aoeBlast', form: self.aoe.blast, ready: blastReady(self) },
       { action: 'aoeRitual', form: self.aoe.ritual, ready: ritualReady(self, round) },
     ];
     // с манерой «бить на упреждение» ритуал целит и в проекции движения
     // врагов — без затравки от предсказанных позиций таких кандидатов не было бы
-    const preempt = self.compiled.rules.some((r) => r.then.kind === 'preempt');
+    const preempt = fired.some((r) => r.then.kind === 'preempt');
     for (const { action, form, ready } of forms) {
       if (!form || !ready || ap < AP_COST[action] || !allowed(action)) continue;
       const radius = aoeRadius(action);
@@ -873,6 +875,14 @@ function scorePreference(
       ).length;
       return covered >= 2 ? 2.5 * covered * w : 0;
     }
+    case 'castRitual': {
+      // замахиваться ритуалом: манера каста по образцу манер удара — премия
+      // замаху, штраф мгновенным кастам («не разменивайся на залп»). Атаки
+      // не трогает: слово о том, ЧЕМ накрывать, а не о том, бить ли вообще
+      if (cand.action === 'aoeRitual') return STRIKE_STYLE_BONUS * w;
+      if (cand.action === 'aoeBlast' || cand.action === 'aoeLine') return -STRIKE_STYLE_BONUS * w;
+      return 0;
+    }
   }
 }
 
@@ -1022,7 +1032,7 @@ export function decide(
     };
   }
 
-  const candidates = generateCandidates(self, units, ctx, ap, round);
+  const candidates = generateCandidates(self, units, ctx, ap, round, fired);
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = scoreCandidate(cand, self, units, fired, ctx);

@@ -402,6 +402,7 @@ function conditionOptions(): Opt<ConditionDraft>[] {
   if (has('cond.initiativeEdge')) out.push({ value: { id: 'cond.initiativeEdge' }, label: 'если мы быстрее' });
   if (has('cond.allyFallen')) out.push({ value: { id: 'cond.allyFallen' }, label: 'если кто-то из наших пал' });
   if (has('cond.surrounded')) out.push({ value: { id: 'cond.surrounded' }, label: 'если меня окружили' });
+  if (has('cond.underCharge')) out.push({ value: { id: 'cond.underCharge' }, label: 'если враги накатывают' });
   return out;
 }
 
@@ -455,6 +456,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.spread')) out.push({ value: { id: 'space.spread' }, label: 'держать интервал' });
   if (has('act.barrage')) out.push({ value: { id: 'act.barrage' }, label: 'накрыть скопление' });
   if (has('act.preempt')) out.push({ value: { id: 'act.preempt' }, label: 'бить на упреждение' });
+  if (has('act.castRitual')) out.push({ value: { id: 'act.castRitual' }, label: 'замахиваться ритуалом' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });

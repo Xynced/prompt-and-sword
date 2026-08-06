@@ -370,3 +370,52 @@ describe('линзы и АОЕ (шаг 6)', () => {
     expect(hothead.instincts.actionBias.aoeBlast).toBeUndefined(); // залп «сейчас» — не тронут
   });
 });
+
+describe('инструкции применения оружия (хвост плана)', () => {
+  it('условие гейтит каст: «если враги накатывают — накрыть скопление» молчит, пока не бегут', () => {
+    const caster = fighter('c', 'party', { x: 2, y: 8 }, { atk: 6, aoe: { blast: { range: 4, mult: 0.75 } } }, [
+      { when: { kind: 'underCharge' }, then: { kind: 'barrage' }, weight: 2, scope: 'self', source: 'тест' },
+    ]);
+    // враги далеко (move 2 → дотягиваются на 5): кастов нет даже при скоплении в дальности
+    const far1 = fighter('e1', 'foe', { x: 5, y: 8 }, { move: 2, range: 1, speed: 1 });
+    const far2 = fighter('e2', 'foe', { x: 6, y: 8 }, { move: 2, range: 1, speed: 1 });
+    far1.pos = { x: 5, y: 14 }; far2.pos = { x: 6, y: 14 }; // вне наката, вне дальности
+    expect(decide(caster, [caster, far1, far2]).chosen.action).not.toBe('aoeBlast');
+
+    // накатывают: те же враги в 4 клетках — условие сработало, залп открыт
+    const near1 = fighter('e1', 'foe', { x: 5, y: 8 }, { move: 2, range: 1, speed: 1 });
+    const near2 = fighter('e2', 'foe', { x: 6, y: 8 }, { move: 2, range: 1, speed: 1 });
+    expect(decide(caster, [caster, near1, near2]).chosen.action).toBe('aoeBlast');
+  });
+
+  it('пример из запроса: «если враги накатывают — замахиваться ритуалом» (Лия)', () => {
+    const lia = heroArchetype('lia');
+    const rulesLia: Rule[] = [
+      { when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, scope: 'self', source: 'атакую ближайшего' },
+      { when: { kind: 'underCharge' }, then: { kind: 'castRitual' }, weight: 2, scope: 'self', source: 'если враги накатывают — замахиваюсь ритуалом' },
+    ];
+    const mkLia = (): Fighter =>
+      fighter('lia', 'party', { x: 2, y: 8 }, {
+        atk: lia.stats.atk, range: lia.stats.range, move: lia.stats.move, aoe: lia.aoe,
+      }, rulesLia);
+
+    // враги далеко — обычная жизнь, ритуала нет
+    const calm = mkLia();
+    const idle1 = fighter('e1', 'foe', { x: 14, y: 8 }, { move: 2 });
+    const idle2 = fighter('e2', 'foe', { x: 15, y: 8 }, { move: 2 });
+    expect(decide(calm, [calm, idle1, idle2]).chosen.action).not.toBe('aoeRitual');
+
+    // враги накатывают кучей — замах, и именно ритуал (не залп: манера штрафует)
+    const charged = mkLia();
+    const r1 = fighter('e1', 'foe', { x: 5, y: 8 }, { move: 3 });
+    const r2 = fighter('e2', 'foe', { x: 6, y: 8 }, { move: 3 });
+    const d = decide(charged, [charged, r1, r2]);
+    expect(d.chosen.action).toBe('aoeRitual');
+  });
+
+  it('манера «замахиваться ритуалом» открывает касты сама, без «накрыть скопление»', () => {
+    const caster = fighter('c', 'party', { x: 5, y: 5 }, { aoe: RITUAL }, [rule({ kind: 'castRitual' })]);
+    const e1 = fighter('e1', 'foe', { x: 8, y: 5 });
+    expect(generateCandidates(caster, [caster, e1], undefined, 3, 1).some((c) => c.action === 'aoeRitual')).toBe(true);
+  });
+});
