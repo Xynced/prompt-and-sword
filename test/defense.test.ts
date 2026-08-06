@@ -174,7 +174,7 @@ describe('перехват телохранителя', () => {
       hero('zhalo', 2, [atkNearest]),
     ];
     // двусторонняя дисциплина: страж прикрывает, подопечный держится рядом —
-    // односторонняя нянька (Гром бегает за Лией) так и остаётся ловушкой темпа
+    // перехват и щит работают только вплотную, и «Лия в строю» держит их живыми
     const pair = () => [
       hero('grom', 0, [atkNearest, r({ when: { kind: 'always' }, then: { kind: 'protect', ally: 'lia' }, weight: 1.5, source: 'прикрывай Лию' })]),
       hero('lia', 1, [atkNearest, r({ when: { kind: 'always' }, then: { kind: 'behind', ref: { type: 'ally', id: 'grom' } }, weight: 1.5, source: 'держись за Громом' })]),

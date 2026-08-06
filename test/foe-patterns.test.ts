@@ -268,7 +268,7 @@ describe('засада: душегуб с волками', () => {
     expect(t.rules.some((rl) => rl.then.kind === 'attack' && rl.then.target === 'weakest')).toBe(true);
   });
 
-  it('смоук: фокус тает засаду, нянька-телохранитель — ловушка темпа', () => {
+  it('смоук: фокус тает засаду, телохранитель у плеча больше не ловушка', () => {
     const naive = sweep(() => partyWith([]), ambush, 'late');
     const focus = sweep(
       () => [hero('grom', 0, [focusWeak]), hero('lia', 1, [focusWeak]), hero('zhalo', 2, [focusWeak])],
@@ -281,7 +281,11 @@ describe('засада: душегуб с волками', () => {
       'late',
     );
     expect(focus.hpFrac).toBeGreaterThanOrEqual(naive.hpFrac); // фокус не хуже
-    expect(nanny.hpFrac).toBeLessThan(naive.hpFrac - 0.15); // нянчиться дороже, чем бить
+    // раньше односторонняя нянька была ловушкой темпа (−0.15+ hp партии):
+    // Гром тратил очки на щиты через полполя. Со смежностью щита он дерётся
+    // и кроет только у плеча — приказ почти ничего не стоит, хоть сам по
+    // себе и не выигрывает (двустороннюю связку меряет defense.test)
+    expect(nanny.hpFrac).toBeGreaterThan(naive.hpFrac - 0.05);
   });
 });
 
