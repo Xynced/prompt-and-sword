@@ -481,6 +481,32 @@ export function troll(): UnitSpec {
   };
 }
 
+/**
+ * Дуэль: орк-поединщик (по мотивам Orc Brute) — признаёт только достойного:
+ * идёт на самого опасного героя и вызывает его на размен. Линза дуэлянта —
+ * характер как правило: слабых не добивает, в спину не бьёт, вполсилы не
+ * машет. Клеймор для полновесных ударов, чекан — когда нужен частый.
+ */
+export function duelist(): UnitSpec {
+  return {
+    id: 'duelist',
+    name: 'Поединщик',
+    side: 'foe',
+    maxHp: 80,
+    weapons: [
+      { name: 'клеймор', dmg: 10, range: 1, affinity: { attack: 1, weakAttack: -1 } },
+      { name: 'чекан', dmg: 7, range: 1, affinity: { weakAttack: 1 } },
+    ],
+    speed: 5,
+    move: 2,
+    lenses: ['duelist'],
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'mostDangerous' }, weight: 2, source: 'поединщик: вызвать опаснейшего' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 1.2, source: 'поединщик: честный размен' }),
+    ],
+  };
+}
+
 /** Финальный босс забега. Ходит со свитой (шаман за спиной, охотник в тылу). */
 export function warlord(): UnitSpec {
   return {

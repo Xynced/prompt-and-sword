@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
-import { bonesetter, foeIntel, ogre, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, wolf } from '../src/foes.js';
+import { bonesetter, duelist, foeIntel, ogre, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, wolf } from '../src/foes.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
 import type { Rule } from '../src/ir.js';
 import { posEq } from '../src/grid.js';
@@ -315,6 +315,47 @@ describe('таймер: тролль', () => {
     );
     expect(naive.hpFrac).toBeLessThan(0.6); // тролль стоит дорого
     expect(naive.wins).toBeGreaterThanOrEqual(pick.wins); // добивание свиты не окупается
+  });
+});
+
+describe('дуэль: орк-поединщик', () => {
+  const duel = () => [duelist(), soldier(1, 'soldier2'), soldier(2, 'soldier1')];
+  const atkDanger = r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'mostDangerous' }, weight: 2, source: 'вали опасных' });
+
+  it('спеки: клеймор и чекан с зеркальной аффинностью, линза дуэлянта', () => {
+    const d = duelist();
+    expect(d.weapons!.map((w) => w.name)).toEqual(['клеймор', 'чекан']);
+    expect(d.weapons![0]!.affinity).toEqual({ attack: 1, weakAttack: -1 });
+    expect(d.weapons![1]!.affinity).toEqual({ weakAttack: 1 });
+    expect(d.lenses).toEqual(['duelist']);
+    expect(d.rules.some((rl) => rl.then.kind === 'attack' && rl.then.target === 'mostDangerous')).toBe(true);
+  });
+
+  it('смоук: наив теряет керри, «принять вызов» всем строем спасает', () => {
+    let gromDeadNaive = 0;
+    let gromDeadAnswer = 0;
+    let hpNaive = 0;
+    let hpAnswer = 0;
+    for (let s = 1; s <= 20; s++) {
+      const seed = s * 17 + 3;
+      const n = runBattle(seed, [...partyWith([]), ...duel()], 'elite');
+      const a = runBattle(
+        seed,
+        [...[hero('grom', 0, [atkDanger]), hero('lia', 1, [atkDanger]), hero('zhalo', 2, [atkDanger])], ...duel()],
+        'elite',
+      );
+      if (!n.units.find((u) => u.id === 'grom')!.alive) gromDeadNaive++;
+      if (!a.units.find((u) => u.id === 'grom')!.alive) gromDeadAnswer++;
+      const frac = (res: typeof n): number => {
+        const pu = res.units.filter((u) => u.side === 'party');
+        return pu.reduce((acc, u) => acc + (u.alive ? u.hp : 0), 0) / pu.reduce((acc, u) => acc + u.maxHp, 0);
+      };
+      hpNaive += frac(n);
+      hpAnswer += frac(a);
+    }
+    expect(gromDeadNaive).toBeGreaterThanOrEqual(5); // дуэлянт всерьёз охотится на керри
+    expect(gromDeadAnswer).toBeLessThan(gromDeadNaive); // принятый вызов спасает
+    expect(hpAnswer).toBeGreaterThan(hpNaive);
   });
 });
 
