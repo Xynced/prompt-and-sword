@@ -323,6 +323,62 @@ export function wolf(n: number): UnitSpec {
   };
 }
 
+/**
+ * Ближники + лекарь: гнолл-налётчик (Kholo Hunter) — свитч-хиттер: лук на
+ * подходе, топор в упор (кандидаты по каждому оружию выбирают сами), чует
+ * слабых. Кайт его не выключает — он стреляет в ответ.
+ */
+export function raider(n: number): UnitSpec {
+  return {
+    id: `raider${n}`,
+    name: `Налётчик ${n}`,
+    side: 'foe',
+    maxHp: 34,
+    weapons: [
+      { name: 'костяной лук', dmg: 5, range: 4 },
+      { name: 'щербатый топор', dmg: 7, range: 1 },
+    ],
+    speed: 6,
+    move: 3,
+    lenses: ['plain'],
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 1.8, source: 'налётчик: чуять слабых' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.0, source: 'налётчик: заходить сбоку' }),
+    ],
+  };
+}
+
+/**
+ * Костоправ (Kholo Cultist) — первый вражеский лекарь: держится за спинами
+ * налётчиков и латает их (heal — канал Ивы). Замер: фокусить его сквозь
+ * топоры дороже, чем перерубить фронт (он ещё и лечит себя под фокусом) —
+ * лекарь работает налогом на время и глушит мету добивания: «бей раненых»
+ * вязнет в перелечке, «руби ближайшего» строем — короче и дешевле.
+ */
+export function bonesetter(behindId: string): UnitSpec {
+  return {
+    id: 'bonesetter',
+    name: 'Костоправ',
+    side: 'foe',
+    maxHp: 30,
+    weapons: [{ name: 'кривой посох', dmg: 4, range: 3 }],
+    speed: 5,
+    move: 2,
+    lenses: ['plain'],
+    active: { heal: { amount: 12, range: 4, usesPerBattle: 4 } },
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'heal' }, weight: 1.5, source: 'костоправ: латать рваные раны' }),
+      rule({
+        when: { kind: 'always' },
+        then: { kind: 'behind', ref: { type: 'ally', id: behindId } },
+        weight: 1.2,
+        source: 'костоправ: держаться за спинами',
+      }),
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 0.8, source: 'костоправ: посохом по раненым' }),
+    ],
+  };
+}
+
 /** Финальный босс забега. Ходит со свитой (шаман за спиной, охотник в тылу). */
 export function warlord(): UnitSpec {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
-import { foeIntel, rat, sergeant, slinger, soldier, wolf } from '../src/foes.js';
+import { bonesetter, foeIntel, raider, rat, sergeant, slinger, soldier, wolf } from '../src/foes.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
 import type { Rule } from '../src/ir.js';
 import { posEq } from '../src/grid.js';
@@ -175,6 +175,46 @@ describe('умная элита: латники и сержант', () => {
     expect(cries).toBeGreaterThanOrEqual(15); // добивание латников почти всегда будит клич
     expect(criesLeader).toBe(0); // мёртвый сержант не кличет
     expect(hpLeader).toBeGreaterThan(hpWeakest); // и порядок целей окупается
+  });
+});
+
+describe('ближники + лекарь: налётчики и костоправ', () => {
+  const gang = () => [raider(1), raider(2), bonesetter('raider1')];
+  const atkWeakest = r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 2, source: 'добивай раненых' });
+
+  it('спеки: налётчик-свитч-хиттер (лук и топор), костоправ с исцелением за спинами', () => {
+    const rd = raider(1);
+    expect(rd.weapons!.map((w) => w.name)).toEqual(['костяной лук', 'щербатый топор']);
+    const bs = bonesetter('raider1');
+    expect(bs.active?.heal).toEqual({ amount: 12, range: 4, usesPerBattle: 4 });
+    expect(bs.rules.some((rl) => rl.then.kind === 'heal')).toBe(true);
+    expect(bs.rules.some((rl) => rl.then.kind === 'behind')).toBe(true);
+  });
+
+  it('лекарь работает: заряды льются в бою, бой с ним длиннее', () => {
+    let heals = 0;
+    let rounds = 0;
+    let roundsNoHealer = 0;
+    for (let s = 1; s <= 20; s++) {
+      const seed = s * 17 + 3;
+      const withHealer = runBattle(seed, [...partyWith([]), ...gang()], 'late');
+      const without = runBattle(seed, [...partyWith([]), raider(1), raider(2)], 'late');
+      heals += withHealer.events.filter((e) => e.t === 'heal' && e.unit === 'bonesetter').length;
+      rounds += withHealer.rounds;
+      roundsNoHealer += without.rounds;
+    }
+    expect(heals).toBeGreaterThan(40); // ~2+ лечения за бой
+    expect(rounds).toBeGreaterThan(roundsNoHealer); // лекарь — налог на время
+  });
+
+  it('смоук: перелечка глушит мету добивания — «руби ближайшего» дешевле', () => {
+    const chop = sweep(() => partyWith([]), gang, 'late');
+    const pick = sweep(
+      () => [hero('grom', 0, [atkWeakest]), hero('lia', 1, [atkWeakest]), hero('zhalo', 2, [atkWeakest])],
+      gang,
+      'late',
+    );
+    expect(chop.hpFrac).toBeGreaterThan(pick.hpFrac); // добивание вязнет в перелечке
   });
 });
 

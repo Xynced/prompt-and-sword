@@ -3,7 +3,7 @@ import { type PhraseDraft, compilePhrase } from './constructor.js';
 import { CORE_WORDS, type ConceptId, DEEP_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
-import { archer, berserker, grunt, hunter, packLeader, rat, sergeant, shaman, slinger, soldier, warChief, warlord, wolf } from './foes.js';
+import { archer, berserker, bonesetter, grunt, hunter, packLeader, raider, rat, sergeant, shaman, slinger, soldier, warChief, warlord, wolf } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
 import { ARENA_H, type ArenaTag, PARTY_ZONE_MAX_X, pickTerrain, tileAt } from './terrain.js';
@@ -157,7 +157,7 @@ export function foesForNode(node: MapNode): UnitSpec[] {
         return node.slot === 0
           ? [wolf(1), wolf(2), wolf(3)] // стая: охота на хрупких (4-й волк — в поздних слоях)
           : [slinger(1), slinger(2), slinger(3), slinger(4)]; // застрельщики: камнем по раненым
-      return [berserker(1), grunt(1), grunt(2), archer(1)];
+      return [raider(1), raider(2), bonesetter('raider1')]; // ближники + лекарь: добивание вязнет
     case 'elite':
       return node.layer <= 3
         ? [soldier(1, 'soldier2'), soldier(2, 'soldier1'), sergeant()] // умная элита: порядок целей решает
