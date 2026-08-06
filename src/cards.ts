@@ -105,6 +105,10 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'замахиваюсь ритуалом: трачу ход на большую зону, на мгновенный залп не размениваюсь';
     case 'rage':
       return 'впадаю в ярость: бью сильнее, но и получаю больнее — до конца боя, назад пути нет';
+    case 'heal':
+      return 'лечу: трачу ход на исцеление того из наших, кому хуже всех';
+    case 'bless':
+      return 'благословляю: усиливаю удары самого ударного из наших до конца боя';
   }
 }
 
@@ -158,6 +162,12 @@ export function describeActive(active: ActiveSpec): string {
   }
   if (active.wall) {
     parts.push(`стена (прикрытие себе и смежным, ${active.wall.usesPerBattle} на бой)`);
+  }
+  if (active.heal) {
+    parts.push(`исцеление (+${active.heal.amount} hp, дальность ${active.heal.range}, ${active.heal.usesPerBattle} на бой)`);
+  }
+  if (active.bless) {
+    parts.push(`благословение (урон союзника ×${active.bless.dmgMult}, до конца боя, ${active.bless.usesPerBattle} на бой)`);
   }
   return parts.join(' · ');
 }

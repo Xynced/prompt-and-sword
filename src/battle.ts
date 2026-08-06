@@ -23,6 +23,9 @@ import {
   isAttack,
   isMovement,
   makeCtx,
+  blessMult,
+  blessReady,
+  healReady,
   rageDmgMult,
   rageReady,
   rageVulnMult,
@@ -84,6 +87,10 @@ export type BattleEvent =
   | { t: 'rage'; unit: string }
   /** Охотник пометил цель: тег marked для всей его стороны (прежняя метка снята). */
   | { t: 'mark'; unit: string; target: string }
+  /** Исцеление: цели восстановлено amount hp (после капа), hp — итог. */
+  | { t: 'heal'; unit: string; target: string; amount: number; hp: number }
+  /** Благословение: атаки цели ×mult до конца боя. */
+  | { t: 'bless'; unit: string; target: string; mult: number }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
@@ -298,6 +305,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             const raw = rollDamage(
               weapon.dmg *
                 rageDmgMult(unit) *
+                blessMult(unit) *
                 shadowMult(unit, unit.pos, units, blocked) *
                 attackMult(action) *
                 flankMult,
@@ -414,6 +422,24 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
                 events.push({ t: 'cover', unit: unit.id, level: a.coverLevel, ally: a.id });
               }
             }
+          }
+        } else if (action === 'heal' && targetId) {
+          // первый «hp вверх» в симе: фиксированное значение, без rng
+          const heal = unit.active?.heal;
+          const ally = units.find((u) => u.id === targetId)!;
+          if (heal && healReady(unit) && ally.alive && dist(unit.pos, ally.pos) <= heal.range) {
+            unit.healUses = (unit.healUses ?? 0) + 1;
+            const amount = Math.min(heal.amount, ally.maxHp - ally.hp);
+            ally.hp += amount;
+            events.push({ t: 'heal', unit: unit.id, target: ally.id, amount, hp: ally.hp });
+          }
+        } else if (action === 'bless' && targetId) {
+          const bless = unit.active?.bless;
+          const ally = units.find((u) => u.id === targetId)!;
+          if (bless && blessReady(unit) && ally.alive && dist(unit.pos, ally.pos) <= bless.range) {
+            unit.blessUses = (unit.blessUses ?? 0) + 1;
+            ally.blessedMult = bless.dmgMult;
+            events.push({ t: 'bless', unit: unit.id, target: ally.id, mult: bless.dmgMult });
           }
         } else if (action === 'shieldAlly' && targetId) {
           const ally = units.find((u) => u.id === targetId)!;

@@ -466,6 +466,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('act.preempt')) out.push({ value: { id: 'act.preempt' }, label: 'бить на упреждение' });
   if (has('act.castRitual')) out.push({ value: { id: 'act.castRitual' }, label: 'замахиваться ритуалом' });
   if (has('act.rage')) out.push({ value: { id: 'act.rage' }, label: 'впасть в ярость' });
+  if (has('act.heal')) out.push({ value: { id: 'act.heal' }, label: 'лечить раненых' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -638,6 +639,15 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         break;
       case 'mark':
         pending?.parts.push(`метит ${nm(e.target)}`);
+        break;
+      case 'heal': {
+        const u = units.get(e.target)!;
+        u.hp = e.hp;
+        pending?.parts.push(`исцеляет ${nm(e.target)}: +${e.amount}`);
+        break;
+      }
+      case 'bless':
+        pending?.parts.push(`благословляет ${nm(e.target)} (урон ×${e.mult})`);
         break;
       case 'cover':
         pending?.parts.push(

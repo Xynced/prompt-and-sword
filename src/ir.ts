@@ -34,7 +34,10 @@ import { dist } from './grid.js';
  *   Простр.:   spread (держать интервал — пока у врага жив АОЕ-носитель)
  * План классов:
  *   Действия:  rage (впасть в ярость — гейт актива носителя: урон ×, входящий ×,
- *              до конца боя; слово решает КОГДА потратить)
+ *              до конца боя; слово решает КОГДА потратить),
+ *              heal (лечить — гейт актива целителя; цель выбирает скоринг по нужде),
+ *              bless (благословить — актив жреца; своего слова пока нет:
+ *              жмётся врождённым правилом, словарь бережём для words-плана)
  */
 
 export type Selector =
@@ -93,7 +96,9 @@ export type Preference =
   | { kind: 'spread' }
   | { kind: 'preempt' }
   | { kind: 'castRitual' }
-  | { kind: 'rage' };
+  | { kind: 'rage' }
+  | { kind: 'heal' }
+  | { kind: 'bless' };
 
 export interface Rule {
   when: Condition;
@@ -271,5 +276,9 @@ export function describePreference(p: Preference): string {
       return 'замахиваться ритуалом';
     case 'rage':
       return 'впасть в ярость';
+    case 'heal':
+      return 'лечить';
+    case 'bless':
+      return 'благословить';
   }
 }

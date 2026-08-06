@@ -57,6 +57,7 @@ const PARAMLESS_PREFERENCES = [
   'act.preempt',
   'act.castRitual',
   'act.rage',
+  'act.heal',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -221,6 +222,8 @@ function validatePreference(
       return vocab.includes('act.castRitual') ? { id: 'act.castRitual' } : null;
     case 'act.rage':
       return vocab.includes('act.rage') ? { id: 'act.rage' } : null;
+    case 'act.heal':
+      return vocab.includes('act.heal') ? { id: 'act.heal' } : null;
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {

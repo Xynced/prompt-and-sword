@@ -52,7 +52,8 @@ export type ConceptId =
   | 'cond.underCharge'
   | 'act.castRitual'
   // классы (план классов) — слова активов
-  | 'act.rage';
+  | 'act.rage'
+  | 'act.heal';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -106,6 +107,7 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'cond.underCharge': { id: 'cond.underCharge', label: 'враги накатывают', category: 'condition' },
   'act.castRitual': { id: 'act.castRitual', label: 'замахиваться ритуалом', category: 'action' },
   'act.rage': { id: 'act.rage', label: 'впасть в ярость', category: 'action' },
+  'act.heal': { id: 'act.heal', label: 'лечить', category: 'action' },
 };
 
 /**
@@ -145,6 +147,9 @@ export const CORE_WORDS: ConceptId[] = [
   'space.spread',
   // «вот-вот навалятся» — простое условие, полезное далеко не только кастерам
   'cond.underCharge',
+  // гейт актива целителя: «лечи раненых» — базовая опора партии с Ивой;
+  // без носителя слово молчит (паттерн «накрыть скопление»)
+  'act.heal',
 ];
 
 /** Глубокие слова — качественно новые стратегии; вторая колонка предложений. */

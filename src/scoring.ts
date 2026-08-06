@@ -65,6 +65,8 @@ export const AP_COST: Record<ActionKind, number> = {
   selflessAttack: 2,
   shieldAlly: 2,
   wall: 2,
+  heal: 2,
+  bless: 2,
   fullCover: 3,
   // замах — весь ход: зона объявлена, бьёт в начале следующего хода кастера
   aoeRitual: 3,
@@ -97,6 +99,8 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   aoeRitual: 0,
   rage: 0,
   wall: 0,
+  heal: 0,
+  bless: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -120,6 +124,8 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   rage: 0,
   // стена кроет группу — своя ветка исполнения, генерическая не нужна
   wall: 0,
+  heal: 0,
+  bless: 0,
   wait: 0,
 };
 
@@ -218,6 +224,21 @@ export function wallReady(u: CombatUnit): boolean {
   const wall = u.active?.wall;
   return !!wall && (u.wallUses ?? 0) < wall.usesPerBattle;
 }
+
+/** Готово ли исцеление: есть актив и лимит на бой не выбран. */
+export function healReady(u: CombatUnit): boolean {
+  const heal = u.active?.heal;
+  return !!heal && (u.healUses ?? 0) < heal.usesPerBattle;
+}
+
+/** Готово ли благословение: есть актив и лимит на бой не выбран. */
+export function blessReady(u: CombatUnit): boolean {
+  const bless = u.active?.bless;
+  return !!bless && (u.blessUses ?? 0) < bless.usesPerBattle;
+}
+
+/** Множитель урона атак благословлённого — до конца боя, как ярость. */
+export const blessMult = (u: CombatUnit): number => u.blessedMult ?? 1;
 
 /**
  * Множитель урона атаки из тени (пассив Мары): действует, пока из клетки
@@ -638,6 +659,28 @@ export function generateCandidates(
     out.push({ to: here, action: 'wall' });
   }
 
+  // исцеление: целитель лечит раненого союзника (или себя) в дальности
+  // актива; кого именно — решает скоринг по нужде. Гейт правилом «лечить»
+  if (ap >= AP_COST.heal && allowed('heal') && healReady(self) && fired.some((r) => r.then.kind === 'heal')) {
+    const range = self.active!.heal!.range;
+    for (const a of alliesOf(self, units) as Fighter[]) {
+      if (a.hp < a.maxHp && dist(here, a.pos) <= range) {
+        out.push({ to: here, action: 'heal', targetId: a.id });
+      }
+    }
+  }
+
+  // благословение: жрец усиливает атаки союзника до конца боя; себя не
+  // благословляет — чудо для других (и так выбор цели проще читается)
+  if (ap >= AP_COST.bless && allowed('bless') && blessReady(self) && fired.some((r) => r.then.kind === 'bless')) {
+    const range = self.active!.bless!.range;
+    for (const a of alliesOf(self, units) as Fighter[]) {
+      if (a.id !== self.id && a.blessedMult === undefined && dist(here, a.pos) <= range) {
+        out.push({ to: here, action: 'bless', targetId: a.id });
+      }
+    }
+  }
+
   // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем.
   // Цена через apCostFor: бастиону глухая защита за 2 очка (незыблемость)
   for (const action of ['cover', 'fullCover'] as const) {
@@ -700,6 +743,19 @@ const STRIKE_STYLE_BONUS = 2.5;
  */
 const RAGE_RULE_BONUS = 4;
 
+/**
+ * Премия правила «лечить» при полной нужде. Чуть выше премии атаки: спасение
+ * умирающего важнее среднего удара, но добивание (lethal +4) перевешивает —
+ * снятый враг лечит партию лучше всякого чуда.
+ */
+const HEAL_RULE_BONUS = 3.5;
+
+/** Потеря hp цели, при которой исцеление получает полную премию. */
+const HEAL_FULL_NEED = 0.5;
+
+/** Премия правилу «благословить» — уровень манеры удара: буст, не замена бою. */
+const BLESS_RULE_BONUS = 2.5;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel);
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -722,6 +778,7 @@ function expectedAttackDamage(
   return (
     expectedDamage(weapon.dmg) *
       rageDmgMult(self) *
+      blessMult(self) *
       attackMult(action) *
       (1 - mitigation) *
       (target.exposed ? SELFLESS_VULN_MULT : 1) *
@@ -1033,6 +1090,23 @@ function scorePreference(
       // Оценивать выгоду ярости инстинктами не пытаемся (сколько боя осталось —
       // юнит не знает); в этом и смысл: КОГДА тратить, решает слово игрока
       return cand.action === 'rage' ? RAGE_RULE_BONUS * w : 0;
+    case 'heal': {
+      // лечить: премия растёт с нуждой цели — полная при потере половины hp.
+      // Царапины лечить невыгодно (заряды считаны), умирающего — важнее удара
+      if (cand.action !== 'heal' || !cand.targetId) return 0;
+      const target = units.find((u) => u.id === cand.targetId)!;
+      const need = Math.min((target.maxHp - target.hp) / target.maxHp / HEAL_FULL_NEED, 1);
+      return HEAL_RULE_BONUS * w * need;
+    }
+    case 'bless':
+      // благословить: цель выбирает премия — самый ударный союзник ценнее
+      if (cand.action !== 'bless' || !cand.targetId) return 0;
+      return (
+        BLESS_RULE_BONUS *
+        w *
+        (units.find((u) => u.id === cand.targetId)!.atk /
+          Math.max(...alliesOf(self, units).map((a) => a.atk), 1))
+      );
   }
 }
 

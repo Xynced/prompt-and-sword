@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 12;
+export const PROMPT_VERSION = 13;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -74,6 +74,8 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
     '{"id":"act.castRitual"} — замахиваться ритуалом: тратить ход на телеграфированную зону 5×5 вместо мгновенного залпа; работает только у носителя ритуала',
   'act.rage':
     '{"id":"act.rage"} — впасть в ярость: раз в бой и до конца боя бить сильнее ценой большего входящего урона; правило говорит КОГДА войти; работает только у носителя ярости',
+  'act.heal':
+    '{"id":"act.heal"} — лечить: тратить ход на исцеление раненого союзника (кому хуже всех — решает сам); заряды считаны; работает только у целителя',
 };
 
 export interface PromptContext {

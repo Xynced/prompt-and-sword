@@ -172,6 +172,36 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     ],
   },
   {
+    // жрица-целительница (волна 2): первый «hp вверх» в симе. Врождённое
+    // правило лечит и без слова игрока; слово «лечить» (CORE) позволяет
+    // условить («если врагов больше — лечи») и усилить весом
+    id: 'iva',
+    name: 'Ива',
+    role: 'ranged',
+    stats: { maxHp: 44, speed: 5, move: 2 },
+    weapons: [{ name: 'ясеневый посох', dmg: 5, range: 3 }],
+    active: { heal: { amount: 10, range: 4, usesPerBattle: 2 } },
+    ability: { name: 'Милосердие', desc: 'не бросит раненого — лечит, кому хуже всех' },
+    innate: [
+      r({ when: { kind: 'always' }, then: { kind: 'heal' }, weight: 1.2, source: 'способность: Милосердие' }),
+    ],
+  },
+  {
+    // боевой жрец (волна 2): благословение — длящийся бафф канала ярости.
+    // Своего слова у благословения пока нет (словарь бережём, решит план
+    // words) — жмётся врождённым правилом, цель выбирает скоринг
+    id: 'radim',
+    name: 'Радим',
+    role: 'front',
+    stats: { maxHp: 72, speed: 4, move: 2 },
+    weapons: [{ name: 'молот-благовест', dmg: 7, range: 1, affinity: { attack: 1 } }],
+    active: { bless: { dmgMult: 1.25, range: 3, usesPerBattle: 1 } },
+    ability: { name: 'Благовест', desc: 'благословляет самого ударного из своих' },
+    innate: [
+      r({ when: { kind: 'always' }, then: { kind: 'bless' }, weight: 1.2, source: 'способность: Благовест' }),
+    ],
+  },
+  {
     // воин-мастер оружия: три оружия, выбирает по ситуации — копьё держит
     // строй на расстоянии, меч частит, молот ломает наверняка
     id: 'yar',

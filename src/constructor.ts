@@ -55,7 +55,8 @@ export type PreferenceDraft =
   | { id: 'act.barrage' }
   | { id: 'act.preempt' }
   | { id: 'act.castRitual' }
-  | { id: 'act.rage' };
+  | { id: 'act.rage' }
+  | { id: 'act.heal' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -145,6 +146,8 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       ? 'замахиваться ритуалом'
       : p.id === 'act.rage'
       ? 'впасть в ярость'
+      : p.id === 'act.heal'
+      ? 'лечить раненых'
       : p.id === 'act.attack'
       ? `атаковать: ${CONCEPTS[p.target].label}`
       : p.id === 'act.protect'
@@ -235,6 +238,8 @@ export function compilePhrase(
       ? { kind: 'castRitual' }
       : p.id === 'act.rage'
       ? { kind: 'rage' }
+      : p.id === 'act.heal'
+      ? { kind: 'heal' }
       : p.id === 'act.attack'
       ? { kind: 'attack', target: SELECTOR_MAP[p.target] }
       : p.id === 'act.protect'

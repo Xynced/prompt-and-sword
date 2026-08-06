@@ -18,6 +18,8 @@ export type ActionKind =
   | 'aoeRitual'
   | 'rage'
   | 'wall'
+  | 'heal'
+  | 'bless'
   | 'cover'
   | 'fullCover'
   | 'shieldAlly'
@@ -39,6 +41,16 @@ export interface ActiveSpec {
    * своего слова не нужно.
    */
   wall?: { usesPerBattle: number };
+  /**
+   * Исцеление (целитель): 2 AP — союзнику в дальности +amount hp (не выше
+   * максимума). Первый «hp вверх» в симе; гейт — правило «лечить».
+   */
+  heal?: { amount: number; range: number; usesPerBattle: number };
+  /**
+   * Благословение (боевой жрец): 2 AP — атаки союзника ×dmgMult до конца
+   * боя. Тот же канал длящихся статусов, что у ярости.
+   */
+  bless?: { dmgMult: number; range: number; usesPerBattle: number };
 }
 
 /**
@@ -142,6 +154,12 @@ export interface CombatUnit {
   raged?: boolean;
   /** Потраченных «стен» в этом бою — лимит usesPerBattle. */
   wallUses?: number;
+  /** Потраченных исцелений в этом бою — лимит usesPerBattle. */
+  healUses?: number;
+  /** Потраченных благословений в этом бою — лимит usesPerBattle. */
+  blessUses?: number;
+  /** Благословлён: атаки ×множитель до конца боя (число — от спеки кастера). */
+  blessedMult?: number;
   tags: string[];
   /** Линзы характера в порядке применения (1–3 у героев). */
   lenses: LensId[];
