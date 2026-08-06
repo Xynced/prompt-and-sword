@@ -37,7 +37,9 @@ import { dist } from './grid.js';
  *              до конца боя; слово решает КОГДА потратить),
  *              heal (лечить — гейт актива целителя; цель выбирает скоринг по нужде),
  *              bless (благословить — актив жреца; своего слова пока нет:
- *              жмётся врождённым правилом, словарь бережём для words-плана)
+ *              жмётся врождённым правилом, словарь бережём для words-плана),
+ *              feint (финт — актив трюкачки, тоже без слова: открыть врага
+ *              под удары своих)
  */
 
 export type Selector =
@@ -98,7 +100,8 @@ export type Preference =
   | { kind: 'castRitual' }
   | { kind: 'rage' }
   | { kind: 'heal' }
-  | { kind: 'bless' };
+  | { kind: 'bless' }
+  | { kind: 'feint' };
 
 export interface Rule {
   when: Condition;
@@ -280,5 +283,7 @@ export function describePreference(p: Preference): string {
       return 'лечить';
     case 'bless':
       return 'благословить';
+    case 'feint':
+      return 'финтить';
   }
 }

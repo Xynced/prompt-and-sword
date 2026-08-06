@@ -209,6 +209,9 @@ function verboseRun(setName: string, seed: number): void {
       case 'bless':
         console.log(`  ${nm(e.unit)} благословляет ${nm(e.target)} (урон ×${e.mult})`);
         break;
+      case 'feint':
+        console.log(`  ${nm(e.unit)} финтит: ${nm(e.target)} открыт`);
+        break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);
         break;

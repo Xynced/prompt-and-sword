@@ -59,6 +59,8 @@ export const AP_COST: Record<ActionKind, number> = {
   // войти в ярость — короткий рык, а не замах: дорогая часть — размен
   // «получаю больнее до конца боя», а не очки хода
   rage: 1,
+  // финт — короткий обман, а не удар: дешёвый сетап под удары своих
+  feint: 1,
   aoeBlast: 2,
   aoeLine: 2,
   attack: 2,
@@ -101,6 +103,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   wall: 0,
   heal: 0,
   bless: 0,
+  feint: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -126,6 +129,7 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   wall: 0,
   heal: 0,
   bless: 0,
+  feint: 0,
   wait: 0,
 };
 
@@ -266,6 +270,20 @@ export function shadowMult(
   return spotted ? 1 : mult;
 }
 
+/**
+ * Множитель кары (пассив Зари): атаки ×mult по врагу, чей удар последним
+ * получил кто-то из живых союзников (канал lastAttackerId — тот же, что у
+ * селектора «кто атаковал меня»).
+ */
+export function retributionMult(self: CombatUnit, target: CombatUnit, units: readonly CombatUnit[]): number {
+  const mult = self.passives?.retribution?.mult;
+  if (!mult) return 1;
+  const guilty = units.some(
+    (a) => a.alive && a.side === self.side && a.lastAttackerId === target.id,
+  );
+  return guilty ? mult : 1;
+}
+
 /** Множитель своего урона от ярости (атаки оружием; касты не трогает). */
 export const rageDmgMult = (u: CombatUnit): number => (u.raged ? u.active?.rage?.dmgMult ?? 1 : 1);
 
@@ -352,6 +370,10 @@ export function zoneDangerAt(p: Pos, units: readonly CombatUnit[], target: Comba
 export const isMovement = (a: ActionKind): boolean => a === 'move' || a === 'carefulStep';
 
 export const attackMult = (a: ActionKind): number => ATTACK_MULT[a];
+
+/** Множитель вида атаки для конкретного оружия: кулаки Юны бьют слабым ударом крепче общего. */
+export const attackMultFor = (a: ActionKind, w: WeaponSpec): number =>
+  a === 'weakAttack' ? w.weakMult ?? WEAK_ATK_MULT : ATTACK_MULT[a];
 export const isAttack = (a: ActionKind): boolean => ATTACK_MULT[a] > 0;
 export const coverLevelOf = (a: ActionKind): number => COVER_LEVEL[a];
 
@@ -681,6 +703,16 @@ export function generateCandidates(
     }
   }
 
+  // финт: открыть смежного врага под удары своих (и свои же). Гейт —
+  // правило «финтить» (врождённое у трюкачки); открытого второй раз не финтят
+  if (ap >= AP_COST.feint && allowed('feint') && self.active?.feint && fired.some((r) => r.then.kind === 'feint')) {
+    for (const e of enemiesOf(self, units) as Fighter[]) {
+      if (dist(here, e.pos) === 1 && !e.exposed) {
+        out.push({ to: here, action: 'feint', targetId: e.id });
+      }
+    }
+  }
+
   // прикрытие поверх такого же или лучшего ничего не даёт — не предлагаем.
   // Цена через apCostFor: бастиону глухая защита за 2 очка (незыблемость)
   for (const action of ['cover', 'fullCover'] as const) {
@@ -756,6 +788,14 @@ const HEAL_FULL_NEED = 0.5;
 /** Премия правилу «благословить» — уровень манеры удара: буст, не замена бою. */
 const BLESS_RULE_BONUS = 2.5;
 
+/**
+ * Премия правилу «финтить» при двух добирающих. Должна обыгрывать слабый удар
+ * (премия атаки 3 × apShare 0.5 + агрессия ≈ 2.9 при весе 2): жадный цикл не
+ * видит связку «финт → удар», поэтому финт обязан выигрывать сам по себе —
+ * его выгоду добирают следующие удары по открытой цели.
+ */
+const FEINT_RULE_BONUS = 3.2;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - ally.coverLevel);
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -779,7 +819,7 @@ function expectedAttackDamage(
     expectedDamage(weapon.dmg) *
       rageDmgMult(self) *
       blessMult(self) *
-      attackMult(action) *
+      attackMultFor(action, weapon) *
       (1 - mitigation) *
       (target.exposed ? SELFLESS_VULN_MULT : 1) *
       rageVulnMult(target) +
@@ -1098,6 +1138,17 @@ function scorePreference(
       const need = Math.min((target.maxHp - target.hp) / target.maxHp / HEAL_FULL_NEED, 1);
       return HEAL_RULE_BONUS * w * need;
     }
+    case 'feint': {
+      // финтить: ценность — открытая цель под ударами; полная премия, когда
+      // добрать могут хотя бы двое своих (включая самого финтёра — он бьёт
+      // тем же ходом), иначе финт вхолостую
+      if (cand.action !== 'feint' || !cand.targetId) return 0;
+      const target = units.find((u) => u.id === cand.targetId)!;
+      const reachers = (alliesOf(self, units) as Fighter[]).filter(
+        (a) => dist(a.pos, target.pos) <= strikeReach(a),
+      ).length;
+      return FEINT_RULE_BONUS * w * Math.min(reachers, 2) / 2;
+    }
     case 'bless':
       // благословить: цель выбирает премия — самый ударный союзник ценнее
       if (cand.action !== 'bless' || !cand.targetId) return 0;
@@ -1138,7 +1189,8 @@ export function scoreCandidate(
     const target = units.find((u) => u.id === cand.targetId)!;
     const expDmg = Math.min(
       expectedAttackDamage(self, cand.action, target, ctx, cand.to, weapon) *
-        shadowMult(self, cand.to, units, ctx.blocked),
+        shadowMult(self, cand.to, units, ctx.blocked) *
+        retributionMult(self, target, units),
       target.hp,
     );
     const lethal = expDmg >= target.hp;

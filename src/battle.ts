@@ -23,9 +23,11 @@ import {
   isAttack,
   isMovement,
   makeCtx,
+  attackMultFor,
   blessMult,
   blessReady,
   healReady,
+  retributionMult,
   rageDmgMult,
   rageReady,
   rageVulnMult,
@@ -82,7 +84,8 @@ export type BattleEvent =
   | { t: 'move'; unit: string; from: Pos; to: Pos }
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
-  | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos }
+  /** holds: зона «полымя» держится — будут ещё залпы (пульсы Весты). */
+  | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos; holds?: true }
   /** Вошёл в ярость: урон и уязвимость по спеке актива — до конца боя. */
   | { t: 'rage'; unit: string }
   /** Охотник пометил цель: тег marked для всей его стороны (прежняя метка снята). */
@@ -91,6 +94,8 @@ export type BattleEvent =
   | { t: 'heal'; unit: string; target: string; amount: number; hp: number }
   /** Благословение: атаки цели ×mult до конца боя. */
   | { t: 'bless'; unit: string; target: string; mult: number }
+  /** Финт: цель открыта (входящий ×SELFLESS_VULN_MULT) до её следующего хода. */
+  | { t: 'feint'; unit: string; target: string }
   | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
@@ -235,8 +240,14 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
       // Смерть кастера отменяет зону сама собой: мёртвый хода не получает
       if (unit.pendingRitual) {
         const { at } = unit.pendingRitual;
-        unit.pendingRitual = undefined;
-        events.push({ t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at } });
+        // «полымя»: зона с пульсами бьёт по разу в начале каждого хода
+        // кастера, пока пульсы не выйдут; holds в событии — зона ещё висит
+        const pulsesLeft = (unit.pendingRitual.pulsesLeft ?? 1) - 1;
+        unit.pendingRitual = pulsesLeft > 0 ? { at, pulsesLeft } : undefined;
+        events.push({
+          t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at },
+          ...(pulsesLeft > 0 ? { holds: true as const } : {}),
+        });
         applyAoe(unit, unit.aoe?.ritual?.mult ?? 1, aoeVictims(at, units, AOE_RITUAL_RADIUS));
         const w = winnerOf(units);
         if (w) {
@@ -307,7 +318,8 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
                 rageDmgMult(unit) *
                 blessMult(unit) *
                 shadowMult(unit, unit.pos, units, blocked) *
-                attackMult(action) *
+                retributionMult(unit, target, units) *
+                attackMultFor(action, weapon) *
                 flankMult,
               rng,
             );
@@ -380,7 +392,10 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             dist(unit.pos, at) <= ritual.range &&
             hasLoS(unit.pos, at, blocked)
           ) {
-            unit.pendingRitual = { at: { ...at } };
+            unit.pendingRitual = {
+              at: { ...at },
+              ...(ritual.pulses && ritual.pulses > 1 ? { pulsesLeft: ritual.pulses } : {}),
+            };
             unit.lastRitualRound = round;
             unit.ritualUses = (unit.ritualUses ?? 0) + 1;
             // dmg — номинал по чистой цели, для телеграфии в логе и разведке
@@ -440,6 +455,12 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
             unit.blessUses = (unit.blessUses ?? 0) + 1;
             ally.blessedMult = bless.dmgMult;
             events.push({ t: 'bless', unit: unit.id, target: ally.id, mult: bless.dmgMult });
+          }
+        } else if (action === 'feint' && targetId) {
+          const target = units.find((u) => u.id === targetId)!;
+          if (unit.active?.feint && target.alive && dist(unit.pos, target.pos) === 1) {
+            target.exposed = true;
+            events.push({ t: 'feint', unit: unit.id, target: target.id });
           }
         } else if (action === 'shieldAlly' && targetId) {
           const ally = units.find((u) => u.id === targetId)!;

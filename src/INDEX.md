@@ -14,7 +14,7 @@
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», вычисление условий и селекторов | `Rule`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
 | [vocab.ts](vocab.ts) | Словарь концептов (44: условия, селекторы, действия, манера удара, пространство, активы), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
 | [lens.ts](lens.ts) | Линзы характеров — детерминированные трансформации IR (10 в пуле), инстинкты и тяга к видам действий | `applyLens`, `rollLenses`, `biasFor`, `ActionBias`, `LENS_POOL`, `LENS_RU` |
-| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; кандидаты атак по каждому оружию, аффинность манер; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady`, `weaponsOf`, `rageReady`, `wallReady`, `healReady`, `blessReady`, `shadowMult` |
+| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; кандидаты атак по каждому оружию, аффинность манер; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady`, `weaponsOf`, `rageReady`, `wallReady`, `healReady`, `blessReady`, `shadowMult`, `retributionMult`, `attackMultFor` |
 | [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, площадные касты (телеграф ритуала, залп в начале хода кастера), event-sourced лог, превью спавнов | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult`, `spawnPreview` |
 | [metrics.ts](metrics.ts) | Поведенческий отпечаток боя для статистики и сравнения | `fingerprint`, `Fingerprint` |
 
@@ -34,7 +34,7 @@
 
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
-| [heroes.ts](heroes.ts) | Пул из 11 героев (вариант класса pf2e: оружие, актив, пассив, способность; Ива лечит, Радим благословляет), сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
+| [heroes.ts](heroes.ts) | Пул из 16 героев — 8 классов pf2e × 2 варианта (оружие, актив, пассив, способность), сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
 | [foes.ts](foes.ts) | Фабрики врагов (принципы в том же IR) + разведка перед боем | `grunt`, `warChief`, `shaman`, …, `foeIntel` |
 | [run.ts](run.ts) | Забег: ветвящаяся карта 15 узлов, состояние партии, расстановка перед боем, скрипторий, события, трофеи, босс | `generateMap`, `RunState`, `foesForNode`, `arenaForNode`, `setDeploy` |
 | [sparring.ts](sparring.ts) | «Переиграть с теми же костями»: тот же seed, новые принципы, дифф исходов | `sparring`, `SparringDiff` |

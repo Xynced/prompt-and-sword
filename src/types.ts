@@ -20,6 +20,7 @@ export type ActionKind =
   | 'wall'
   | 'heal'
   | 'bless'
+  | 'feint'
   | 'cover'
   | 'fullCover'
   | 'shieldAlly'
@@ -51,6 +52,11 @@ export interface ActiveSpec {
    * боя. Тот же канал длящихся статусов, что у ярости.
    */
   bless?: { dmgMult: number; range: number; usesPerBattle: number };
+  /**
+   * Финт (трюкачка): 1 AP — смежный враг «открыт» (входящий ×SELFLESS_VULN_MULT)
+   * до своего следующего хода. Сетап для своих: «финт → все бьют».
+   */
+  feint?: Record<string, never>;
 }
 
 /**
@@ -68,6 +74,8 @@ export interface PassiveSpec {
   shadow?: { mult: number };
   /** В спину (Тесса): фланговый множитель урона вместо общего 1.5. */
   sneak?: { flankMult: number };
+  /** Кара (Заря): атаки ×mult по врагу, чей удар последним получил кто-то из своих. */
+  retribution?: { mult: number };
 }
 
 /**
@@ -86,6 +94,8 @@ export interface WeaponSpec {
   range: number;
   /** Родные (1) и чуждые (−1) манеры удара; отсутствие — нейтрально. */
   affinity?: Partial<Record<'weakAttack' | 'attack' | 'selflessAttack', 1 | -1>>;
+  /** Множитель слабого удара этого оружия вместо общего WEAK_ATK_MULT (кулаки Юны). */
+  weakMult?: number;
   /** Площадные формы оружия (план АОЕ) — жезл Лии, копьё ци Жала, посох шамана. */
   aoe?: AoeSpec;
 }
@@ -104,8 +114,10 @@ export interface AoeSpec {
    * Ритуал: телеграфированная зона 5×5 — замах весь ход (3 AP), бьёт всех,
    * кто в зоне в начале **следующего** хода кастера; смерть кастера отменяет.
    * cooldown — раундов между замахами; usesPerBattle — жёсткий лимит на бой.
+   * pulses — залпов подряд (по одному на ход кастера): зона держится и жжёт,
+   * пока пульсы не выйдут, — «полымя»-контроль Весты; по умолчанию 1.
    */
-  ritual?: { range: number; mult: number; cooldown?: number; usesPerBattle?: number };
+  ritual?: { range: number; mult: number; cooldown?: number; usesPerBattle?: number; pulses?: number };
 }
 
 export type LensId =
@@ -165,8 +177,8 @@ export interface CombatUnit {
   lenses: LensId[];
   /** Площадное оружие носителя АОЕ; у большинства юнитов отсутствует. */
   aoe?: AoeSpec;
-  /** Висящая зона ритуала: центр 5×5; бьёт в начале следующего хода кастера. */
-  pendingRitual?: { at: Pos };
+  /** Висящая зона ритуала: центр 5×5; бьёт в начале следующего хода кастера; pulsesLeft — оставшиеся залпы «полымя». */
+  pendingRitual?: { at: Pos; pulsesLeft?: number };
   /** Раунд последнего замаха ритуала — перезарядка. */
   lastRitualRound?: number;
   /** Потраченных применений ритуала в этом бою — лимит usesPerBattle. */

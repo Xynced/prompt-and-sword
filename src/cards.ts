@@ -109,6 +109,8 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'лечу: трачу ход на исцеление того из наших, кому хуже всех';
     case 'bless':
       return 'благословляю: усиливаю удары самого ударного из наших до конца боя';
+    case 'feint':
+      return 'финчу: обманным выпадом открываю врага под удары своих';
   }
 }
 
@@ -130,7 +132,8 @@ export function describeAoe(aoe: AoeSpec): string {
       : aoe.ritual.usesPerBattle
         ? `, ${aoe.ritual.usesPerBattle} на бой`
         : '';
-    w.push(`ритуал 5×5 (замах виден за ход${limit})`);
+    const pulses = aoe.ritual.pulses && aoe.ritual.pulses > 1 ? `, жжёт ${aoe.ritual.pulses} хода` : '';
+    w.push(`ритуал 5×5 (замах виден за ход${pulses}${limit})`);
   }
   return w.join(' · ');
 }
@@ -169,6 +172,9 @@ export function describeActive(active: ActiveSpec): string {
   if (active.bless) {
     parts.push(`благословение (урон союзника ×${active.bless.dmgMult}, до конца боя, ${active.bless.usesPerBattle} на бой)`);
   }
+  if (active.feint) {
+    parts.push('финт (открывает врага под удары своих)');
+  }
   return parts.join(' · ');
 }
 
@@ -180,6 +186,7 @@ export function describePassives(p: PassiveSpec): string {
   if (p.steadfast) parts.push('глухая оборона за 2 очка');
   if (p.shadow) parts.push(`из тени урон ×${p.shadow.mult}`);
   if (p.sneak) parts.push(`фланг ×${p.sneak.flankMult}`);
+  if (p.retribution) parts.push(`кара обидчикам своих ×${p.retribution.mult}`);
   return parts.join(' · ');
 }
 

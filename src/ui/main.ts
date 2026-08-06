@@ -612,10 +612,11 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         break;
       case 'aoeCast':
         if (e.form === 'ritual') {
-          // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр
+          // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр;
+          // «полымя» (holds) держит зону до последнего пульса
           flush();
           pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`] };
-          activeZones.delete(e.unit);
+          if (!e.holds) activeZones.delete(e.unit);
         } else if (e.form === 'line') {
           pending?.parts.push(`рубит волной в сторону ${cellName(e.at.x, e.at.y)}`);
         } else {
@@ -648,6 +649,9 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
       }
       case 'bless':
         pending?.parts.push(`благословляет ${nm(e.target)} (урон ×${e.mult})`);
+        break;
+      case 'feint':
+        pending?.parts.push(`финтит: ${nm(e.target)} открыт`);
         break;
       case 'cover':
         pending?.parts.push(

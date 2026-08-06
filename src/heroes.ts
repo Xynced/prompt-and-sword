@@ -202,6 +202,96 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     ],
   },
   {
+    // варвар-секироносец (волна 2): двуручник с коротким «росчерком» —
+    // мгновенная линия 1×2 рубит двоих в замесе; гейт словом «накрыть
+    // скопление», как у Жала. Тяжёлое железо не для мелких замахов
+    id: 'ryk',
+    name: 'Рык',
+    role: 'front',
+    stats: { maxHp: 64, speed: 5, move: 2 },
+    weapons: [
+      {
+        name: 'двуручная секира',
+        dmg: 9,
+        range: 1,
+        affinity: { attack: 1, selflessAttack: 1, weakAttack: -1 },
+        aoe: { line: { len: 2, mult: 0.75 } },
+      },
+    ],
+    ability: { name: 'Росчерк', desc: 'широкий взмах достаёт двоих, вставших в линию' },
+    innate: [
+      r({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 0.9, source: 'способность: Росчерк' }),
+    ],
+  },
+  {
+    // плутовка-трюкачка (волна 2): финт открывает врага под удары своих —
+    // связка «финт → все бьют». Слова у финта нет (прецедент благословения):
+    // жмётся врождённым правилом, цену выбора несёт скоринг
+    id: 'lisa',
+    name: 'Лиса',
+    role: 'melee',
+    stats: { maxHp: 42, speed: 8, move: 3 },
+    weapons: [{ name: 'парные ножи', dmg: 6, range: 1, affinity: { weakAttack: 1 } }],
+    active: { feint: {} },
+    ability: { name: 'Трюк', desc: 'обманным выпадом открывает врага под удары своих' },
+    innate: [
+      r({ when: { kind: 'always' }, then: { kind: 'feint' }, weight: 1.2, source: 'способность: Трюк' }),
+    ],
+  },
+  {
+    // волшебница-контролёр (волна 2): без залпа; «полымя» — ритуал, зона
+    // которого жжёт три хода подряд: из неё выбегают, её обходят — контроль
+    // пространства, а не разовый урон. Гейт теми же словами каста
+    id: 'vesta',
+    name: 'Веста',
+    role: 'ranged',
+    stats: { maxHp: 38, speed: 5, move: 2 },
+    weapons: [
+      {
+        name: 'гримуар пламени',
+        dmg: 6,
+        range: 4,
+        aoe: { ritual: { range: 5, mult: 0.8, cooldown: 4, pulses: 3 } },
+      },
+    ],
+    ability: { name: 'Полымя', desc: 'выжигает зону, которая горит три хода подряд' },
+    innate: [
+      r({
+        when: { kind: 'hpBelow', who: 'self', frac: 0.4 },
+        then: { kind: 'retreat' },
+        weight: 1.5,
+        source: 'способность: Полымя',
+      }),
+    ],
+  },
+  {
+    // монахиня-шквал (волна 2): кулаки бьют слабым ударом крепче общего
+    // (0.55 против 0.45) — волюм-боец, которому «бить часто» родной язык
+    id: 'yuna',
+    name: 'Юна',
+    role: 'melee',
+    stats: { maxHp: 52, speed: 7, move: 3 },
+    weapons: [{ name: 'кулаки бури', dmg: 7, range: 1, weakMult: 0.55, affinity: { weakAttack: 1 } }],
+    ability: { name: 'Шквал', desc: 'град быстрых ударов вместо одного тяжёлого' },
+    innate: [
+      r({ when: { kind: 'always' }, then: { kind: 'strikeOften' }, weight: 1.2, source: 'способность: Шквал' }),
+    ],
+  },
+  {
+    // паладин-карательница (волна 2): пассив «Кара» — бьёт больнее того, кто
+    // поднял руку на её своих (канал lastAttackerId); врождённо мстит и за себя
+    id: 'zarya',
+    name: 'Заря',
+    role: 'front',
+    stats: { maxHp: 68, speed: 5, move: 2 },
+    weapons: [{ name: 'клинок зари', dmg: 8, range: 1, affinity: { attack: 1 } }],
+    passives: { retribution: { mult: 1.25 } },
+    ability: { name: 'Кара', desc: 'обидчик своих получает сполна' },
+    innate: [
+      r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'attacker' }, weight: 0.9, source: 'способность: Кара' }),
+    ],
+  },
+  {
     // воин-мастер оружия: три оружия, выбирает по ситуации — копьё держит
     // строй на расстоянии, меч частит, молот ломает наверняка
     id: 'yar',
