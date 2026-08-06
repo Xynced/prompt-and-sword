@@ -13,6 +13,7 @@ import {
   aoeDamage,
   aoeVictims,
   apCostFor,
+  blastReady,
   castVictims,
   ritualReady,
   attackMult,
@@ -327,7 +328,8 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           // залп: фиксированный урон всем в 3×3 вокруг центра — обеим сторонам
           // (friendly fire включён) и самому кастеру, если влез в зону
           const blast = unit.aoe?.blast;
-          if (blast && dist(unit.pos, at) <= blast.range && hasLoS(unit.pos, at, blocked)) {
+          if (blast && blastReady(unit) && dist(unit.pos, at) <= blast.range && hasLoS(unit.pos, at, blocked)) {
+            unit.blastUses = (unit.blastUses ?? 0) + 1;
             events.push({ t: 'aoeCast', unit: unit.id, form: 'blast', at: { ...at } });
             applyAoe(unit, blast.mult, aoeVictims(at, units));
           }

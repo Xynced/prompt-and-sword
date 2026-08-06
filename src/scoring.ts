@@ -171,6 +171,13 @@ export function ritualReady(u: CombatUnit, round: number): boolean {
   return true;
 }
 
+/** Готов ли залп: лимит применений на бой не выбран. */
+export function blastReady(u: CombatUnit): boolean {
+  const blast = u.aoe?.blast;
+  if (!blast) return false;
+  return blast.usesPerBattle === undefined || (u.blastUses ?? 0) < blast.usesPerBattle;
+}
+
 /** Живые юниты обеих сторон в зоне — friendly fire включён для всех. */
 export function aoeVictims<T extends CombatUnit>(
   center: Pos,
@@ -467,7 +474,7 @@ export function generateCandidates(
   // врагов: только клетки, где зона накрывает хотя бы одного
   if (self.aoe && self.compiled.rules.some((r) => r.then.kind === 'barrage')) {
     const forms: { action: ActionKind; form?: { range: number }; ready: boolean }[] = [
-      { action: 'aoeBlast', form: self.aoe.blast, ready: true },
+      { action: 'aoeBlast', form: self.aoe.blast, ready: blastReady(self) },
       { action: 'aoeRitual', form: self.aoe.ritual, ready: ritualReady(self, round) },
     ];
     // с манерой «бить на упреждение» ритуал целит и в проекции движения

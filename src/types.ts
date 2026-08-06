@@ -28,7 +28,7 @@ export type ActionKind =
  */
 export interface AoeSpec {
   /** Залп: мгновенный взрыв 3×3 вокруг центра в дальности range; урон mult × ожидаемый удар, фиксированный. */
-  blast?: { range: number; mult: number };
+  blast?: { range: number; mult: number; usesPerBattle?: number };
   /** Линия («волна клинка»): мгновенная полоса 1×len от себя в одном из 8 направлений; камень обрывает взмах. */
   line?: { len: number; mult: number };
   /**
@@ -82,6 +82,8 @@ export interface CombatUnit {
   lastRitualRound?: number;
   /** Потраченных применений ритуала в этом бою — лимит usesPerBattle. */
   ritualUses?: number;
+  /** Потраченных залпов в этом бою — лимит usesPerBattle заряда. */
+  blastUses?: number;
   /** Кто последним нанёс мне урон — для селектора «кто атаковал меня». */
   lastAttackerId?: string;
 }

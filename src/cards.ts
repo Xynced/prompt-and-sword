@@ -109,7 +109,10 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
  */
 export function describeAoe(aoe: AoeSpec): string {
   const w: string[] = [];
-  if (aoe.blast) w.push(`заряд 3×3 (дальность ${aoe.blast.range})`);
+  if (aoe.blast) {
+    const limit = aoe.blast.usesPerBattle ? `, ${aoe.blast.usesPerBattle} на бой` : '';
+    w.push(`заряд 3×3 (дальность ${aoe.blast.range}${limit})`);
+  }
   if (aoe.line) w.push(`волна 1×${aoe.line.len}`);
   if (aoe.ritual) {
     const limit = aoe.ritual.cooldown

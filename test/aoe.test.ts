@@ -313,7 +313,7 @@ describe('слова АОЕ: пулы, конструктор, карточки,
 describe('оружие носителя видно игроку', () => {
   it('describeAoe: Лия и Жало читаются с карточки, как враги — с разведки', () => {
     expect(describeAoe(heroArchetype('lia').aoe!)).toBe(
-      'заряд 3×3 (дальность 4) · ритуал 5×5 (замах виден за ход, 1 на бой)',
+      'заряд 3×3 (дальность 4, 1 на бой) · ритуал 5×5 (замах виден за ход, 1 на бой)',
     );
     expect(describeAoe(heroArchetype('zhalo').aoe!)).toBe('волна 1×4');
     expect(describeAoe(shaman('nobody').aoe!)).toBe(

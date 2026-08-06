@@ -316,7 +316,7 @@ describe('слова АОЕ: интервал и упреждение (шаг 5)
     expect(coversBoth(dp.chosen.at!, unitsPlain)).toBe(false);
   });
 
-  it('Лия: ритуал раз в бой, залп остаётся', () => {
+  it('Лия: и ритуал, и залп — ровно раз в бой', () => {
     const lia = heroArchetype('lia');
     const spec: UnitSpec = {
       id: 'lia', name: 'Лия', side: 'party',
@@ -330,9 +330,9 @@ describe('слова АОЕ: интервал и упреждение (шаг 5)
     });
     const r = runBattle(4, [spec, tank('f1', { x: 8, y: 5 }), tank('f2', { x: 9, y: 5 })]);
     const tele = r.events.filter((e) => e.t === 'telegraph');
-    expect(tele.length).toBe(1); // usesPerBattle: 1 — второго замаха нет
+    expect(tele.length).toBe(1); // ритуал: usesPerBattle 1 — второго замаха нет
     const blasts = r.events.filter((e) => e.t === 'aoeCast' && e.form === 'blast');
-    expect(blasts.length).toBeGreaterThan(0); // залп не ограничен
+    expect(blasts.length).toBe(1); // заряд: usesPerBattle 1 — второго залпа нет
   });
 });
 

@@ -64,9 +64,12 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         source: 'способность: Чутьё',
       }),
     ],
-    // боевой маг: залп и ритуал (раз в бой); без слова «накрыть скопление»
+    // боевой маг: залп и ритуал — оба раз в бой; без слова «накрыть скопление»
     // оружие молчит
-    aoe: { blast: { range: 4, mult: 0.75 }, ritual: { range: 4, mult: 1.2, usesPerBattle: 1 } },
+    aoe: {
+      blast: { range: 4, mult: 0.75, usesPerBattle: 1 },
+      ritual: { range: 4, mult: 1.2, usesPerBattle: 1 },
+    },
   },
   {
     id: 'skala',
