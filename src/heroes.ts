@@ -65,10 +65,12 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       }),
     ],
     // боевой маг: залп и ритуал — оба раз в бой; без слова «накрыть скопление»
-    // оружие молчит
+    // оружие молчит. Дальность ритуала 6 (не 4): с move 1 Лия кастует по
+    // бегущим издали, и центр должен дотягиваться до скопления, а не цеплять
+    // его краем зоны
     aoe: {
       blast: { range: 4, mult: 0.75, usesPerBattle: 1 },
-      ritual: { range: 4, mult: 1.2, usesPerBattle: 1 },
+      ritual: { range: 6, mult: 1.2, usesPerBattle: 1 },
     },
   },
   {

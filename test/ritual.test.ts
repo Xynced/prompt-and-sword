@@ -419,3 +419,18 @@ describe('инструкции применения оружия (хвост п�
     expect(generateCandidates(caster, [caster, e1], undefined, 3, 1).some((c) => c.action === 'aoeRitual')).toBe(true);
   });
 });
+
+describe('точность ритуала (глубина зоны)', () => {
+  it('центр — на скоплении, а не цепляет его краем', () => {
+    const caster = fighter('c', 'party', { x: 2, y: 8 }, {
+      atk: 8, move: 1, range: 4, aoe: { ritual: { range: 6, mult: 1.2 } },
+    }, [rule({ kind: 'barrage' })]);
+    const e1 = fighter('e1', 'foe', { x: 6, y: 8 }, { move: 2 });
+    const e2 = fighter('e2', 'foe', { x: 7, y: 8 }, { move: 2 });
+    const d = decide(caster, [caster, e1, e2]);
+    expect(d.chosen.action).toBe('aoeRitual');
+    // оба врага в глубине зоны (дистанция до центра ≤1), не на краю (2)
+    expect(dist(d.chosen.at!, e1.pos)).toBeLessThanOrEqual(1);
+    expect(dist(d.chosen.at!, e2.pos)).toBeLessThanOrEqual(1);
+  });
+});

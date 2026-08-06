@@ -126,6 +126,10 @@ export const AOE_RITUAL_RADIUS = 2;
 /** Радиус зоны по виду каста. */
 export const aoeRadius = (a: ActionKind): number => (a === 'aoeRitual' ? AOE_RITUAL_RADIUS : AOE_BLAST_RADIUS);
 
+/** Глубина точки в зоне ритуала: 1 в центре, ~0.33 у края. */
+export const ritualDepth = (p: Pos, center: Pos): number =>
+  (AOE_RITUAL_RADIUS + 1 - dist(p, center)) / (AOE_RITUAL_RADIUS + 1);
+
 /**
  * Клетки линии («волны клинка»): от from в направлении dir (единичный вектор,
  * 8 направлений), длиной len. Камень и край поля обрывают взмах; тела — нет.
@@ -870,10 +874,13 @@ function scorePreference(
       // Коэффициент выше премии скопления: прогноз должен перетягивать выбор
       // центра у зон «где стоят», иначе слово не читается
       if (cand.action !== 'aoeRitual' || !cand.at) return 0;
-      const covered = (enemiesOf(self, units) as Fighter[]).filter(
-        (e) => dist(predictedPos(e, units, ctx), cand.at!) <= AOE_RITUAL_RADIUS,
-      ).length;
-      return covered >= 2 ? 2.5 * covered * w : 0;
+      // премия взвешена глубиной проекций: зона, где бегущие окажутся в
+      // середине, обыгрывает зону, где они будут у края
+      const depths = (enemiesOf(self, units) as Fighter[])
+        .map((e) => predictedPos(e, units, ctx))
+        .filter((p) => dist(p, cand.at!) <= AOE_RITUAL_RADIUS)
+        .map((p) => ritualDepth(p, cand.at!));
+      return depths.length >= 2 ? 2.5 * depths.reduce((s, d) => s + d, 0) * w : 0;
     }
     case 'castRitual': {
       // замахиваться ритуалом: манера каста по образцу манер удара — премия
@@ -932,7 +939,14 @@ export function scoreCandidate(
     let own = 0;
     for (const v of castVictims(cand.action, cand.at, self, units, ctx.blocked)) {
       const dmg = Math.min(aoeDamage(self, aoeForm.mult, v), v.hp);
-      const val = (dmg / v.maxHp) * 6 + (dmg >= v.hp ? 4 : 0);
+      let val = (dmg / v.maxHp) * 6 + (dmg >= v.hp ? 4 : 0);
+      // ритуал бьёт через ход: жертва у края зоны выйдет одним шагом, из
+      // середины — не успеет. Глубина в зоне — ожидаемая доля попадания;
+      // без неё все центры, накрывшие пару, равны, и тай-брейк порядка
+      // генерации выбирал угловую зону — «цепляет краем» вместо накрытия
+      if (cand.action === 'aoeRitual') {
+        val *= 0.4 + 0.6 * ritualDepth(v.pos, cand.at);
+      }
       if (v.side !== self.side) foes += val;
       else own += val;
     }
