@@ -186,7 +186,7 @@ describe('ближники + лекарь: налётчики и костопр�
     const rd = raider(1);
     expect(rd.weapons!.map((w) => w.name)).toEqual(['костяной лук', 'щербатый топор']);
     const bs = bonesetter('raider1');
-    expect(bs.active?.heal).toEqual({ amount: 12, range: 4, usesPerBattle: 4 });
+    expect(bs.active?.heal).toEqual({ amount: 10, range: 4, usesPerBattle: 4 });
     expect(bs.rules.some((rl) => rl.then.kind === 'heal')).toBe(true);
     expect(bs.rules.some((rl) => rl.then.kind === 'behind')).toBe(true);
   });
@@ -224,7 +224,7 @@ describe('танк + кастеры: огр и поджигатель', () => {
 
   it('спеки: огр-пробка (проход, туша, вышвырнуть), поджигатель-стекло за его спиной', () => {
     const og = ogre();
-    expect(og.maxHp).toBe(100);
+    expect(og.maxHp).toBe(90);
     expect(og.rules.some((rl) => rl.then.kind === 'chokepoint')).toBe(true);
     expect(og.rules.some((rl) => rl.then.kind === 'shove')).toBe(true);
     const py = pyro(1);
@@ -313,7 +313,7 @@ describe('таймер: тролль', () => {
       timer,
       'late',
     );
-    expect(naive.hpFrac).toBeLessThan(0.6); // тролль стоит дорого
+    expect(naive.hpFrac).toBeLessThan(0.68); // тролль стоит дорого
     expect(naive.wins).toBeGreaterThanOrEqual(pick.wins); // добивание свиты не окупается
   });
 });

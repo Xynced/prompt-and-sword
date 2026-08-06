@@ -35,7 +35,7 @@
 | Модуль | Что делает | Ключевые экспорты |
 |---|---|---|
 | [heroes.ts](heroes.ts) | Пул из 16 героев — 8 классов pf2e × 2 варианта (класс-ярлык, оружие, актив, пассив, способность), сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
-| [foes.ts](foes.ts) | Фабрики врагов (принципы в том же IR) + разведка перед боем | `grunt`, `warChief`, `shaman`, …, `foeIntel` |
+| [foes.ts](foes.ts) | Фабрики 19 врагов (принципы в том же IR): ранние + 12 по мотивам pf2e для паттернов боёв (масса, стая, элита, лекарь, огр, тролль…) + разведка перед боем | `grunt`, `rat`, `wolf`, `slinger`, `soldier`, `sergeant`, `raider`, `bonesetter`, `ogre`, `pyro`, `thug`, `troll`, `duelist`, …, `foeIntel` |
 | [run.ts](run.ts) | Забег: ветвящаяся карта 15 узлов, состояние партии, расстановка перед боем, скрипторий, события, трофеи, босс | `generateMap`, `RunState`, `foesForNode`, `arenaForNode`, `setDeploy` |
 | [sparring.ts](sparring.ts) | «Переиграть с теми же костями»: тот же seed, новые принципы, дифф исходов | `sparring`, `SparringDiff` |
 | [share.ts](share.ts) | Экспорт/импорт билда строкой `ps1.…` (сид + словарь + принципы) | `exportBuild`, `importBuild` |
