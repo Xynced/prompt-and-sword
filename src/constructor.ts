@@ -49,7 +49,10 @@ export type PreferenceDraft =
   | { id: 'space.highGround' }
   | { id: 'space.behindCover' }
   | { id: 'space.avoidHazard' }
-  | { id: 'act.shove' };
+  | { id: 'act.shove' }
+  | { id: 'space.spread' }
+  | { id: 'act.barrage' }
+  | { id: 'act.preempt' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -127,6 +130,12 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       ? 'обходить опасное'
       : p.id === 'act.shove'
       ? 'толкать'
+      : p.id === 'space.spread'
+      ? 'держать интервал'
+      : p.id === 'act.barrage'
+      ? 'накрыть скопление'
+      : p.id === 'act.preempt'
+      ? 'бить на упреждение'
       : p.id === 'act.attack'
       ? `атаковать: ${CONCEPTS[p.target].label}`
       : p.id === 'act.protect'
@@ -205,6 +214,12 @@ export function compilePhrase(
       ? { kind: 'avoidHazard' }
       : p.id === 'act.shove'
       ? { kind: 'shove' }
+      : p.id === 'space.spread'
+      ? { kind: 'spread' }
+      : p.id === 'act.barrage'
+      ? { kind: 'barrage' }
+      : p.id === 'act.preempt'
+      ? { kind: 'preempt' }
       : p.id === 'act.attack'
       ? { kind: 'attack', target: SELECTOR_MAP[p.target] }
       : p.id === 'act.protect'

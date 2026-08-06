@@ -197,6 +197,38 @@ export function aoeDamage(caster: CombatUnit, mult: number, target: CombatUnit):
 }
 
 /**
+ * Проекция позиции юнита на ход вперёд: спуск по полю дистанций к его
+ * ближайшей цели на два шага движения (третье очко — на удар), остановка на
+ * своей дальности. Детерминированная, без rng: используется манерой
+ * «бить на упреждение» — целить ритуал туда, куда враг придёт к залпу.
+ */
+export function predictedPos(u: Fighter, units: readonly Fighter[], ctx: ScoreCtx): Pos {
+  const target = resolveSelector('nearest', u, units);
+  if (!target) return u.pos;
+  let cur = u.pos;
+  for (let i = 0; i < u.move * 2; i++) {
+    if (dist(cur, target.pos) <= u.range) break;
+    let best = cur;
+    let bestD = ctx.distTo(target.pos, cur);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const n = { x: cur.x + dx, y: cur.y + dy };
+        if (!inBounds(n) || ctx.blocked(n)) continue;
+        const d = ctx.distTo(target.pos, n);
+        if (d < bestD) {
+          bestD = d;
+          best = n;
+        }
+      }
+    }
+    if (posEq(best, cur)) break;
+    cur = best;
+  }
+  return cur;
+}
+
+/**
  * Суммарный урон висящих зон замаха по юниту, стоящему в p. Считаются зоны
  * ОБЕИХ сторон — friendly fire, своя зона жжёт и своих (и самого кастера).
  * Это канал опасности для уклонения: юниты выходят из зон инстинктом, без
@@ -438,22 +470,29 @@ export function generateCandidates(
       { action: 'aoeBlast', form: self.aoe.blast, ready: true },
       { action: 'aoeRitual', form: self.aoe.ritual, ready: ritualReady(self, round) },
     ];
+    // с манерой «бить на упреждение» ритуал целит и в проекции движения
+    // врагов — без затравки от предсказанных позиций таких кандидатов не было бы
+    const preempt = self.compiled.rules.some((r) => r.then.kind === 'preempt');
     for (const { action, form, ready } of forms) {
       if (!form || !ready || ap < AP_COST[action] || !allowed(action)) continue;
       const radius = aoeRadius(action);
       const seen = new Set<string>();
-      for (const e of enemiesOf(self, units)) {
-        for (let dx = -radius; dx <= radius; dx++) {
-          for (let dy = -radius; dy <= radius; dy++) {
-            const at = { x: e.pos.x + dx, y: e.pos.y + dy };
-            const key = posKey(at);
-            if (seen.has(key)) continue;
-            seen.add(key);
-            if (!inBounds(at) || blocked(at) || dist(here, at) > form.range) continue;
-            // до центра зоны нужна линия видимости сквозь камни (каменоломня —
-            // контр шамана); тела взрыв не заслоняют — он навесной
-            if (!hasLoS(here, at, blocked)) continue;
-            out.push({ to: here, action, at });
+      for (const e of enemiesOf(self, units) as Fighter[]) {
+        const seeds =
+          action === 'aoeRitual' && preempt ? [e.pos, predictedPos(e, units, ctx)] : [e.pos];
+        for (const seed of seeds) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+              const at = { x: seed.x + dx, y: seed.y + dy };
+              const key = posKey(at);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              if (!inBounds(at) || blocked(at) || dist(here, at) > form.range) continue;
+              // до центра зоны нужна линия видимости сквозь камни (каменоломня —
+              // контр шамана); тела взрыв не заслоняют — он навесной
+              if (!hasLoS(here, at, blocked)) continue;
+              out.push({ to: here, action, at });
+            }
           }
         }
       }
@@ -801,6 +840,31 @@ function scorePreference(
         (v) => v.side !== self.side,
       ).length;
       return covered >= 2 ? 1.5 * covered * w : 0;
+    }
+    case 'spread': {
+      // держать интервал: штраф за конец хода вплотную к союзнику (дист ≤1
+      // сильно, 2 — мягко), пока у врага жив АОЕ-носитель; без носителя слово
+      // молчит — паттерн «держать высоту» на арене без высот
+      if (!(enemiesOf(self, units) as Fighter[]).some((e) => e.aoe)) return 0;
+      let s = 0;
+      for (const a of alliesOf(self, units)) {
+        if (a.id === self.id) continue;
+        const d = dist(cand.to, a.pos);
+        if (d <= 1) s -= 1.2;
+        else if (d === 2) s -= 0.4;
+      }
+      return s * w;
+    }
+    case 'preempt': {
+      // бить на упреждение: манера ритуала — премия зонам, накрывающим
+      // ПРОЕКЦИИ движения врагов (куда придут к залпу), а не текущие позиции.
+      // Коэффициент выше премии скопления: прогноз должен перетягивать выбор
+      // центра у зон «где стоят», иначе слово не читается
+      if (cand.action !== 'aoeRitual' || !cand.at) return 0;
+      const covered = (enemiesOf(self, units) as Fighter[]).filter(
+        (e) => dist(predictedPos(e, units, ctx), cand.at!) <= AOE_RITUAL_RADIUS,
+      ).length;
+      return covered >= 2 ? 2.5 * covered * w : 0;
     }
   }
 }

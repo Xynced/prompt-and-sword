@@ -51,6 +51,9 @@ const PARAMLESS_PREFERENCES = [
   'space.behindCover',
   'space.avoidHazard',
   'act.shove',
+  'space.spread',
+  'act.barrage',
+  'act.preempt',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -203,6 +206,12 @@ function validatePreference(
       return vocab.includes('space.avoidHazard') ? { id: 'space.avoidHazard' } : null;
     case 'act.shove':
       return vocab.includes('act.shove') ? { id: 'act.shove' } : null;
+    case 'space.spread':
+      return vocab.includes('space.spread') ? { id: 'space.spread' } : null;
+    case 'act.barrage':
+      return vocab.includes('act.barrage') ? { id: 'act.barrage' } : null;
+    case 'act.preempt':
+      return vocab.includes('act.preempt') ? { id: 'act.preempt' } : null;
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {

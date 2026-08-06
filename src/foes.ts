@@ -176,8 +176,10 @@ export function warlord(): UnitSpec {
     tags: ['leader'],
     lenses: ['fanatic'],
     // ритуал «дыхание орды»: рейд-механика финала — замах виден за ход, из
-    // зоны выходят, медленные прикрываются; перезарядка 3 задаёт ритм боя
-    aoe: { ritual: { range: 4, mult: 1.2, cooldown: 3 } },
+    // зоны выходят, медленные прикрываются; перезарядка 3 задаёт ритм боя.
+    // mult 2.0: телеграфированный удар обязан быть страшным — при 1.2 босс
+    // менял треть своих ходов на щекотку и мягчел (замер шага 5)
+    aoe: { ritual: { range: 4, mult: 2.0, cooldown: 3 } },
     rules: [
       rule({
         when: { kind: 'always' },
@@ -187,6 +189,9 @@ export function warlord(): UnitSpec {
       }),
       rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 1.5, source: 'вождь орды: крови не жалеть' }),
       rule({ when: { kind: 'always' }, then: { kind: 'barrage' }, weight: 1.5, source: 'вождь орды: дыхание орды' }),
+      // упреждение: партия научилась выходить из зоны — вождь целит туда,
+      // куда выходят (шаг 5 плана АОЕ, лечит «босс помягчел» из шага 3)
+      rule({ when: { kind: 'always' }, then: { kind: 'preempt' }, weight: 1.5, source: 'вождь орды: бить на упреждение' }),
     ],
   };
 }

@@ -1,17 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { applyLens } from '../src/lens.js';
 import {
+  AOE_RITUAL_RADIUS,
   type Fighter,
   decide,
   generateCandidates,
   isAttack,
   isMovement,
+  makeCtx,
+  predictedPos,
   ritualReady,
+  scoreCandidate,
   zoneDangerAt,
 } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { dist } from '../src/grid.js';
 import { expectedDamage } from '../src/tuning.js';
+import { heroArchetype } from '../src/heroes.js';
 import type { AoeSpec, CombatUnit, LensId, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
 
@@ -258,5 +263,75 @@ describe('уклонение от зоны замаха (канал опасно
     const d = decide(pusher, [pusher, enemy, allyCaster]);
     expect(d.chosen.action).toBe('shove');
     expect(d.chosen.targetId).toBe('e');
+  });
+});
+
+describe('слова АОЕ: интервал и упреждение (шаг 5)', () => {
+  it('«держать интервал»: штраф вплотную к союзнику при живом носителе, молчит без него', () => {
+    const spreadRule = [rule({ kind: 'spread' })];
+    const self = fighter('s', 'party', { x: 5, y: 5 }, {}, spreadRule);
+    const ally = fighter('a', 'party', { x: 5, y: 6 }, { move: 0 });
+    const carrier = fighter('c', 'foe', { x: 14, y: 5 }, {
+      move: 0, aoe: { blast: { range: 4, mult: 0.75 } },
+    });
+    const plainFoe = fighter('p', 'foe', { x: 14, y: 5 }, { move: 0 });
+
+    const near = { to: { x: 5, y: 5 }, action: 'move' as const };
+    const withCarrier = scoreCandidate(near, self, [self, ally, carrier], self.compiled.rules);
+    expect(withCarrier.some((f) => f.label === 'правило:тест' && f.value < 0)).toBe(true);
+
+    const without = scoreCandidate(near, self, [self, ally, plainFoe], self.compiled.rules);
+    expect(without.some((f) => f.label === 'правило:тест')).toBe(false);
+
+    // в решении: уходит от союзника на дистанцию 2, вплотную не остаётся
+    const d = decide(self, [self, ally, carrier]);
+    expect(dist(d.chosen.to, ally.pos)).toBeGreaterThanOrEqual(2);
+  });
+
+  it('«бить на упреждение»: ритуал целит в проекцию движения, а не в текущее скопление', () => {
+    const ctx = makeCtx();
+    // двое врагов бегут к жертве слева; кастер в дальнем углу — не ближайшая
+    // цель бегунов, его зона не приманка
+    const prey = fighter('v', 'party', { x: 2, y: 8 }, { move: 0 });
+    const r1 = fighter('e1', 'foe', { x: 12, y: 8 }, { move: 2 });
+    const r2 = fighter('e2', 'foe', { x: 13, y: 8 }, { move: 2 });
+    const mkCaster = (rules: Rule[]): Fighter =>
+      fighter('c', 'party', { x: 0, y: 17 }, { atk: 6, aoe: { ritual: { range: 14, mult: 1.2 } } }, rules);
+    const coversBoth = (at: Pos, units: Fighter[]): boolean =>
+      [r1, r2].every((e) => dist(predictedPos(e, units, ctx), at) <= AOE_RITUAL_RADIUS);
+
+    const plainCaster = mkCaster([rule({ kind: 'barrage' })]);
+    const unitsPlain = [plainCaster, prey, r1, r2];
+    const dp = decide(plainCaster, unitsPlain, 1, undefined, 3, ctx);
+    expect(dp.chosen.action).toBe('aoeRitual');
+
+    const preemptCaster = mkCaster([rule({ kind: 'barrage' }), rule({ kind: 'preempt' })]);
+    const unitsPre = [preemptCaster, prey, r1, r2];
+    const df = decide(preemptCaster, unitsPre, 1, undefined, 3, ctx);
+    expect(df.chosen.action).toBe('aoeRitual');
+    // прогноз: враги сдвинутся к жертве влево
+    expect(predictedPos(r1, unitsPre, ctx).x).toBeLessThan(r1.pos.x);
+    // с упреждением зона накрывает обе проекции, без слова — нет
+    expect(coversBoth(df.chosen.at!, unitsPre)).toBe(true);
+    expect(coversBoth(dp.chosen.at!, unitsPlain)).toBe(false);
+  });
+
+  it('Лия: ритуал раз в бой, залп остаётся', () => {
+    const lia = heroArchetype('lia');
+    const spec: UnitSpec = {
+      id: 'lia', name: 'Лия', side: 'party',
+      maxHp: 200, atk: lia.stats.atk, range: lia.stats.range, speed: 9, move: lia.stats.move,
+      lenses: ['plain'], aoe: lia.aoe,
+      rules: [rule({ kind: 'barrage' })], spawn: { x: 8, y: 8 },
+    };
+    const tank = (id: string, spawn: Pos): UnitSpec => ({
+      id, name: id, side: 'foe', maxHp: 90, atk: 1, range: 1, speed: 1, move: 0,
+      lenses: ['plain'], rules: [], spawn,
+    });
+    const r = runBattle(4, [spec, tank('f1', { x: 8, y: 5 }), tank('f2', { x: 9, y: 5 })]);
+    const tele = r.events.filter((e) => e.t === 'telegraph');
+    expect(tele.length).toBe(1); // usesPerBattle: 1 — второго замаха нет
+    const blasts = r.events.filter((e) => e.t === 'aoeCast' && e.form === 'blast');
+    expect(blasts.length).toBeGreaterThan(0); // залп не ограничен
   });
 });

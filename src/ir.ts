@@ -27,7 +27,9 @@ import { dist } from './grid.js';
  *              avoidHazard (обходить опасное)
  *   Действия:  shove (толкать — в шипы, в огонь, из строя)
  * План АОЕ:
- *   Действия:  barrage (накрыть скопление — гейт площадного каста носителя)
+ *   Действия:  barrage (накрыть скопление — гейт площадного каста носителя),
+ *              preempt (бить на упреждение — манера ритуала: целить в проекцию)
+ *   Простр.:   spread (держать интервал — пока у врага жив АОЕ-носитель)
  */
 
 export type Selector =
@@ -81,7 +83,9 @@ export type Preference =
   | { kind: 'behindCover' }
   | { kind: 'avoidHazard' }
   | { kind: 'shove' }
-  | { kind: 'barrage' };
+  | { kind: 'barrage' }
+  | { kind: 'spread' }
+  | { kind: 'preempt' };
 
 export interface Rule {
   when: Condition;
@@ -247,5 +251,9 @@ export function describePreference(p: Preference): string {
       return 'толкать';
     case 'barrage':
       return 'накрыть скопление';
+    case 'spread':
+      return 'держать интервал';
+    case 'preempt':
+      return 'бить на упреждение';
   }
 }

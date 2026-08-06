@@ -16,6 +16,10 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { dist, posKey } from '../src/grid.js';
 import { shaman } from '../src/foes.js';
 import { expectedDamage } from '../src/tuning.js';
+import { compilePhrase } from '../src/constructor.js';
+import { CONCEPTS, CORE_WORDS, DEEP_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
+import { understandingCard } from '../src/cards.js';
+import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import type { AoeSpec, CombatUnit, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
 
@@ -257,5 +261,50 @@ describe('залп в бою (гать, сид 4)', () => {
     ];
     const r = runBattle(4, specs);
     expect(castsIn(r.events).length).toBe(0);
+  });
+});
+
+describe('слова АОЕ: пулы, конструктор, карточки, схема', () => {
+  const FULL_VOCAB = Object.keys(CONCEPTS) as ConceptId[];
+  const drafts = [
+    { id: 'space.spread', kind: 'spread', card: 'держу интервал' },
+    { id: 'act.barrage', kind: 'barrage', card: 'накрываю скопление' },
+    { id: 'act.preempt', kind: 'preempt', card: 'бью на упреждение' },
+  ] as const;
+
+  it('пулы: интервал — CORE, накрыть скопление и упреждение — DEEP', () => {
+    expect(CORE_WORDS).toContain('space.spread');
+    expect(DEEP_WORDS).toContain('act.barrage');
+    expect(DEEP_WORDS).toContain('act.preempt');
+    for (const d of drafts) expect(STARTING_VOCAB).not.toContain(d.id);
+  });
+
+  it('компилируются при открытом словаре, закрыты в стартовом; карточка читается', () => {
+    for (const d of drafts) {
+      const draft = { condition: { id: 'always' }, preference: { id: d.id } } as const;
+      const ok = compilePhrase(draft, FULL_VOCAB);
+      expect(ok.ok).toBe(true);
+      if (ok.ok) expect(ok.rule.then).toEqual({ kind: d.kind });
+      const closed = compilePhrase(draft, STARTING_VOCAB);
+      expect(closed.ok).toBe(false);
+      if (!closed.ok) expect(closed.missing).toEqual([d.id]);
+
+      const card = understandingCard({ name: 'Лия', lenses: ['plain'] }, [
+        { when: { kind: 'always' }, then: { kind: d.kind }, weight: 1, scope: 'self', source: 'тест' },
+      ]);
+      expect(card.lines[0]).toContain(d.card);
+    }
+  });
+
+  it('LLM-схема и валидация — только при открытом словаре', () => {
+    const schema = JSON.stringify(buildCompileSchema(FULL_VOCAB, []));
+    const closed = JSON.stringify(buildCompileSchema(STARTING_VOCAB, []));
+    for (const d of drafts) {
+      expect(schema).toContain(d.id);
+      expect(closed).not.toContain(d.id);
+      const raw = { phrases: [{ condition: { id: 'always' }, preference: { id: d.id }, weight: 1 }], uncertainty: [] };
+      expect(validateOutput(raw, FULL_VOCAB, [], 4).ok).toBe(true);
+      expect(validateOutput(raw, STARTING_VOCAB, [], 4).ok).toBe(false);
+    }
   });
 });
