@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
-import { bonesetter, foeIntel, ogre, pyro, raider, rat, sergeant, shaman, slinger, soldier, wolf } from '../src/foes.js';
+import { bonesetter, foeIntel, ogre, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, wolf } from '../src/foes.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
 import type { Rule } from '../src/ir.js';
 import { posEq } from '../src/grid.js';
@@ -254,6 +254,67 @@ describe('танк + кастеры: огр и поджигатель', () => {
     expect(hpNaive / 20).toBeLessThan(0.45); // артиллерия за пробкой — дорогой бой
     expect(hpSpread).toBeGreaterThan(hpNaive); // интервал бережёт
     expect(castsSpread).toBeLessThan(castsNaive); // и обесценивает залпы
+  });
+});
+
+describe('засада: душегуб с волками', () => {
+  const ambush = () => [thug(), wolf(1), wolf(2)];
+  const protectLia = r({ when: { kind: 'always' }, then: { kind: 'protect', ally: 'lia' }, weight: 1.5, source: 'прикрывай Лию' });
+
+  it('спеки: быстрый охотник на тыл с фланговым пассивом', () => {
+    const t = thug();
+    expect(t.move).toBe(3);
+    expect(t.passives?.sneak?.flankMult).toBe(1.75);
+    expect(t.rules.some((rl) => rl.then.kind === 'attack' && rl.then.target === 'weakest')).toBe(true);
+  });
+
+  it('смоук: фокус тает засаду, нянька-телохранитель — ловушка темпа', () => {
+    const naive = sweep(() => partyWith([]), ambush, 'late');
+    const focus = sweep(
+      () => [hero('grom', 0, [focusWeak]), hero('lia', 1, [focusWeak]), hero('zhalo', 2, [focusWeak])],
+      ambush,
+      'late',
+    );
+    const nanny = sweep(
+      () => [hero('grom', 0, [atkNearest, protectLia]), hero('lia', 1, [atkNearest]), hero('zhalo', 2, [atkNearest])],
+      ambush,
+      'late',
+    );
+    expect(focus.hpFrac).toBeGreaterThanOrEqual(naive.hpFrac); // фокус не хуже
+    expect(nanny.hpFrac).toBeLessThan(naive.hpFrac - 0.15); // нянчиться дороже, чем бить
+  });
+});
+
+describe('таймер: тролль', () => {
+  const timer = () => [troll(), slinger(1), slinger(2)];
+
+  it('спеки: единственный носитель regen, фанатик с когтями', () => {
+    const t = troll();
+    expect(t.passives?.regen).toEqual({ amount: 8 });
+    expect(t.lenses).toEqual(['fanatic']);
+    expect(t.rules.some((rl) => rl.then.kind === 'trade')).toBe(true);
+  });
+
+  it('тролль зарастает в бою по-настоящему', () => {
+    let regenHp = 0;
+    for (let s = 1; s <= 20; s++) {
+      const res = runBattle(s * 17 + 3, [...partyWith([]), ...timer()], 'elite');
+      regenHp += res.events
+        .filter((e): e is Extract<BattleEvent, { t: 'regen' }> => e.t === 'regen')
+        .reduce((a, e) => a + e.amount, 0);
+    }
+    expect(regenHp).toBeGreaterThan(400); // ~20+ hp зарастания за бой
+  });
+
+  it('смоук: распыление урона по свите кормит реген — добивание не лучше фокуса строем', () => {
+    const naive = sweep(() => partyWith([]), timer, 'late');
+    const pick = sweep(
+      () => [hero('grom', 0, [focusWeak]), hero('lia', 1, [focusWeak]), hero('zhalo', 2, [focusWeak])],
+      timer,
+      'late',
+    );
+    expect(naive.hpFrac).toBeLessThan(0.6); // тролль стоит дорого
+    expect(naive.wins).toBeGreaterThanOrEqual(pick.wins); // добивание свиты не окупается
   });
 });
 

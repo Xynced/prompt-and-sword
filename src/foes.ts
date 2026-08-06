@@ -434,6 +434,53 @@ export function pyro(n: number): UnitSpec {
   };
 }
 
+/**
+ * Засада: бугбер-душегуб (Bugbear Thug) — быстрый охотник на тыл: обтекает
+ * фронт, режет хрупких, из-за угла бьёт больнее (sneak). С волками —
+ * загонная охота; контр — телохранитель и спина к камню.
+ */
+export function thug(): UnitSpec {
+  return {
+    id: 'thug',
+    name: 'Душегуб',
+    side: 'foe',
+    maxHp: 48,
+    weapons: [{ name: 'шипастая дубина', dmg: 8, range: 1 }],
+    speed: 6,
+    move: 3,
+    lenses: ['plain'],
+    passives: { sneak: { flankMult: 1.75 } },
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 1.8, source: 'душегуб: резать хрупких' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.3, source: 'душегуб: из-за угла' }),
+    ],
+  };
+}
+
+/**
+ * Таймер: тролль (Troll, Regeneration) — зарастает быстрее, чем вялый
+ * размазанный урон успевает ранить: единственный носитель пассива regen.
+ * Фанатик — прёт напролом, разменов не боится (регенерация окупит).
+ * Контр — фокус всем строем: превысить зарастание и свалить.
+ */
+export function troll(): UnitSpec {
+  return {
+    id: 'troll',
+    name: 'Тролль',
+    side: 'foe',
+    maxHp: 88,
+    weapons: [{ name: 'когтистые лапы', dmg: 9, range: 1 }],
+    speed: 4,
+    move: 2,
+    lenses: ['fanatic'],
+    passives: { regen: { amount: 8 } },
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight: 1.5, source: 'тролль: рвать ближайшего' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 1.5, source: 'тролль: раны зарастут' }),
+    ],
+  };
+}
+
 /** Финальный босс забега. Ходит со свитой (шаман за спиной, охотник в тылу). */
 export function warlord(): UnitSpec {
   return {

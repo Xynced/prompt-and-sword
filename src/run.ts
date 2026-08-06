@@ -3,7 +3,7 @@ import { type PhraseDraft, compilePhrase } from './constructor.js';
 import { CORE_WORDS, type ConceptId, DEEP_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
-import { archer, berserker, bonesetter, grunt, hunter, ogre, packLeader, pyro, raider, rat, sergeant, shaman, slinger, soldier, warlord, wolf } from './foes.js';
+import { archer, berserker, bonesetter, grunt, hunter, ogre, packLeader, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, warlord, wolf } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
 import { ARENA_H, type ArenaTag, PARTY_ZONE_MAX_X, pickTerrain, tileAt } from './terrain.js';
@@ -157,11 +157,15 @@ export function foesForNode(node: MapNode): UnitSpec[] {
         return node.slot === 0
           ? [wolf(1), wolf(2), wolf(3)] // стая: охота на хрупких (4-й волк — в поздних слоях)
           : [slinger(1), slinger(2), slinger(3), slinger(4)]; // застрельщики: камнем по раненым
-      return [raider(1), raider(2), bonesetter('raider1')]; // ближники + лекарь: добивание вязнет
+      return node.slot === 0
+        ? [raider(1), raider(2), bonesetter('raider1')] // ближники + лекарь: добивание вязнет
+        : [thug(), wolf(1), wolf(2)]; // засада: загонная охота на тыл
     case 'elite':
-      return node.layer <= 3
-        ? [soldier(1, 'soldier2'), soldier(2, 'soldier1'), sergeant()] // умная элита: порядок целей решает
-        : [ogre(), pyro(1), shaman('ogre')]; // танк + кастеры: интервал или прорыв
+      if (node.layer <= 3)
+        return [soldier(1, 'soldier2'), soldier(2, 'soldier1'), sergeant()]; // умная элита: порядок целей решает
+      return node.slot === 0
+        ? [ogre(), pyro(1), shaman('ogre')] // танк + кастеры: интервал или прорыв
+        : [troll(), slinger(1), slinger(2)]; // таймер: зарастает быстрее вялого урона
     case 'boss':
       // подобрано симом: 4-й враг делает бой нерешаемым (экономика действий);
       // охотник вместо берсерка — свита достаёт и кайтящих стрелков (после
