@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { exportBuild, importBuild } from '../src/share.js';
-import { generateMap, heroSpecs, setPhrases, startRun } from '../src/run.js';
+import { START_SLOTS, generateMap, heroSpecs, setPhrases, startRun } from '../src/run.js';
 
 function customState() {
   const state = startRun(5);
   state.vocab.push('sel.leader', 'space.flank', 'cond.outnumbered');
   const lead = state.heroes[0]!;
-  lead.slots = 3;
+  lead.slots = START_SLOTS + 1;
   const r = setPhrases(state, lead.id, [
     { condition: { id: 'always' }, preference: { id: 'act.attack', target: 'sel.leader' }, weight: 2 },
     { condition: { id: 'cond.outnumbered' }, preference: { id: 'act.retreat' } },

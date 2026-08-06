@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_SLOTS,
+  START_SLOTS,
   type RunState,
   advance,
   battleSeed,
@@ -314,12 +315,12 @@ describe('скрипторий и события', () => {
   it('слоты ограничивают число фраз', () => {
     const state = startRun(1);
     const lead = state.heroes[0]!;
-    expect(lead.slots).toBe(2);
-    const threePhrases = Array.from({ length: 3 }, () => ({
+    expect(lead.slots).toBe(START_SLOTS);
+    const tooMany = Array.from({ length: START_SLOTS + 1 }, () => ({
       condition: { id: 'always' } as const,
       preference: { id: 'act.retreat' } as const,
     }));
-    expect(setPhrases(state, lead.id, threePhrases).ok).toBe(false);
+    expect(setPhrases(state, lead.id, tooMany).ok).toBe(false);
   });
 
   it('закрытый концепт нельзя вписать в принципы', () => {
