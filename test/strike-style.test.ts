@@ -97,10 +97,11 @@ describe('линза искажает манеру удара', () => {
     expect(c.rules[0]!.marks).toEqual([{ lens: 'hothead', kind: 'reword', from: { kind: 'strikeHard' } }]);
   });
 
-  it('искажение видно в карточке понимания до боя', () => {
+  it('до боя виден только факт искажения; детали манеры — в debug', () => {
     const card = understandingCard({ name: 'Гром', lenses: ['fanatic'] }, [styleRule('strikeHard')]);
-    expect(card.lines[0]).toContain('отчаянно');
-    expect(card.lines[0]).toContain('⚠');
+    expect(card.lines[0]).toBe('манера: strikeHard ⚠ понял по-своему');
+    const dbg = understandingCard({ name: 'Гром', lenses: ['fanatic'] }, [styleRule('strikeHard')], {}, [], true);
+    expect(dbg.lines[0]).toContain('отчаянно');
   });
 });
 

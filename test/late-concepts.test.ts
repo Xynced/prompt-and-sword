@@ -262,14 +262,15 @@ describe('скоринг поздних предпочтений', () => {
 });
 
 describe('карточки: поздние концепты читаются', () => {
-  it('шаблоны на месте, искажение труса помечено', () => {
+  it('шаблоны на месте, искажение труса — только факт; детали в debug', () => {
     const card = understandingCard({ name: 'Гром', lenses: ['coward'] }, [
       rule({ kind: 'bait' }),
       rule({ kind: 'flank' }),
     ]);
-    expect(card.lines[0]).toContain('отхожу');
-    expect(card.lines[0]).toContain('⚠');
-    expect(card.lines[1]).toContain('фланг');
+    expect(card.lines[0]).toBe('тест ⚠ понял по-своему'); // приманка → отход: скрыто
+    expect(card.lines[1]).toBe('тест ⚠ понял по-своему'); // фланг: штраф веса
+    const dbg = understandingCard({ name: 'Гром', lenses: ['coward'] }, [rule({ kind: 'bait' })], {}, [], true);
+    expect(dbg.lines[0]).toContain('отхожу');
   });
 
   it('standoff читается по-русски, буст труса помечен', () => {
@@ -277,8 +278,7 @@ describe('карточки: поздние концепты читаются', (
     expect(plain.lines[0]).toContain('держу дистанцию');
     expect(plain.lines[0]).not.toContain('⚠');
     const coward = understandingCard({ name: 'Лия', lenses: ['coward'] }, [rule({ kind: 'standoff' })]);
-    expect(coward.lines[0]).toContain('держу дистанцию');
-    expect(coward.lines[0]).toContain('⚠');
+    expect(coward.lines[0]).toContain('⚠ понял по-своему');
   });
 });
 

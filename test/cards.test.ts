@@ -19,28 +19,38 @@ const retreat = (): Rule => ({
   source: 'ранен — отходи',
 });
 
-describe('understandingCard', () => {
-  it('трус: «прикрывать» показан как «встаю позади» с пометкой искажения', () => {
+describe('understandingCard (карточка-эхо: до боя виден только факт искажения)', () => {
+  it('трус: искажённая строка — формулировка игрока + «понял по-своему», инстинкт скрыт', () => {
     const card = understandingCard({ name: 'Тень', lenses: ['coward'] }, [protect()], names);
-    const line = card.lines.find((l) => l.includes('позади'))!;
-    expect(line).toContain('встаю позади Лия');
-    expect(line).toContain('⚠');
-    // и виден инстинкт бегства
-    expect(card.lines.some((l) => l.includes('30%') && l.includes('отхожу'))).toBe(true);
+    expect(card.lines).toEqual(['прикрывай Лию ⚠ понял по-своему']);
   });
 
-  it('фанатик: «отступай» показан как атака с пометкой', () => {
+  it('фанатик: «отступай» — только факт искажения, без деталей', () => {
     const card = understandingCard({ name: 'Гром', lenses: ['fanatic'] }, [retreat()], names);
-    const line = card.lines[0]!;
-    expect(line).toContain('если моё hp ниже 50%');
-    expect(line).toContain('атакую ближайшего');
-    expect(line).toContain('⚠');
+    expect(card.lines).toEqual(['ранен — отходи ⚠ понял по-своему']);
   });
 
-  it('буквалист: правила без искажений + предупреждение о пропусках', () => {
+  it('не понятое компилятором — «не понял вообще»', () => {
+    const card = understandingCard({ name: 'Гром', lenses: ['plain'] }, [retreat()], names, [
+      'не знаю слова «кайт»',
+    ]);
+    expect(card.lines.at(-1)).toBe('⚠ не понял вообще: не знаю слова «кайт»');
+  });
+
+  it('буквалист: правила дословно; предупреждение о пропусках — только в debug', () => {
     const card = understandingCard({ name: 'Дарт', lenses: ['literalist'] }, [retreat()], names);
     expect(card.lines[0]).not.toContain('⚠');
-    expect(card.lines.at(-1)).toContain('буквалист');
+    expect(card.lines.some((l) => l.includes('буквалист'))).toBe(false);
+    const dbg = understandingCard({ name: 'Дарт', lenses: ['literalist'] }, [retreat()], names, [], true);
+    expect(dbg.lines.at(-1)).toContain('буквалист');
+  });
+
+  it('debug: полная карточка — детали искажения и инстинкты видны', () => {
+    const card = understandingCard({ name: 'Тень', lenses: ['coward'] }, [protect()], names, [], true);
+    const line = card.lines.find((l) => l.includes('позади'))!;
+    expect(line).toContain('встаю позади Лия');
+    expect(line).toContain('⚠ понял по-своему');
+    expect(card.lines.some((l) => l.includes('30%') && l.includes('отхожу') && l.includes('инстинкт'))).toBe(true);
   });
 
   it('plain: никаких пометок', () => {

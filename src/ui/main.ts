@@ -127,8 +127,20 @@ const API_KEY: string | undefined = ENV.VITE_COMPILER_API_KEY ?? ENV.VITE_ANTHRO
 const COMPILER_MODEL: string | undefined = ENV.VITE_COMPILER_MODEL;
 const COMPILER_BASE_URL: string | undefined = ENV.VITE_COMPILER_BASE_URL;
 const textMode: Record<string, boolean> = {};
-/** Свободный текст — режим по умолчанию, когда компилятор доступен; без ключа — только чипсы. */
-const inText = (heroId: string): boolean => textMode[heroId] ?? !!API_KEY;
+
+/**
+ * Debug-режим (план линз): игроку характеры не показываются — он выучивает их
+ * по бою; кнопка возвращает теги линз, подсказки, чипсы и полную карточку.
+ */
+let debugLenses = false;
+
+/**
+ * Свободный текст — режим по умолчанию, когда компилятор доступен; без ключа —
+ * только чипсы. Вне debug-режима чипсы при живом компиляторе скрыты совсем:
+ * игрок видит только свои слова и «как прочёл» (план линз).
+ */
+const inText = (heroId: string): boolean =>
+  API_KEY ? !debugLenses || (textMode[heroId] ?? true) : false;
 const heroText: Record<string, string> = {};
 const heroUncertainty: Record<string, string[]> = {};
 const compiling: Record<string, boolean> = {};
@@ -295,6 +307,12 @@ function lensTag(lenses: readonly LensId[]): string {
   return lenses.map((l) => LENS_RU[l]).join('+');
 }
 
+/** Тег линз в разметке — только в debug-режиме: характер скрыт, выучивается по бою. */
+function lensTagHtml(lenses: readonly LensId[], cls = 'r-tag'): string {
+  if (!debugLenses) return '';
+  return `<span class="${cls}${lenses.includes('fanatic') ? ' fanatic' : ''}">${lensTag(lenses)}</span>`;
+}
+
 /** Ярлык класса героя («воин», «следопыт») — рядом с именем в карточках. */
 function classTag(archetypeId: string): string {
   return `<span class="r-tag klass">${esc(heroArchetype(archetypeId).class)}</span>`;
@@ -368,6 +386,7 @@ function readingLines(h: {
     [...rules, ...heroArchetype(h.archetypeId).innate],
     names,
     heroUncertainty[h.id] ?? [],
+    debugLenses,
   ).lines;
 }
 
@@ -815,7 +834,7 @@ function rosterHtml(compact: boolean): string {
         return `<div class="roster-row dead">
           <div class="numerals">✝</div>
           <div class="r-body"><div class="r-head"><span class="r-name">${esc(h.name)}</span>
-            <span class="r-tag">${lensTag(h.lenses)}</span>
+            ${lensTagHtml(h.lenses)}
             <span class="r-hp">пал(а)</span></div></div>
         </div>`;
       }
@@ -829,7 +848,7 @@ function rosterHtml(compact: boolean): string {
           <div class="r-head">
             <span class="r-name clickable" data-action="unit-card" data-unit="${h.id}" title="карточка юнита">${esc(h.name)}</span>
             ${classTag(h.archetypeId)}
-            <span class="r-tag ${h.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(h.lenses)}</span>
+            ${lensTagHtml(h.lenses)}
             <span class="r-hp ${low ? 'low' : ''}" data-hp="${h.id}">${hpTxt}</span>
           </div>
           <div class="orders-text" ${compact ? 'style="font-size:12.5px"' : ''}>${
@@ -1019,8 +1038,9 @@ function nodePanelHtml(): string {
         <div class="btn-row"><button class="primary" data-action="event-take">забрать</button></div>`);
     }
     if (offer.mercenary) {
-      parts.push(`<div class="desc">У костра сидит наёмник ${esc(offer.mercenary.name)}
-        [${lensTag(offer.mercenary.lenses)}] — займёт место павшего, но прежние принципы
+      parts.push(`<div class="desc">У костра сидит наёмник ${esc(offer.mercenary.name)}${
+        debugLenses ? ` [${lensTag(offer.mercenary.lenses)}]` : ''
+      } — займёт место павшего, но прежние принципы
         прочтёт по-своему.</div>
         <div class="btn-row"><button data-action="event-hire">нанять</button></div>`);
     }
@@ -1055,6 +1075,7 @@ function mapScreenHtml(): string {
         <span>словарь: <b>${run.vocab.length}</b> слов</span><span>·</span>
         <span>узел ${run.at + 1} из ${run.map.length}</span>
         <span class="spacer"></span>
+        <button class="linkish" data-action="toggle-debug">${debugLenses ? 'debug: скрыть характеры' : 'debug'}</button>
         <button class="linkish" data-action="export-journal">журнал плейтеста</button>
         <span>${
           run.resolved && run.status === 'ongoing'
@@ -1330,11 +1351,11 @@ function editorHtml(): string {
     .map((h) => {
       if (!h.alive) {
         return `<div class="eh-card dead"><div class="nm"><span>${esc(h.name)}</span>
-          <span class="ch">${lensTag(h.lenses)}</span></div>
+          ${lensTagHtml(h.lenses, 'ch')}</div>
           <div class="sub">пал(а) в бою</div></div>`;
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
-        <div class="nm"><span>${esc(h.name)}</span><span class="ch">${lensTag(h.lenses)}</span></div>
+        <div class="nm"><span>${esc(h.name)}</span>${lensTagHtml(h.lenses, 'ch')}</div>
         <div class="sub klass-line">${esc(heroArchetype(h.archetypeId).class)}</div>
         <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine({ ...h.stats, weapons: heroArchetype(h.archetypeId).weapons }, h.hp)}</div>
         <div class="sub ability">${esc(abilityLine(h.archetypeId))}</div>
@@ -1384,7 +1405,8 @@ function editorHtml(): string {
         })
         .join('');
 
-  const toggle = API_KEY
+  // вне debug чипсы при живом компиляторе скрыты — тумблер не показываем
+  const toggle = API_KEY && debugLenses
     ? `<button class="mini" data-action="toggle-text" data-hero="${eh.id}">${inTextMode ? '⬒ чипсы' : '✎ текстом'}</button>`
     : '';
   const err = editError[eh.id] ? `<div class="error">${esc(editError[eh.id]!)}</div>` : '';
@@ -1401,7 +1423,7 @@ function editorHtml(): string {
       <div class="cols">
         <div class="heroes-col">
           ${heroCards}
-          <div class="lens-hint">${eh.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>
+          ${debugLenses ? `<div class="lens-hint">${eh.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>` : ''}
         </div>
         <div class="slots-col">
           ${intentBlock}
@@ -1485,12 +1507,14 @@ function unitCardHtml(id: string): string {
   const hero = run.heroes.find((h) => h.id === id);
   if (hero) {
     const live = unitHpInBattle(id) ?? (hero.alive ? { hp: hero.hp, alive: true } : undefined);
-    const hints = hero.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('');
+    const hints = debugLenses
+      ? `<div class="lens-hint">${hero.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>`
+      : '';
     return `<div class="overlay"><div class="modal unit-card">
       <div class="head">
         <span class="title">${esc(hero.name)}</span>
         ${classTag(hero.archetypeId)}
-        <span class="r-tag ${hero.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(hero.lenses)}</span>
+        ${lensTagHtml(hero.lenses)}
         <span class="meta">${live?.alive === false || !hero.alive ? 'пал(а)' : 'наш отряд'}</span>
       </div>
       <div class="stat-line">${statLine({ ...hero.stats, weapons: heroArchetype(hero.archetypeId).weapons }, live?.hp)}</div>
@@ -1505,7 +1529,7 @@ function unitCardHtml(id: string): string {
         <span class="kicker">как прочёл</span>
         ${readNoteHtml(readingLines(hero), false)}
       </div>
-      <div class="lens-hint">${hints}</div>
+      ${hints}
       <div class="foot-row"><span class="spacer"></span><button class="primary" data-action="close-card">закрыть</button></div>
     </div></div>`;
   }
@@ -1519,7 +1543,7 @@ function unitCardHtml(id: string): string {
   return `<div class="overlay"><div class="modal unit-card">
     <div class="head">
       <span class="title">${esc(spec.name)}</span>
-      <span class="r-tag ${spec.lenses.includes('fanatic') ? 'fanatic' : ''}">${lensTag(spec.lenses)}</span>
+      ${lensTagHtml(spec.lenses)}
       <span class="meta">${live?.alive === false ? 'пал' : 'противник'}</span>
     </div>
     <div class="stat-line">${statLine(spec, live?.hp)}</div>
@@ -1795,6 +1819,10 @@ function bind(): void {
         }
         case 'compile-text':
           void compileHeroText(el.dataset.hero!);
+          break;
+        case 'toggle-debug':
+          debugLenses = !debugLenses;
+          render();
           break;
         case 'toggle-play':
           if (frameIdx >= frames.length - 1) {

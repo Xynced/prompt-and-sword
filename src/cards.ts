@@ -191,7 +191,7 @@ export function describePassives(p: PassiveSpec): string {
   return parts.join(' · ');
 }
 
-/** Помечена ли строка искажением линзы (по аннотации source). */
+/** Помечена ли строка искажением линзы (по пометкам marks) — для debug-карточки. */
 function lensMark(rule: Rule): string {
   if (rule.marks?.some((m) => m.kind !== 'instinct')) return ' ⚠ понял по-своему';
   if (rule.marks?.some((m) => m.kind === 'instinct')) return ' ⚠ инстинкт';
@@ -213,21 +213,38 @@ export function ruleRu(r: Rule, names: Record<string, string> = {}): string {
  * Строит карточку понимания: сырые правила героя → линзы → текст.
  * Та же applyLens, что и в бою — карточка не может разойтись с поведением.
  * uncertainty — заметки LLM-компилятора («не знает слова X»), тоже видны до боя.
+ *
+ * Карточка-эхо (план линз): до боя виден только ФАКТ искажения — понятые
+ * дословно строки печатаются переводом, искажённые — формулировкой игрока с
+ * пометкой «понял по-своему», инстинкт-правила линз скрыты вовсе. Содержание
+ * искажений раскрывается в журнале боя. debug возвращает полную карточку.
  */
 export function understandingCard(
   hero: { name: string; lenses: LensId[] },
   rawRules: Rule[],
   names: Record<string, string> = {},
   uncertainty: readonly string[] = [],
+  debug = false,
 ): UnderstandingCard {
   const nm = (id: string): string => names[id] ?? id;
   const compiled = applyLens(hero.lenses, rawRules);
-  const lines = compiled.rules.map(
-    (r) => `${condRu(r.when, nm)}${prefRu(r.then, nm)}${lensMark(r)}`,
-  );
-  for (const u of uncertainty) lines.push(`⚠ ${u}`);
-  if (hero.lenses.includes('literalist')) {
-    lines.push('нет правила на ситуацию — стою и защищаюсь ⚠ буквалист');
+  const lines: string[] = [];
+  if (debug) {
+    for (const r of compiled.rules) lines.push(`${ruleRu(r, names)}${lensMark(r)}`);
+    for (const u of uncertainty) lines.push(`⚠ ${u}`);
+    if (hero.lenses.includes('literalist')) {
+      lines.push('нет правила на ситуацию — стою и защищаюсь ⚠ буквалист');
+    }
+    return { heroName: hero.name, lenses: hero.lenses, lines };
   }
+  for (const r of compiled.rules) {
+    if (r.marks?.some((m) => m.kind === 'instinct')) continue; // характер, не приказ
+    if (r.marks?.length) {
+      lines.push(`${r.source} ⚠ понял по-своему`);
+      continue;
+    }
+    lines.push(`${ruleRu(r, names)}${r.source.startsWith('способность') ? ' · способность' : ''}`);
+  }
+  for (const u of uncertainty) lines.push(`⚠ не понял вообще: ${u}`);
   return { heroName: hero.name, lenses: hero.lenses, lines };
 }
