@@ -48,8 +48,13 @@ jobs:
           # убери обе строки ниже: вернётся дефолт claude-sonnet-5.
           VITE_COMPILER_BASE_URL: https://api.deepseek.com/anthropic
           VITE_COMPILER_MODEL: deepseek-chat
+      # Имя артефакта уникально на попытку: при «Re-run jobs» артефакт прошлой
+      # попытки остаётся в ране, и deploy-pages падает на дубликате имени.
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+          name: github-pages-${{ github.run_attempt }}
       - uses: actions/deploy-pages@v4
         id: deployment
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
