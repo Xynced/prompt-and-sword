@@ -101,14 +101,25 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
   };
 }
 
-function placeUnits(specs: readonly UnitSpec[], rng: Rng): Fighter[] {
+/** Точки спавна по спекам: явный spawn как есть, остальным — слоты от сида. */
+function assignSpawns(specs: readonly UnitSpec[], rng: Rng): Pos[] {
   const slots = shuffle(FOE_SPAWN_SLOTS, rng);
   let slotIdx = 0;
-  return specs.map((s) => {
-    if (s.spawn) return makeFighter(s, s.spawn);
-    const slot = slots[slotIdx++ % slots.length]!;
-    return makeFighter(s, slot);
-  });
+  return specs.map((s) => s.spawn ?? slots[slotIdx++ % slots.length]!);
+}
+
+function placeUnits(specs: readonly UnitSpec[], rng: Rng): Fighter[] {
+  const spawns = assignSpawns(specs, rng);
+  return specs.map((s, i) => makeFighter(s, spawns[i]!));
+}
+
+/**
+ * Позиции спавна без боя — превью расстановки на экране узла: тот же сид и
+ * тот же порядок спеков, что у runBattle, дают ту же раскладку.
+ */
+export function spawnPreview(seed: number, specs: readonly UnitSpec[]): { id: string; pos: Pos }[] {
+  const rng = mulberry32(seed);
+  return assignSpawns(specs, rng).map((pos, i) => ({ id: specs[i]!.id, pos: { ...pos } }));
 }
 
 function rollDamage(base: number, rng: Rng): number {

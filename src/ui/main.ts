@@ -1,4 +1,5 @@
-import { type BattleEvent, type BattleResult, type UnitSpec, runBattle } from '../battle.js';
+import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
+import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
 import { understandingCard } from '../cards.js';
 import {
@@ -20,6 +21,8 @@ import {
   advance,
   arenaForNode,
   battleSeed,
+  deployedSpawn,
+  setDeploy,
   chooseInEvent,
   chooseInScriptorium,
   claimReward,
@@ -86,6 +89,8 @@ let editError: Record<string, string> = {};
 const visited = new Set<number>([run.at]);
 /** Онбординг: после поражения в уроке предлагаем переписать приказ. */
 let lessonNudge = false;
+/** Герой, выбранный для перестановки на мини-поле расстановки. */
+let deployPick: string | null = null;
 let fitScale = 1;
 
 // ---------- журнал плейтеста (Ворота B/C) ----------
@@ -655,6 +660,7 @@ function startBattle(): void {
   });
   fightsAtNode++;
   rewroteSinceBattle = false;
+  deployPick = null;
   frames = buildFrames(battle, leaderIds);
   frameIdx = 0;
   playing = true;
@@ -802,6 +808,52 @@ function intelHtml(node: MapNode): string {
   return `<div class="intel"><span class="kicker">они тоже читают — принципы врага видны</span>${rows}</div>`;
 }
 
+/** Мини-поле расстановки: зона партии слева, камни и высоты арены, враги при разведке. */
+function deployHtml(node: MapNode): string {
+  const layout = pickTerrain(battleSeed(run), arenaForNode(node));
+  const cells: string[] = [];
+  for (let y = 0; y < layout.tiles.length; y++) {
+    for (let x = 0; x <= 2; x++) {
+      if (layout.tiles[y]![x]!.blocked) continue;
+      cells.push(
+        `<div class="dcell" data-action="deploy-cell" data-x="${x}" data-y="${y}" style="left:${x * CELL}%;top:${y * CELL}%"></div>`,
+      );
+    }
+  }
+  const heroTokens = run.heroes
+    .filter((h) => h.alive)
+    .map((h) => {
+      const p = deployedSpawn(run, h);
+      return `<div class="btoken${deployPick === h.id ? ' pick' : ''}" data-action="deploy-pick" data-hero="${h.id}"
+        style="left:${p.x * CELL}%;top:${p.y * CELL}%"><span class="dm"><span>${esc(glyphOf(h.name))}</span></span></div>`;
+    })
+    .join('');
+  const intel = intelVisible(node);
+  let foeTokens = '';
+  if (intel) {
+    // тот же сид и порядок спеков, что у боя, — превью совпадает с ареной
+    const foes = foeSpecs(run);
+    const names = new Map(foes.map((f) => [f.id, f.name]));
+    foeTokens = spawnPreview(battleSeed(run), [...heroSpecs(run), ...foes])
+      .filter((u) => names.has(u.id))
+      .map(
+        (u) => `<div class="btoken foe" style="left:${u.pos.x * CELL}%;top:${u.pos.y * CELL}%">
+          <span class="dm"><span>${esc(glyphOf(names.get(u.id)!))}</span></span></div>`,
+      )
+      .join('');
+  }
+  const hint = deployPick
+    ? 'поставь на клетку зоны'
+    : `расстановка: герой → клетка${intel ? '; врагов выдаёт разведка' : ''}`;
+  return `<div class="deploy">
+    <span class="kicker">${hint}</span>
+    <div class="bfield mini" style="--cell:${CELL}%">
+      <div class="dzone" style="width:${3 * CELL}%"></div>
+      ${tilesLayerHtml(layout.tiles)}${cells.join('')}${foeTokens}${heroTokens}
+    </div>
+  </div>`;
+}
+
 function nodePanelHtml(): string {
   const node = currentNode(run);
   if (run.status !== 'ongoing') return '';
@@ -851,8 +903,13 @@ function nodePanelHtml(): string {
         : '';
     return `<div class="node-panel">
       <h2>${esc(nodeTitle(node))}</h2>
-      <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
-      ${intelHtml(node)}
+      <div class="node-cols">
+        <div class="node-cols-l">
+          <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
+          ${intelHtml(node)}
+        </div>
+        ${deployHtml(node)}
+      </div>
       ${nudge}
       <div class="btn-row"><button class="primary" data-action="fight">⚔ выступить</button>
         <button data-action="open-editor">переписать приказы</button></div>
@@ -1041,10 +1098,9 @@ function tokensHtml(): string {
     .join('');
 }
 
-function terrainHtml(): string {
-  if (!battle) return '';
+function tilesLayerHtml(tiles: readonly Tile[][]): string {
   const out: string[] = [];
-  battle.terrain.tiles.forEach((row, y) =>
+  tiles.forEach((row, y) =>
     row.forEach((t, x) => {
       const at = `style="left:${x * CELL}%;top:${y * CELL}%"`;
       if (t.blocked) out.push(`<div class="rock" ${at}></div>`);
@@ -1052,6 +1108,10 @@ function terrainHtml(): string {
     }),
   );
   return out.join('');
+}
+
+function terrainHtml(): string {
+  return battle ? tilesLayerHtml(battle.terrain.tiles) : '';
 }
 
 function battleScreenHtml(): string {
@@ -1535,6 +1595,19 @@ function bind(): void {
         case 'mark-foe': {
           const foe = el.dataset.foe!;
           setMark(run, run.marked === foe ? null : foe);
+          render();
+          break;
+        }
+        case 'deploy-pick': {
+          const hero = el.dataset.hero!;
+          deployPick = deployPick === hero ? null : hero;
+          render();
+          break;
+        }
+        case 'deploy-cell': {
+          if (!deployPick) break;
+          const r = setDeploy(run, deployPick, { x: Number(el.dataset.x), y: Number(el.dataset.y) });
+          if (r.ok) deployPick = null;
           render();
           break;
         }

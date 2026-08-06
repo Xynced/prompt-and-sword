@@ -268,6 +268,60 @@ button.primary:disabled:hover { background: var(--ink); }
     rgba(31, 27, 22, 0.14);
   border: 1.5px solid rgba(31, 27, 22, 0.5);
 }
+.node-cols {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+.node-cols-l {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  overflow-y: auto;
+}
+.deploy {
+  flex: none;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.bfield.mini {
+  width: auto;
+  height: 200px;
+  max-height: none;
+  aspect-ratio: 1;
+  align-self: flex-start;
+  flex: none;
+}
+.bfield.mini .dm {
+  width: 12px;
+  height: 12px;
+  font-size: 8px;
+  border-width: 1.5px;
+  border-radius: 2px;
+}
+.dzone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(31, 27, 22, 0.045);
+  border-right: 1px dashed rgba(31, 27, 22, 0.35);
+}
+.dcell {
+  position: absolute;
+  width: var(--cell, 12.5%);
+  height: var(--cell, 12.5%);
+  cursor: pointer;
+}
+.dcell:hover { background: rgba(156, 59, 40, 0.14); }
+.btoken.pick .dm { box-shadow: 0 0 0 3px rgba(156, 59, 40, 0.4); }
+.btoken[data-action] { cursor: pointer; }
 .hgt {
   position: absolute;
   width: var(--cell, 12.5%);

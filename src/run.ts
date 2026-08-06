@@ -6,7 +6,8 @@ import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './her
 import { archer, berserker, grunt, hunter, packLeader, shaman, warChief, warlord } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { LENS_POOL, rollLenses } from './lens.js';
-import type { ArenaTag } from './terrain.js';
+import { ARENA_H, type ArenaTag, PARTY_ZONE_MAX_X, pickTerrain, tileAt } from './terrain.js';
+import { posEq } from './grid.js';
 import type { LensId, Pos } from './types.js';
 
 /**
@@ -60,6 +61,12 @@ export interface RunState {
    * спарринг «те же кости» играет с той же меткой.
    */
   marked: string | null;
+  /**
+   * Ручная расстановка партии перед боем текущего узла: heroId → клетка зоны
+   * развёртывания. Вход боя, а не случайность: спарринг «те же кости» играет
+   * с той же расстановкой. Сбрасывается при переходе; пусто — дефолт слотов.
+   */
+  deploy: Record<string, Pos>;
   /** Трофей за победу в бою: выбор из закрытых концептов; null — забран/нет. */
   pendingReward: ConceptId[] | null;
   status: 'ongoing' | 'won' | 'lost';
@@ -227,6 +234,7 @@ export function startRun(runSeed: number): RunState {
     vocab: STARTING_VOCAB.slice(),
     heroes,
     marked: null,
+    deploy: {},
     pendingReward: null,
     status: 'ongoing',
     log: [],
@@ -251,6 +259,11 @@ function compileHero(state: RunState, hero: HeroState): Rule[] {
   });
 }
 
+/** Эффективная точка спавна героя: ручная расстановка или дефолт слота. */
+export function deployedSpawn(state: RunState, hero: HeroState): Pos {
+  return state.deploy[hero.id] ?? hero.stats.spawn;
+}
+
 export function heroSpecs(state: RunState): UnitSpec[] {
   return state.heroes
     .filter((h) => h.alive)
@@ -263,7 +276,32 @@ export function heroSpecs(state: RunState): UnitSpec[] {
       rules: [...compileHero(state, h), ...heroArchetype(h.archetypeId).innate],
       hp: h.hp,
       ...h.stats,
+      spawn: { ...deployedSpawn(state, h) },
     }));
+}
+
+/**
+ * Поставить героя в зону развёртывания перед боем текущего узла.
+ * Валидация: клетка в зоне, не камень арены, не занята другим героем.
+ */
+export function setDeploy(state: RunState, heroId: string, pos: Pos): SetPhrasesResult {
+  const node = currentNode(state);
+  if (!FIGHT_KINDS.includes(node.kind) || state.resolved) {
+    return { ok: false, error: 'Расстановка меняется перед боем' };
+  }
+  const hero = state.heroes.find((h) => h.id === heroId);
+  if (!hero) return { ok: false, error: `Нет героя ${heroId}` };
+  if (!hero.alive) return { ok: false, error: `${hero.name} мёртв` };
+  if (pos.x < 0 || pos.x > PARTY_ZONE_MAX_X || pos.y < 0 || pos.y >= ARENA_H) {
+    return { ok: false, error: 'Клетка вне зоны развёртывания' };
+  }
+  const layout = pickTerrain(battleSeed(state), arenaForNode(node));
+  if (tileAt(layout.tiles, pos).blocked) return { ok: false, error: 'Клетка занята камнем' };
+  if (state.heroes.some((h) => h.alive && h.id !== heroId && posEq(deployedSpawn(state, h), pos))) {
+    return { ok: false, error: 'Клетка занята другим героем' };
+  }
+  state.deploy[heroId] = { ...pos };
+  return { ok: true };
 }
 
 export type SetPhrasesResult = { ok: true } | { ok: false; error: string };
@@ -414,6 +452,7 @@ export function advance(state: RunState, toId: number): AdvanceResult {
   state.at = toId;
   state.resolved = false;
   state.marked = null; // новый узел — новые враги, метка не переносится
+  state.deploy = {}; // новая арена — расстановка заново
   return { ok: true };
 }
 
