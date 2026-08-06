@@ -216,6 +216,7 @@ describe('композиция линз', () => {
     expect(c.instincts).toEqual({
       aggression: 1,
       survival: 1,
+      ffCare: 1,
       ignoreZoC: false,
       gapFill: true,
       actionBias: {},

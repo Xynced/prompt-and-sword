@@ -188,10 +188,12 @@ export function warlord(): UnitSpec {
         source: 'вождь орды: ломать самых опасных',
       }),
       rule({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 1.5, source: 'вождь орды: крови не жалеть' }),
-      rule({ when: { kind: 'always' }, then: { kind: 'barrage' }, weight: 1.5, source: 'вождь орды: дыхание орды' }),
+      // вес 1.0 (не 1.5): при 1.5 вождь менял на замахи треть ходов и мягчел —
+      // дыхание должно накрывать настоящие скопления, а не заменять топор
+      rule({ when: { kind: 'always' }, then: { kind: 'barrage' }, weight: 1.0, source: 'вождь орды: дыхание орды' }),
       // упреждение: партия научилась выходить из зоны — вождь целит туда,
       // куда выходят (шаг 5 плана АОЕ, лечит «босс помягчел» из шага 3)
-      rule({ when: { kind: 'always' }, then: { kind: 'preempt' }, weight: 1.5, source: 'вождь орды: бить на упреждение' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'preempt' }, weight: 1.0, source: 'вождь орды: бить на упреждение' }),
     ],
   };
 }

@@ -335,3 +335,38 @@ describe('слова АОЕ: интервал и упреждение (шаг 5)
     expect(blasts.length).toBeGreaterThan(0); // залп не ограничен
   });
 });
+
+describe('линзы и АОЕ (шаг 6)', () => {
+  const rules = [rule({ kind: 'barrage' })];
+  const scene = (lenses: LensId[]): { self: Fighter; units: Fighter[] } => {
+    const self = fighter('s', 'party', { x: 5, y: 5 }, { atk: 6, aoe: { blast: { range: 4, mult: 0.75 } } }, rules);
+    self.compiled = applyLens(lenses, rules);
+    const e1 = fighter('e1', 'foe', { x: 8, y: 8 });
+    const e2 = fighter('e2', 'foe', { x: 9, y: 8 });
+    const ally = fighter('a', 'party', { x: 8, y: 8 + 1 });
+    return { self, units: [self, e1, e2, ally] };
+  };
+
+  it('фанатику своих в зоне не жалко (ffCare 0), обычному — жалко', () => {
+    const cand = { to: { x: 5, y: 5 }, action: 'aoeBlast' as const, at: { x: 8, y: 8 } };
+    const plain = scene(['plain']);
+    expect(scoreCandidate(cand, plain.self, plain.units, plain.self.compiled.rules)
+      .some((f) => f.label === 'свои в зоне')).toBe(true);
+    const fanatic = scene(['fanatic']);
+    expect(fanatic.self.compiled.instincts.ffCare).toBe(0);
+    expect(scoreCandidate(cand, fanatic.self, fanatic.units, fanatic.self.compiled.rules)
+      .some((f) => f.label === 'свои в зоне')).toBe(false);
+  });
+
+  it('дуэлянту касты недостойны: кандидатов нет даже со словом и оружием', () => {
+    const duelist = scene(['duelist']);
+    const cands = generateCandidates(duelist.self, duelist.units);
+    expect(cands.some((c) => c.action === 'aoeBlast' || c.action === 'aoeLine' || c.action === 'aoeRitual')).toBe(false);
+  });
+
+  it('горячке замах невыносим: тяга к ритуалу 0.3', () => {
+    const hothead = applyLens(['hothead'], rules);
+    expect(hothead.instincts.actionBias.aoeRitual).toBe(0.3);
+    expect(hothead.instincts.actionBias.aoeBlast).toBeUndefined(); // залп «сейчас» — не тронут
+  });
+});

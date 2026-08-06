@@ -901,10 +901,10 @@ export function scoreCandidate(
   }
 
   // площадной каст: та же валюта, что у агрессии, но суммой по накрытым.
-  // Свои в зоне (friendly fire) — в минус, плоским весом: это арифметика
-  // вреда своим, а не вкус характера (искажение фанатика — шаг линз).
-  // Ритуал оценивается по текущим позициям: без слова упреждения кастер целит
-  // в скопление «где стоят» — зона читаема и уворачиваема, это норма
+  // Свои в зоне (friendly fire) — в минус, вес ffCare (у всех 1, фанатик 0:
+  // «в замес — так в замес»). Ритуал оценивается по текущим позициям: без
+  // слова упреждения кастер целит в скопление «где стоят» — зона читаема и
+  // уворачиваема, это норма
   const aoeForm =
     cand.action === 'aoeBlast' ? self.aoe?.blast
     : cand.action === 'aoeLine' ? self.aoe?.line
@@ -920,7 +920,9 @@ export function scoreCandidate(
       else own += val;
     }
     if (foes !== 0) factors.push({ label: 'инстинкт:агрессия', value: foes * instincts.aggression });
-    if (own !== 0) factors.push({ label: 'свои в зоне', value: -own });
+    if (own !== 0 && instincts.ffCare !== 0) {
+      factors.push({ label: 'свои в зоне', value: -own * instincts.ffCare });
+    }
   }
 
   const hpFrac = self.hp / self.maxHp;
