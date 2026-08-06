@@ -182,6 +182,12 @@ function verboseRun(setName: string, seed: number): void {
       case 'shove':
         console.log(`  ${nm(e.unit)} толкает ${nm(e.target)} в ${fmtPos(e.to)}`);
         break;
+      case 'aoeCast':
+        console.log(`  ${nm(e.unit)} накрывает залпом ${fmtPos(e.at)}`);
+        break;
+      case 'aoeHit':
+        console.log(`  ${nm(e.unit)} накрыт залпом: ${e.dmg} урона, hp=${e.hp}`);
+        break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);
         break;

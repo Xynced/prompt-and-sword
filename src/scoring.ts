@@ -55,6 +55,7 @@ export const AP_COST: Record<ActionKind, number> = {
   // за 1 AP «сдвинуть и добить» — нормальный ход
   shove: 1,
   cover: 1,
+  aoeBlast: 2,
   attack: 2,
   selflessAttack: 2,
   shieldAlly: 2,
@@ -71,7 +72,7 @@ export function apCostFor(action: ActionKind, u: CombatUnit): number {
   return action === 'carefulStep' && u.move <= 1 ? 2 : AP_COST[action];
 }
 
-/** Множитель урона по виду атаки; 0 — действие не атака. */
+/** Множитель урона по виду атаки; 0 — действие не атака (залп — не атака: бьёт площадь, не цель). */
 const ATTACK_MULT: Record<ActionKind, number> = {
   weakAttack: WEAK_ATK_MULT,
   attack: 1,
@@ -79,6 +80,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   move: 0,
   carefulStep: 0,
   shove: 0,
+  aoeBlast: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -96,6 +98,7 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   attack: 0,
   selflessAttack: 0,
   shove: 0,
+  aoeBlast: 0,
   wait: 0,
 };
 
@@ -105,6 +108,34 @@ export function shoveDest(pusher: Pos, target: Pos): Pos {
     x: target.x + Math.sign(target.x - pusher.x),
     y: target.y + Math.sign(target.y - pusher.y),
   };
+}
+
+/** Радиус залпа: 3×3 вокруг центра (Чебышёв). */
+export const AOE_BLAST_RADIUS = 1;
+
+/** Живые юниты обеих сторон в зоне — friendly fire включён для всех. */
+export function aoeVictims<T extends CombatUnit>(
+  center: Pos,
+  units: readonly T[],
+  radius: number = AOE_BLAST_RADIUS,
+): T[] {
+  return units.filter((u) => u.alive && dist(u.pos, center) <= radius);
+}
+
+/**
+ * Урон площадного каста по цели: фиксированный, строго без rng (прецедент
+ * шипов — новый вызов rng() сдвинул бы последовательность боя и переписал
+ * фикстуры; и одно число в логе у всех накрытых читается лучше). Каменное
+ * укрытие от взрыва не спасает (это не выстрел), прикрытие от действий и
+ * открытость — работают.
+ */
+export function aoeDamage(caster: CombatUnit, mult: number, target: CombatUnit): number {
+  return Math.max(
+    1,
+    Math.round(
+      expectedDamage(caster.atk) * mult * (1 - target.coverLevel) * (target.exposed ? SELFLESS_VULN_MULT : 1),
+    ),
+  );
 }
 
 /** Перемещения: у обоих `to` — новая клетка; осторожный шаг не будит опасность. */
@@ -130,6 +161,8 @@ export interface Candidate {
   action: ActionKind;
   /** Цель атаки — или прикрываемый союзник для `shieldAlly`. */
   targetId?: string;
+  /** Центр зоны площадного каста (`aoeBlast`). */
+  at?: Pos;
 }
 
 export interface Factor {
@@ -317,6 +350,36 @@ export function generateCandidates(
       const dest = shoveDest(here, e.pos);
       if (inBounds(dest) && !blocked(dest) && !units.some((u) => u.alive && posEq(u.pos, dest))) {
         out.push({ to: here, action: 'shove', targetId: e.id });
+      }
+    }
+  }
+
+  // залп: мгновенный взрыв 3×3 вокруг центра в дальности каста. Оружие —
+  // spec.aoe (носителей единицы), гейт — правило «накрыть скопление»: инстинкты
+  // каста не знают, без слова кандидатов нет (прецедент толчка — иначе поле
+  // играло бы само). Центры — не скан поля, а окрестности врагов: только
+  // клетки, где зона накрывает хотя бы одного
+  const blast = self.aoe?.blast;
+  if (
+    blast &&
+    ap >= AP_COST.aoeBlast &&
+    allowed('aoeBlast') &&
+    self.compiled.rules.some((r) => r.then.kind === 'barrage')
+  ) {
+    const seen = new Set<string>();
+    for (const e of enemiesOf(self, units)) {
+      for (let dx = -AOE_BLAST_RADIUS; dx <= AOE_BLAST_RADIUS; dx++) {
+        for (let dy = -AOE_BLAST_RADIUS; dy <= AOE_BLAST_RADIUS; dy++) {
+          const at = { x: e.pos.x + dx, y: e.pos.y + dy };
+          const key = posKey(at);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (!inBounds(at) || blocked(at) || dist(here, at) > blast.range) continue;
+          // до центра зоны нужна линия видимости сквозь камни (каменоломня —
+          // контр шамана); тела взрыв не заслоняют — он навесной
+          if (!hasLoS(here, at, blocked)) continue;
+          out.push({ to: here, action: 'aoeBlast', at });
+        }
       }
     }
   }
@@ -625,6 +688,14 @@ function scorePreference(
       const dest = shoveDest(self.pos, target.pos);
       return (ctx.hazardAt(dest) ? 3.5 : 0.8) * w;
     }
+    case 'barrage': {
+      // накрыть скопление: премия только от двух накрытых врагов — и растёт с
+      // их числом. По одному залп не жмут (обычная атака выгоднее по урону):
+      // залп — ответ на кучность, а не кнопка урона
+      if (cand.action !== 'aoeBlast' || !cand.at) return 0;
+      const covered = aoeVictims(cand.at, units).filter((v) => v.side !== self.side).length;
+      return covered >= 2 ? 1.5 * covered * w : 0;
+    }
   }
 }
 
@@ -657,6 +728,23 @@ export function scoreCandidate(
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
+  }
+
+  // залп: та же валюта, что у агрессии, но суммой по накрытым. Свои в зоне
+  // (friendly fire) — в минус, плоским весом: это арифметика вреда своим, а не
+  // вкус характера (искажение фанатика «в замес — так в замес» — шаг линз)
+  if (cand.action === 'aoeBlast' && cand.at && self.aoe?.blast) {
+    const { mult } = self.aoe.blast;
+    let foes = 0;
+    let own = 0;
+    for (const v of aoeVictims(cand.at, units)) {
+      const dmg = Math.min(aoeDamage(self, mult, v), v.hp);
+      const val = (dmg / v.maxHp) * 6 + (dmg >= v.hp ? 4 : 0);
+      if (v.side !== self.side) foes += val;
+      else own += val;
+    }
+    if (foes !== 0) factors.push({ label: 'инстинкт:агрессия', value: foes * instincts.aggression });
+    if (own !== 0) factors.push({ label: 'свои в зоне', value: -own });
   }
 
   const hpFrac = self.hp / self.maxHp;

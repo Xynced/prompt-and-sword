@@ -13,10 +13,21 @@ export type ActionKind =
   | 'attack'
   | 'selflessAttack'
   | 'shove'
+  | 'aoeBlast'
   | 'cover'
   | 'fullCover'
   | 'shieldAlly'
   | 'wait';
+
+/**
+ * Площадное оружие юнита (план АОЕ) — «умеет накрывать». АОЕ не действие для
+ * всех: без спеки кандидатов каста нет; использование гейтится правилом
+ * «накрыть скопление» (у врагов — в спеке, у героев — словом).
+ */
+export interface AoeSpec {
+  /** Залп: мгновенный взрыв 3×3 вокруг центра в дальности range; урон mult × ожидаемый удар, фиксированный. */
+  blast?: { range: number; mult: number };
+}
 
 export type LensId =
   | 'plain'
@@ -53,6 +64,8 @@ export interface CombatUnit {
   tags: string[];
   /** Линзы характера в порядке применения (1–3 у героев). */
   lenses: LensId[];
+  /** Площадное оружие носителя АОЕ; у большинства юнитов отсутствует. */
+  aoe?: AoeSpec;
   /** Кто последним нанёс мне урон — для селектора «кто атаковал меня». */
   lastAttackerId?: string;
 }

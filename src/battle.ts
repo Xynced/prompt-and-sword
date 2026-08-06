@@ -2,13 +2,15 @@ import { type Rng, mulberry32, shuffle } from './rng.js';
 import { AP_PER_TURN, HAZARD_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import type { Rule } from './ir.js';
-import { dist, inBounds, isFlanking, posEq } from './grid.js';
+import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
-import type { LensId, Pos, Side } from './types.js';
+import type { AoeSpec, LensId, Pos, Side } from './types.js';
 import {
   type ActionKind,
   type Decision,
   type Fighter,
+  aoeDamage,
+  aoeVictims,
   apCostFor,
   attackMult,
   coverLevelOf,
@@ -36,6 +38,8 @@ export interface UnitSpec {
   /** Линзы характера в порядке применения. */
   lenses: LensId[];
   rules: Rule[];
+  /** Площадное оружие носителя АОЕ (план АОЕ). */
+  aoe?: AoeSpec;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
 }
@@ -47,12 +51,16 @@ export type BattleEvent =
       to: Pos;
       action: ActionKind;
       target?: string;
+      /** Центр зоны площадного каста. */
+      at?: Pos;
       /** Очков хода на момент решения (до списания цены действия). */
       ap: number;
     })
   | { t: 'move'; unit: string; from: Pos; to: Pos }
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
+  | { t: 'aoeCast'; unit: string; form: 'blast'; at: Pos }
+  | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
   | {
       t: 'attack';
       unit: string;
@@ -97,6 +105,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     exposed: false,
     tags: spec.tags ?? [],
     lenses: spec.lenses,
+    aoe: spec.aoe,
     compiled: applyLens(spec.lenses, spec.rules),
   };
 }
@@ -175,7 +184,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
 
       while (ap > 0 && !over && unit.alive) {
         const decision = decide(unit, units, round, blocked, ap, ctx);
-        const { to, action, targetId } = decision.chosen;
+        const { to, action, targetId, at } = decision.chosen;
         events.push({
           t: 'decision',
           unit: unit.id,
@@ -183,6 +192,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           to,
           action,
           ...(targetId ? { target: targetId } : {}),
+          ...(at ? { at: { ...at } } : {}),
           ap,
           factors: decision.factors,
           condRules: decision.condRules,
@@ -256,6 +266,23 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
               if (target.hp === 0) {
                 target.alive = false;
                 events.push({ t: 'die', unit: target.id });
+              }
+            }
+          }
+        } else if (action === 'aoeBlast' && at) {
+          // залп: фиксированный урон всем в 3×3 вокруг центра — обеим сторонам
+          // (friendly fire включён) и самому кастеру, если влез в зону
+          const blast = unit.aoe?.blast;
+          if (blast && dist(unit.pos, at) <= blast.range && hasLoS(unit.pos, at, blocked)) {
+            events.push({ t: 'aoeCast', unit: unit.id, form: 'blast', at: { ...at } });
+            for (const v of aoeVictims(at, units)) {
+              const dmg = aoeDamage(unit, blast.mult, v);
+              v.hp = Math.max(0, v.hp - dmg);
+              v.lastAttackerId = unit.id; // мститель запомнит накрывшего
+              events.push({ t: 'aoeHit', unit: v.id, by: unit.id, dmg, hp: v.hp });
+              if (v.hp === 0) {
+                v.alive = false;
+                events.push({ t: 'die', unit: v.id });
               }
             }
           }

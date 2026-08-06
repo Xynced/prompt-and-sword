@@ -26,6 +26,8 @@ import { dist } from './grid.js';
  *   Простр.:   highGround (держать высоту), behindCover (за укрытием),
  *              avoidHazard (обходить опасное)
  *   Действия:  shove (толкать — в шипы, в огонь, из строя)
+ * План АОЕ:
+ *   Действия:  barrage (накрыть скопление — гейт площадного каста носителя)
  */
 
 export type Selector =
@@ -78,7 +80,8 @@ export type Preference =
   | { kind: 'highGround' }
   | { kind: 'behindCover' }
   | { kind: 'avoidHazard' }
-  | { kind: 'shove' };
+  | { kind: 'shove' }
+  | { kind: 'barrage' };
 
 export interface Rule {
   when: Condition;
@@ -242,5 +245,7 @@ export function describePreference(p: Preference): string {
       return 'обходить опасное';
     case 'shove':
       return 'толкать';
+    case 'barrage':
+      return 'накрыть скопление';
   }
 }

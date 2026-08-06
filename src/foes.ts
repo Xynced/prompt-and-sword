@@ -103,6 +103,8 @@ export function shaman(behindId: string): UnitSpec {
     speed: 5,
     move: 1,
     lenses: ['plain'],
+    // носитель залпа (план АОЕ): взрыв 3×3 — первая причина держать интервал
+    aoe: { blast: { range: 4, mult: 0.75 } },
     rules: [
       rule({
         when: { kind: 'always' },
@@ -110,7 +112,7 @@ export function shaman(behindId: string): UnitSpec {
         weight: 1.5,
         source: 'шаман: держаться за спинами',
       }),
-      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 1.5, source: 'шаман: жечь раненых' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'barrage' }, weight: 1.5, source: 'шаман: накрыть скопление' }),
     ],
   };
 }

@@ -582,6 +582,15 @@ function buildFrames(result: BattleResult, leaderIds: Set<string>): Frame[] {
         pending?.parts.push(`толкает ${nm(e.target)} в ${cellName(e.to.x, e.to.y)}`);
         break;
       }
+      case 'aoeCast':
+        pending?.parts.push(`накрывает залпом ${cellName(e.at.x, e.at.y)}`);
+        break;
+      case 'aoeHit': {
+        const u = units.get(e.unit)!;
+        u.hp = e.hp;
+        pending?.parts.push(`${nm(e.unit)} накрыт: −${e.dmg}`);
+        break;
+      }
       case 'die': {
         units.get(e.unit)!.alive = false;
         pending?.parts.push(`${nm(e.unit)} падает`);
