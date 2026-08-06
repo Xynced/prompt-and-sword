@@ -187,6 +187,7 @@ export function describePassives(p: PassiveSpec): string {
   if (p.shadow) parts.push(`из тени урон ×${p.shadow.mult}`);
   if (p.sneak) parts.push(`фланг ×${p.sneak.flankMult}`);
   if (p.retribution) parts.push(`кара обидчикам своих ×${p.retribution.mult}`);
+  if (p.regen) parts.push(`зарастает +${p.regen.amount} в ход`);
   return parts.join(' · ');
 }
 

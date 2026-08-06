@@ -76,6 +76,8 @@ export interface PassiveSpec {
   sneak?: { flankMult: number };
   /** Кара (Заря): атаки ×mult по врагу, чей удар последним получил кто-то из своих. */
   retribution?: { mult: number };
+  /** Регенерация (тролль): +amount hp в начале своего хода, не выше максимума. */
+  regen?: { amount: number };
 }
 
 /**

@@ -206,6 +206,9 @@ function verboseRun(setName: string, seed: number): void {
       case 'heal':
         console.log(`  ${nm(e.unit)} исцеляет ${nm(e.target)}: +${e.amount}, hp=${e.hp}`);
         break;
+      case 'regen':
+        console.log(`  ${nm(e.unit)} зарастает: +${e.amount}, hp=${e.hp}`);
+        break;
       case 'bless':
         console.log(`  ${nm(e.unit)} благословляет ${nm(e.target)} (урон ×${e.mult})`);
         break;

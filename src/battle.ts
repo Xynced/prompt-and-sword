@@ -92,6 +92,8 @@ export type BattleEvent =
   | { t: 'mark'; unit: string; target: string }
   /** Исцеление: цели восстановлено amount hp (после капа), hp — итог. */
   | { t: 'heal'; unit: string; target: string; amount: number; hp: number }
+  /** Регенерация: юнит зарастает в начале своего хода (пассив regen). */
+  | { t: 'regen'; unit: string; amount: number; hp: number }
   /** Благословение: атаки цели ×mult до конца боя. */
   | { t: 'bless'; unit: string; target: string; mult: number }
   /** Финт: цель открыта (входящий ×SELFLESS_VULN_MULT) до её следующего хода. */
@@ -255,6 +257,14 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           return { winner: w, rounds: round, events, units, terrain };
         }
         if (!unit.alive) continue; // накрыл сам себя
+      }
+
+      // регенерация: зарастает в начале своего хода, не выше максимума
+      const regen = unit.passives?.regen;
+      if (regen && unit.hp < unit.maxHp) {
+        const amount = Math.min(regen.amount, unit.maxHp - unit.hp);
+        unit.hp += amount;
+        events.push({ t: 'regen', unit: unit.id, amount, hp: unit.hp });
       }
 
       // прикрытие и открытость держатся до своего следующего хода
