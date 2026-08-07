@@ -4,7 +4,7 @@ import { AP_COST, type Fighter, decide, generateCandidates, makeCtx, rangeAt } f
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { ARENA_H, ARENA_W, type Tile, pickTerrain } from '../src/terrain.js';
 import { compilePhrase } from '../src/constructor.js';
-import { CONCEPTS, CORE_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
+import { CONCEPTS, COMMON_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { understandingCard } from '../src/cards.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import type { CombatUnit, Pos, Side } from '../src/types.js';
@@ -157,7 +157,7 @@ describe('слово «держать высоту»', () => {
   });
 
   it('в CORE-пуле; компилируется при открытом словаре и закрыт в стартовом', () => {
-    expect(CORE_WORDS).toContain('space.highGround');
+    expect(COMMON_WORDS).toContain('space.highGround');
     expect(STARTING_VOCAB).not.toContain('space.highGround');
     const draft = { condition: { id: 'always' }, preference: { id: 'space.highGround' } } as const;
     const ok = compilePhrase(draft, FULL_VOCAB);

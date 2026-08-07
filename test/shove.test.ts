@@ -6,7 +6,7 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { pickTerrain } from '../src/terrain.js';
 import { HAZARD_DMG } from '../src/tuning.js';
 import { compilePhrase } from '../src/constructor.js';
-import { CONCEPTS, DEEP_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
+import { CONCEPTS, COMMON_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { understandingCard } from '../src/cards.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import type { CombatUnit, Pos, Side } from '../src/types.js';
@@ -168,7 +168,8 @@ describe('толчок в бою (теснина)', () => {
 
 describe('слово «толкать»', () => {
   it('в DEEP-пуле; компилируется при открытом словаре и закрыт в стартовом', () => {
-    expect(DEEP_WORDS).toContain('act.shove');
+    // по аудиту слов толчок мёртв на текущих аренах (дельта ≈ 0) — обычное, ждёт переработки
+    expect(COMMON_WORDS).toContain('act.shove');
     expect(STARTING_VOCAB).not.toContain('act.shove');
     const draft = { condition: { id: 'always' }, preference: { id: 'act.shove' } } as const;
     const ok = compilePhrase(draft, FULL_VOCAB);

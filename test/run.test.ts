@@ -20,7 +20,7 @@ import {
   setPhrases,
   startRun,
 } from '../src/run.js';
-import { CORE_WORDS, DEEP_WORDS, STARTING_VOCAB } from '../src/vocab.js';
+import { COMMON_WORDS, RARE_WORDS, STARTING_VOCAB } from '../src/vocab.js';
 import { heroArchetype } from '../src/heroes.js';
 import { runBattle } from '../src/battle.js';
 
@@ -42,7 +42,11 @@ function lessonRewrite(state: RunState): void {
 }
 
 /** Прогоняет забег до конца: первый выход из каждого узла, простые выборы. */
-function autoplay(seed: number, maxLessonTries = 3): RunState {
+function autoplay(
+  seed: number,
+  maxLessonTries = 3,
+  onReward?: (kind: ReturnType<typeof currentNode>['kind'], reward: readonly (readonly string[])[]) => void,
+): RunState {
   const state = startRun(seed);
   let tries = 0;
   while (state.status === 'ongoing') {
@@ -58,7 +62,8 @@ function autoplay(seed: number, maxLessonTries = 3): RunState {
           lessonRewrite(state);
         }
         if (state.pendingReward?.[0]) {
-          claimReward(state, { kind: 'concept', id: state.pendingReward[0] });
+          onReward?.(node.kind, state.pendingReward);
+          claimReward(state, { kind: 'option', index: 0 });
         }
         break;
       }
@@ -259,26 +264,52 @@ describe('забег', () => {
 });
 
 describe('трофеи боя', () => {
-  it('победа в бою даёт на выбор 3–4 разных слова (простые и глубокие); взятое — открывается', () => {
+  it('урок: трофей — пара обычных слов или одно редкое; взятый вариант открывается целиком', () => {
     for (let seed = 1; seed <= 30; seed++) {
       const state = startRun(seed);
       const r = playFight(state);
       if (r.winner !== 'party') continue; // урок можно и проиграть — реварда нет
       expect(state.pendingReward).not.toBeNull();
       const reward = state.pendingReward!;
-      expect(reward.length).toBeGreaterThanOrEqual(3);
-      expect(reward.length).toBeLessThanOrEqual(4);
-      expect(new Set(reward).size).toBe(reward.length);
-      expect(reward.some((c) => CORE_WORDS.includes(c))).toBe(true);
-      expect(reward.some((c) => DEEP_WORDS.includes(c))).toBe(true);
-      for (const c of reward) expect(state.vocab).not.toContain(c);
-      const picked = reward[1]!;
-      expect(claimReward(state, { kind: 'concept', id: picked }).ok).toBe(true);
-      expect(state.vocab).toContain(picked);
+      expect(reward.length).toBe(2);
+      expect(reward[0]).toHaveLength(2);
+      for (const c of reward[0]!) expect(COMMON_WORDS).toContain(c);
+      expect(reward[1]).toHaveLength(1);
+      expect(RARE_WORDS).toContain(reward[1]![0]!);
+      const all = reward.flat();
+      expect(new Set(all).size).toBe(all.length);
+      for (const c of all) expect(state.vocab).not.toContain(c);
+      expect(claimReward(state, { kind: 'option', index: 0 }).ok).toBe(true);
+      for (const c of reward[0]!) expect(state.vocab).toContain(c);
       expect(state.pendingReward).toBeNull();
       return;
     }
     throw new Error('урок не выигран ни на одном сиде 1..30');
+  });
+
+  it('обычный бой предлагает обычные слова, элита — редкие (по одному на вариант)', () => {
+    let sawFight = 0;
+    let sawElite = 0;
+    for (let seed = 1; seed <= 40 && (sawFight === 0 || sawElite === 0); seed++) {
+      autoplay(seed, 3, (kind, reward) => {
+        if (kind === 'fight' && sawFight === 0) {
+          sawFight++;
+          for (const opt of reward) {
+            expect(opt).toHaveLength(1);
+            expect(COMMON_WORDS).toContain(opt[0]!);
+          }
+        }
+        if (kind === 'elite' && sawElite === 0) {
+          sawElite++;
+          for (const opt of reward) {
+            expect(opt).toHaveLength(1);
+            expect(RARE_WORDS).toContain(opt[0]!);
+          }
+        }
+      });
+    }
+    expect(sawFight).toBeGreaterThan(0);
+    expect(sawElite).toBeGreaterThan(0);
   });
 
   it('пока трофей не решён — advance заблокирован; поражение реварда не даёт', () => {

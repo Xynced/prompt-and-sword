@@ -5,7 +5,7 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { pickTerrain } from '../src/terrain.js';
 import { HAZARD_DMG } from '../src/tuning.js';
 import { compilePhrase } from '../src/constructor.js';
-import { CONCEPTS, CORE_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
+import { CONCEPTS, COMMON_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { understandingCard } from '../src/cards.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import type { CombatUnit, Pos, Side } from '../src/types.js';
@@ -157,7 +157,7 @@ describe('слово «обходить опасное»', () => {
   });
 
   it('в CORE-пуле; компилируется при открытом словаре и закрыт в стартовом', () => {
-    expect(CORE_WORDS).toContain('space.avoidHazard');
+    expect(COMMON_WORDS).toContain('space.avoidHazard');
     expect(STARTING_VOCAB).not.toContain('space.avoidHazard');
     const draft = { condition: { id: 'always' }, preference: { id: 'space.avoidHazard' } } as const;
     const ok = compilePhrase(draft, FULL_VOCAB);

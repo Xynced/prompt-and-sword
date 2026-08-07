@@ -12,9 +12,9 @@
 | [terrain.ts](terrain.ts) | Поле из клеток со свойствами (камень/высота/опасность/бурелом), 12 арен-сценариев ASCII-схемами, пулы по тегам | `Tile`, `ArenaTag`, `TERRAIN_LAYOUTS`, `pickTerrain` |
 | [tuning.ts](tuning.ts) | Константы баланса: урон, экономика хода, цены прикрытий, рипост | `DMG_SCALE`, `expectedDamage`, `AP_PER_TURN`, `AP_VALUE`, `ACTION_BIAS_WEIGHT`, `WEAK_ATK_MULT`, `COVER`, `RIPOSTE_DMG` |
 | [ir.ts](ir.ts) | IR: правило «условие → предпочтение → вес», структурные пометки линз, условия-триггеры (hpAbove, firstBlood, leaderDown, wasHit), вычисление условий и селекторов | `Rule`, `LensMark`, `Condition`, `Selector`, `Preference`, `evalCondition`, `resolveSelector` |
-| [vocab.ts](vocab.ts) | Словарь концептов (44: условия, селекторы, действия, манера удара, пространство, активы), стартовый/базовый/глубокий наборы | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `UNLOCKABLE` |
+| [vocab.ts](vocab.ts) | Словарь концептов (44: условия, селекторы, действия, манера удара, пространство, активы); старт + обычные/редкие по данным аудита слов; изъятые из обращения | `ConceptId`, `CONCEPTS`, `STARTING_VOCAB`, `COMMON_WORDS`, `RARE_WORDS`, `RETIRED_WORDS`, `UNLOCKABLE` |
 | [lens.ts](lens.ts) | Линзы характеров — детерминированные трансформации IR (10 в пуле): пометки marks, контекстные расщепления фраз, эмоциональный дрейф-защёлка, инстинкты и тяга к видам действий | `applyLens`, `rollLenses`, `biasFor`, `ActionBias`, `MoodDrift`, `LENS_POOL`, `LENS_RU` |
-| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; кандидаты атак по каждому оружию, аффинность манер; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха); действующее прикрытие (чужое живо при смежном живом щитоносце) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `effectiveCover`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady`, `weaponsOf`, `rageReady`, `wallReady`, `healReady`, `blessReady`, `shadowMult`, `retributionMult`, `attackMultFor` |
+| [scoring.ts](scoring.ts) | Utility-скоринг: выбор одного действия на очко хода, инстинкты + веса правил, высота/укрытие/опасность, осторожный шаг, толчок; кандидаты атак по каждому оружию, аффинность манер; касты АОЕ (залп/линия/ритуал, оценка групп, канал зон замаха); действующее прикрытие (чужое живо при смежном живом щитоносце); стойки манер плана words («часто» крепче слабым, «наверняка» режет митигацию, приманка держит прикрытие) | `generateCandidates`, `decide`, `ActionKind`, `AP_COST`, `apCostFor`, `Decision`, `Factor`, `makeCtx`, `rangeAt`, `shoveDest`, `effectiveCover`, `aoeDamage`, `castVictims`, `zoneDangerAt`, `ritualReady`, `weaponsOf`, `rageReady`, `wallReady`, `healReady`, `blessReady`, `shadowMult`, `retributionMult`, `attackMultFor`, `stanceOf`, `stanceAttackMult`, `stanceMitigation` |
 | [battle.ts](battle.ts) | Прогон боя: инициатива, ходы по 3 очка действия, площадные касты (телеграф ритуала, залп в начале хода кастера), перехват телохранителя, рипост глухой обороны, дрейф-защёлка характеров (moodShift), event-sourced лог, превью спавнов | `runBattle`, `UnitSpec`, `BattleEvent`, `BattleResult`, `spawnPreview` |
 | [metrics.ts](metrics.ts) | Поведенческий отпечаток боя для статистики и сравнения | `fingerprint`, `Fingerprint` |
 
@@ -36,17 +36,18 @@
 |---|---|---|
 | [heroes.ts](heroes.ts) | Пул из 16 героев — 8 классов pf2e × 2 варианта (класс-ярлык, оружие, актив, пассив, способность), сборка партии, дефолтные принципы | `HERO_POOL`, `pickParty`, `defaultPhrasesFor` |
 | [foes.ts](foes.ts) | Фабрики 19 врагов (принципы в том же IR): ранние + 12 по мотивам pf2e для паттернов боёв (масса, стая, элита, лекарь, огр, тролль…) + разведка перед боем | `grunt`, `rat`, `wolf`, `slinger`, `soldier`, `sergeant`, `raider`, `bonesetter`, `ogre`, `pyro`, `thug`, `troll`, `duelist`, …, `foeIntel` |
-| [run.ts](run.ts) | Забег: ветвящаяся карта 15 узлов, состояние партии, расстановка перед боем, скрипторий, события, трофеи, босс | `generateMap`, `RunState`, `foesForNode`, `arenaForNode`, `setDeploy` |
+| [run.ts](run.ts) | Забег: ветвящаяся карта 15 узлов, состояние партии, расстановка перед боем, скрипторий, события, босс; трофеи по редкости узла (урок — 2 обычных/1 редкое, бой — обычные, элита — редкие) | `generateMap`, `RunState`, `foesForNode`, `arenaForNode`, `setDeploy` |
 | [sparring.ts](sparring.ts) | «Переиграть с теми же костями»: тот же seed, новые принципы, дифф исходов | `sparring`, `SparringDiff` |
 | [share.ts](share.ts) | Экспорт/импорт билда строкой `ps1.…` (сид + словарь + принципы) | `exportBuild`, `importBuild` |
 | [scenarios.ts](scenarios.ts) | Фиксированные IR-наборы и статы для Ворот A и CLI-прогонов | `makeIrSets`, `makeFoes`, `HERO_STATS` |
 | [balance.ts](balance.ts) | Автобаланс: детерминированный бот играет забеги, статистика по слоям | `playBotRun`, `balanceSweep`, `BalanceReport` |
+| [words-audit.ts](words-audit.ts) | Аудит слов (план words): дельта winrate слова/комбо к наив- и кайт-билдам по партиям × боям × сидам | `wordsAudit`, `AUDIT_ENTRIES`, `AUDIT_PARTIES`, `AUDIT_BATTLES`, `summarize`, `printAudit` |
 | [playtest.ts](playtest.ts) | Журнал плейтеста: события поведения тестера, текстовый отчёт | `appendEvent`, `journalReport` |
 
 ## Входные точки
 
 | Модуль | Что делает |
 |---|---|
-| [cli.ts](cli.ts) | `pnpm sim …`: gateA, run, demo-run, balance, compile, corpus |
+| [cli.ts](cli.ts) | `pnpm sim …`: gateA, run, demo-run, balance, words-audit, compile, corpus |
 | [ui/main.ts](ui/main.ts) | Весь веб-UI одним файлом (чистый DOM + Vite): карта, бой, конструктор, спарринг, журнал |
 | [ui/style.css](ui/style.css) | Стиль «полевой дневник тактика» |

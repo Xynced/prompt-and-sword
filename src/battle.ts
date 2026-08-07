@@ -24,7 +24,8 @@ import {
   isAttack,
   isMovement,
   makeCtx,
-  attackMultFor,
+  stanceAttackMult,
+  stanceMitigation,
   blessMult,
   blessReady,
   healReady,
@@ -298,6 +299,9 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
 
       while (ap > 0 && !over && unit.alive) {
         const decision = decide(unit, units, round, blocked, ap, ctx);
+        // стойки манер (план words): держатся до следующего решения юнита —
+        // приманка сохраняет прикрытие и на чужих ходах
+        unit.stance = decision.stance;
         const { to, action, targetId, at } = decision.chosen;
         events.push({
           t: 'decision',
@@ -379,12 +383,17 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
                 blessMult(unit) *
                 shadowMult(unit, unit.pos, units, blocked) *
                 retributionMult(unit, target, units) *
-                attackMultFor(action, weapon) *
+                stanceAttackMult(action, weapon, unit.stance) *
                 flankMult,
               rng,
             );
-            // каменное укрытие цели не складывается с прикрытием — берётся максимум
-            const mitigation = Math.max(effectiveCover(target, units), ctx.coverFrom(unit.pos, target.pos));
+            // каменное укрытие цели не складывается с прикрытием — берётся максимум;
+            // стойка «наверняка» режет митигацию полного удара вдвое
+            const mitigation = stanceMitigation(
+              Math.max(effectiveCover(target, units), ctx.coverFrom(unit.pos, target.pos)),
+              action,
+              unit.stance,
+            );
             const dmg = Math.max(
               1,
               Math.round(
@@ -418,8 +427,14 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
               events.push({ t: 'mark', unit: unit.id, target: target.id });
             }
             // рипост (план защиты): ближний удар по живому в глухой обороне
-            // ранит бьющего — фиксированно, без rng (прецедент шипов)
-            if (weapon.range === 1 && target.alive && target.coverLevel >= FULL_COVER) {
+            // ранит бьющего — фиксированно, без rng (прецедент шипов).
+            // Стойка «наверняка» (план words) рипоста не ловит: удар расчётлив
+            if (
+              weapon.range === 1 &&
+              target.alive &&
+              target.coverLevel >= FULL_COVER &&
+              !(unit.stance?.hard && action === 'attack')
+            ) {
               unit.hp = Math.max(0, unit.hp - RIPOSTE_DMG);
               unit.lastAttackerId = target.id;
               events.push({ t: 'riposte', unit: unit.id, by: target.id, dmg: RIPOSTE_DMG, hp: unit.hp });

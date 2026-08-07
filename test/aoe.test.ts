@@ -18,7 +18,7 @@ import { shaman } from '../src/foes.js';
 import { heroArchetype } from '../src/heroes.js';
 import { expectedDamage } from '../src/tuning.js';
 import { compilePhrase } from '../src/constructor.js';
-import { CONCEPTS, CORE_WORDS, DEEP_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
+import { CONCEPTS, COMMON_WORDS, RARE_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { describeAoe, understandingCard } from '../src/cards.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import type { AoeSpec, CombatUnit, Pos, Side } from '../src/types.js';
@@ -275,11 +275,12 @@ describe('слова АОЕ: пулы, конструктор, карточки,
   ] as const;
 
   it('пулы: интервал и накат — CORE, остальное — DEEP', () => {
-    expect(CORE_WORDS).toContain('space.spread');
-    expect(CORE_WORDS).toContain('cond.underCharge');
-    expect(DEEP_WORDS).toContain('act.barrage');
-    expect(DEEP_WORDS).toContain('act.preempt');
-    expect(DEEP_WORDS).toContain('act.castRitual');
+    expect(COMMON_WORDS).toContain('space.spread');
+    // по аудиту слов «накатывают» — редкое: гейт-условие ритуала (+28пп на массе)
+    expect(RARE_WORDS).toContain('cond.underCharge');
+    expect(RARE_WORDS).toContain('act.barrage');
+    expect(RARE_WORDS).toContain('act.preempt');
+    expect(RARE_WORDS).toContain('act.castRitual');
     for (const d of drafts) expect(STARTING_VOCAB).not.toContain(d.id);
   });
 

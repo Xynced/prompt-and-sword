@@ -60,12 +60,15 @@ describe('условия позднего словаря', () => {
     expect(evalCondition({ kind: 'battleDrags' }, self, [self], 5)).toBe(true);
   });
 
-  it('initiativeEdge: средняя скорость наших выше вражеской', () => {
+  it('initiativeEdge: я быстрее своего ближайшего врага (переработка words)', () => {
     const self = unit('a', 'party', { x: 0, y: 0 }, { speed: 6 });
-    const slow = unit('e1', 'foe', { x: 5, y: 5 }, { speed: 4 });
-    const fast = unit('e2', 'foe', { x: 6, y: 5 }, { speed: 9 });
-    expect(evalCondition({ kind: 'initiativeEdge' }, self, [self, slow])).toBe(true);
-    expect(evalCondition({ kind: 'initiativeEdge' }, self, [self, slow, fast])).toBe(false);
+    const slow = unit('e1', 'foe', { x: 2, y: 2 }, { speed: 4 });
+    const fast = unit('e2', 'foe', { x: 9, y: 9 }, { speed: 9 });
+    // ближайший — медленный: окно «ударь до ответа» открыто, дальний быстрый не важен
+    expect(evalCondition({ kind: 'initiativeEdge' }, self, [self, slow, fast])).toBe(true);
+    // ближайший — быстрый: окна нет
+    const fastNear = unit('e2', 'foe', { x: 1, y: 1 }, { speed: 9 });
+    expect(evalCondition({ kind: 'initiativeEdge' }, self, [self, slow, fastNear])).toBe(false);
     expect(evalCondition({ kind: 'initiativeEdge' }, self, [self])).toBe(false); // врагов нет
   });
 });

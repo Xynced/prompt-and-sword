@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Rule } from '../src/ir.js';
 import { applyLens } from '../src/lens.js';
 import { compilePhrase } from '../src/constructor.js';
-import { CONCEPTS, DEEP_WORDS, CORE_WORDS, type ConceptId } from '../src/vocab.js';
+import { CONCEPTS, RARE_WORDS, COMMON_WORDS, type ConceptId } from '../src/vocab.js';
 import { understandingCard } from '../src/cards.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import { type UnitSpec, runBattle } from '../src/battle.js';
@@ -63,10 +63,13 @@ describe('манера удара меняет бой', () => {
     expect(often.weakAttack ?? 0).toBeGreaterThan((plain.weakAttack ?? 0) + 0.2);
   });
 
-  it('«бей наверняка» убирает слабые удары', () => {
+  it('«бей наверняка» пересаживает на полные удары, но добор слабым не запрещает', () => {
+    // переработка words: запрет добора сжигал треть DPS хода и хоронил слово;
+    // теперь манера тянет к полному удару (и стойкой режет митигацию вдвое),
+    // а остаток хода можно добрать слабым
     const hard = actionMix(styleRule('strikeHard'));
-    expect(hard.weakAttack ?? 0).toBeLessThan((plain.weakAttack ?? 0) - 0.2);
     expect(hard.attack ?? 0).toBeGreaterThan(plain.attack ?? 0);
+    expect(hard.selflessAttack ?? 0).toBe(0); // отчаянный размен манера запрещает
   });
 
   it('«бей отчаянно» пересаживает на отчаянные удары', () => {
@@ -127,10 +130,12 @@ describe('конструктор и словарь', () => {
     if (!r.ok) expect(r.missing).toContain('act.strikeDesperate');
   });
 
-  it('пара часто/наверняка — в простых словах, отчаянно — в глубоких', () => {
-    expect(CORE_WORDS).toContain('act.strikeOften');
-    expect(CORE_WORDS).toContain('act.strikeHard');
-    expect(DEEP_WORDS).toContain('act.strikeDesperate');
+  it('манеры по редкости: «часто» — редкое (стойка ожила), наверняка/отчаянно — обычные', () => {
+    // пост-аудит переработки words: стойка «часто» +6пп средней (урок +19пп),
+    // «наверняка» и «отчаянно» после переработки безвредны, но без ниши
+    expect(RARE_WORDS).toContain('act.strikeOften');
+    expect(COMMON_WORDS).toContain('act.strikeHard');
+    expect(COMMON_WORDS).toContain('act.strikeDesperate');
   });
 
   it('схема компилятора включает манеру только при открытом словаре', () => {

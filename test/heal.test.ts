@@ -5,7 +5,7 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { heroArchetype } from '../src/heroes.js';
 import { compilePhrase } from '../src/constructor.js';
 import { describeActive } from '../src/cards.js';
-import { CONCEPTS, CORE_WORDS } from '../src/vocab.js';
+import { CONCEPTS, RARE_WORDS } from '../src/vocab.js';
 import { validateOutput } from '../src/compiler/schema.js';
 import type { ActiveSpec, CombatUnit, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
@@ -213,7 +213,8 @@ describe('благословение', () => {
 
 describe('слово «лечить» по слоям', () => {
   it('словарь: базовое слово с ярлыком', () => {
-    expect(CORE_WORDS).toContain('act.heal');
+    // по аудиту слов «лечить» — редкое: гейт актива Ивы, +6пп winrate и +9пп живучести
+    expect(RARE_WORDS).toContain('act.heal');
     expect(CONCEPTS['act.heal'].label).toBe('лечить');
   });
 

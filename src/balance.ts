@@ -129,8 +129,8 @@ export function playBotRun(runSeed: number): RunOutcome {
         out.deathLayer = node.layer;
         out.deathKind = node.kind;
       }
-      // трофей боя: бот всегда берёт первое слово
-      if (state.pendingReward?.[0]) claimReward(state, { kind: 'concept', id: state.pendingReward[0] });
+      // трофей боя: бот всегда берёт первый вариант (на уроке — пару обычных)
+      if (state.pendingReward?.[0]) claimReward(state, { kind: 'option', index: 0 });
     } else if (node.kind === 'scriptorium') {
       const offer = scriptoriumOffer(state);
       const choice = offer.concepts[0]
