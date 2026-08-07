@@ -6,7 +6,7 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { pickTerrain } from '../src/terrain.js';
 import { TERRAIN_COVER } from '../src/tuning.js';
 import { compilePhrase } from '../src/constructor.js';
-import { CONCEPTS, CORE_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
+import { CONCEPTS, COMMON_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { understandingCard } from '../src/cards.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import type { CombatUnit, Pos, Side } from '../src/types.js';
@@ -84,10 +84,16 @@ describe('геометрия гибрида', () => {
 
 describe('укрытие в расчёте урона', () => {
   it('выстрел в укрытую цель слабее вдвое', () => {
-    // сид 11 → «поляна» с камнем (7,5); цель (8,5) за ним от стрелка с запада
+    // сид 11 → «поляна» с камнем (7,5); цель (8,5) за ним от стрелка с запада.
+    // Манеру «наверняка» в фикстуру не даём: её стойка пробивает укрытие
+    // (план words) — сравниваем первые ПОЛНЫЕ удары обеих прогонок
     const shooter = (spawn: Pos): UnitSpec => ({
       id: 'a', name: 'a', side: 'party', maxHp: 40, atk: 5, range: 4, speed: 9, move: 0,
-      lenses: ['plain'], rules: [rule({ kind: 'attack', target: 'nearest' }), rule({ kind: 'strikeHard' })], spawn,
+      lenses: ['plain'], rules: [rule({ kind: 'attack', target: 'nearest' })],
+      // аффинность вместо манеры: тяжёлый арбалет не частит — в прогоне
+      // гарантированно есть полные удары для сравнения
+      weapons: [{ name: 'арбалет', dmg: 5, range: 4, affinity: { attack: 1, weakAttack: -1 } }],
+      spawn,
     });
     const dummy = (spawn: Pos): UnitSpec => ({
       id: 'e', name: 'e', side: 'foe', maxHp: 40, atk: 5, range: 1, speed: 1, move: 0,
@@ -96,8 +102,8 @@ describe('укрытие в расчёте урона', () => {
     const covered = runBattle(11, [shooter({ x: 4, y: 5 }), dummy({ x: 8, y: 5 })]);
     expect(covered.terrain.name).toBe('поляна');
     const clear = runBattle(11, [shooter({ x: 4, y: 7 }), dummy({ x: 8, y: 7 })]);
-    const a = attacksIn(covered.events)[0]!;
-    const b = attacksIn(clear.events)[0]!;
+    const a = attacksIn(covered.events).find((e) => e.action === 'attack')!;
+    const b = attacksIn(clear.events).find((e) => e.action === 'attack')!;
     expect(a.unit).toBe('a');
     expect(a.dmg).toBe(Math.max(1, Math.round(b.dmg * TERRAIN_COVER)));
     expect(a.dmg).toBeLessThan(b.dmg);
@@ -162,7 +168,7 @@ describe('слово «за укрытием»', () => {
   });
 
   it('в CORE-пуле; компилируется при открытом словаре и закрыт в стартовом', () => {
-    expect(CORE_WORDS).toContain('space.behindCover');
+    expect(COMMON_WORDS).toContain('space.behindCover');
     expect(STARTING_VOCAB).not.toContain('space.behindCover');
     const draft = { condition: { id: 'always' }, preference: { id: 'space.behindCover' } } as const;
     const ok = compilePhrase(draft, FULL_VOCAB);

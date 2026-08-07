@@ -1074,19 +1074,26 @@ function nodePanelHtml(): string {
   if (run.resolved) {
     if (run.pendingReward) {
       const items = run.pendingReward
-        .map(
-          (c) => `<button class="shop-item" data-action="reward-take" data-concept="${c}">
-            <span style="flex:1;display:flex;flex-direction:column;gap:3px">
-              <span class="s-title">${esc(CONCEPTS[c].label)}</span>
-              <span class="s-desc">${CAT_RU[CONCEPTS[c].category]} — новое слово для приказов</span>
-            </span>
-            <span class="s-cost">взять</span>
-          </button>`,
-        )
+        .map((option, i) => {
+          const words = option
+            .map(
+              (c) => `<span class="s-title">${esc(CONCEPTS[c].label)}</span>
+              <span class="s-desc">${CAT_RU[CONCEPTS[c].category]} — новое слово для приказов</span>`,
+            )
+            .join('');
+          return `<button class="shop-item" data-action="reward-take" data-index="${i}">
+            <span style="flex:1;display:flex;flex-direction:column;gap:3px">${words}</span>
+            <span class="s-cost">${option.length > 1 ? `взять оба` : 'взять'}</span>
+          </button>`;
+        })
         .join('');
+      const isBundle = run.pendingReward.some((o) => o.length > 1);
+      const desc = isBundle
+        ? 'В обозе врага — обрывки чужих наставлений. Пара расхожих слов — или одно редкое.'
+        : 'В обозе врага — обрывки чужих наставлений. Одно слово можно разобрать.';
       return `<div class="node-panel">
         <h2>Трофей боя</h2>
-        <div class="desc">В обозе врага — обрывки чужих наставлений. Одно слово можно разобрать.</div>
+        <div class="desc">${desc}</div>
         <div class="shop">${items}</div>
         <div class="btn-row"><button data-action="reward-skip">оставить на поле</button></div>
       </div>`;
@@ -1995,7 +2002,7 @@ function bind(): void {
           render();
           break;
         case 'reward-take':
-          claimReward(run, { kind: 'concept', id: el.dataset.concept as ConceptId });
+          claimReward(run, { kind: 'option', index: Number(el.dataset.index) });
           render();
           break;
         case 'reward-skip':

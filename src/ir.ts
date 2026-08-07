@@ -180,10 +180,12 @@ export function evalCondition(
     case 'battleDrags':
       return round >= BATTLE_DRAGS_ROUND;
     case 'initiativeEdge': {
-      const avg = (us: readonly CombatUnit[]): number =>
-        us.length === 0 ? 0 : us.reduce((s, u) => s + u.speed, 0) / us.length;
-      const enemies = enemiesOf(self, units);
-      return enemies.length > 0 && avg(alliesOf(self, units)) > avg(enemies);
+      // «мы быстрее»: я хожу раньше своего ближайшего врага. Сравнение средних
+      // скоростей сторон (как было) — константа матчапа: условие вырождалось
+      // в always или мёртвый груз (аудит words). Пер-юнитная семантика даёт
+      // окно «ударь до ответа» — гейт размена и отчаянного удара
+      const nearest = resolveSelector('nearest', self, units);
+      return nearest !== undefined && self.speed > nearest.speed;
     }
     case 'allyFallen':
       return units.some((u) => u.side === self.side && u.id !== self.id && !u.alive);

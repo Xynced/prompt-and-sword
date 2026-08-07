@@ -32,8 +32,11 @@ import {
   AP_VALUE,
   COVER,
   FULL_COVER,
+  BAIT_COVER,
+  HARD_PIERCE,
   HAZARD_DMG,
   HIGH_GROUND_DMG,
+  OFTEN_STANCE_BONUS,
   RIPOSTE_DMG,
   SELFLESS_ATK_MULT,
   SELFLESS_VULN_MULT,
@@ -307,11 +310,35 @@ export function aoeVictims<T extends CombatUnit>(
  * щитоносец гасят чужое прикрытие сами собой, своё остаётся.
  */
 export function effectiveCover(target: CombatUnit, units: readonly CombatUnit[]): number {
+  // стойка приманки (план words): готов нырнуть — плавающее прикрытие
+  const own = Math.max(target.coverLevel, target.stance?.bait ? BAIT_COVER : 0);
   const g = target.guardedBy;
-  if (!g) return target.coverLevel;
+  if (!g) return own;
   const protector = units.find((u) => u.id === g.id);
   const held = protector !== undefined && protector.alive && dist(protector.pos, target.pos) <= 1;
-  return Math.max(target.coverLevel, held ? g.level : 0);
+  return Math.max(own, held ? g.level : 0);
+}
+
+/** Стойки манер юнита из сработавших правил решения (план words). */
+export function stanceOf(fired: readonly Rule[]): { often: boolean; hard: boolean; bait: boolean } {
+  return {
+    often: fired.some((r) => r.then.kind === 'strikeOften'),
+    hard: fired.some((r) => r.then.kind === 'strikeHard'),
+    bait: fired.some((r) => r.then.kind === 'bait'),
+  };
+}
+
+type Stance = ReturnType<typeof stanceOf>;
+
+/** Множитель вида атаки с учётом стойки: «часто» бьёт слабым крепче. */
+export function stanceAttackMult(action: ActionKind, weapon: WeaponSpec, stance?: Stance | CombatUnit['stance']): number {
+  const bonus = stance?.often && action === 'weakAttack' ? OFTEN_STANCE_BONUS : 0;
+  return attackMultFor(action, weapon) + bonus;
+}
+
+/** Митигация цели с учётом стойки бьющего: «наверняка» режет её вдвое. */
+export function stanceMitigation(mitigation: number, action: ActionKind, stance?: Stance | CombatUnit['stance']): number {
+  return stance?.hard && action === 'attack' ? mitigation * HARD_PIERCE : mitigation;
 }
 
 /**
@@ -434,6 +461,8 @@ export interface Decision {
   condRules: number;
   /** Сколько правил сработало всего; 0 — решение целиком достроено инстинктами (план линз). */
   firedCount: number;
+  /** Стойки манер решения (план words) — бой вешает их на юнита до следующего решения. */
+  stance: { often: boolean; hard: boolean; bait: boolean };
 }
 
 const MAX_DIST = Math.max(GRID_W, GRID_H) - 1;
@@ -838,13 +867,18 @@ function expectedAttackDamage(
   ctx: ScoreCtx,
   from: Pos,
   weapon: WeaponSpec = weaponsOf(self)[0]!,
+  stance?: Stance,
 ): number {
-  const mitigation = Math.max(effectiveCover(target, units), ctx.coverFrom(from, target.pos));
+  const mitigation = stanceMitigation(
+    Math.max(effectiveCover(target, units), ctx.coverFrom(from, target.pos)),
+    action,
+    stance,
+  );
   return (
     expectedDamage(weapon.dmg) *
       rageDmgMult(self) *
       blessMult(self) *
-      attackMultFor(action, weapon) *
+      stanceAttackMult(action, weapon, stance) *
       (1 - mitigation) *
       (target.exposed ? SELFLESS_VULN_MULT : 1) *
       rageVulnMult(target) +
@@ -1010,7 +1044,20 @@ function scorePreference(
       }
       if (self.range === 1) {
         const nearest = resolveSelector('nearest', self, units);
-        if (nearest) s -= 0.3 * Math.max(dist(cand.to, nearest.pos) - 1, 0) * w;
+        if (nearest) {
+          s -= 0.3 * Math.max(dist(cand.to, nearest.pos) - 1, 0) * w;
+          // манёвр: шаг во фланговую клетку у цели. Без него слово могло лишь
+          // наградить уже случившийся фланг, но не создать его (аудит: ≈0)
+          if (isMovement(cand.action) && dist(cand.to, nearest.pos) === 1) {
+            const allies = units
+              .filter((u) => u.alive && u.side === self.side && u !== self)
+              .map((u) => u.pos);
+            const nearestAllies = units
+              .filter((u) => u.alive && u.side === nearest.side && u !== nearest)
+              .map((u) => u.pos);
+            if (isFlanking(cand.to, nearest.pos, allies, nearestAllies)) s += 1.5 * w;
+          }
+        }
       }
       return s;
     }
@@ -1047,7 +1094,10 @@ function scorePreference(
     case 'awayFrom': {
       const anchor = resolvePosRef(pref.ref, self, units);
       if (!anchor) return 0;
-      return 0.5 * Math.min(dist(cand.to, anchor.pos), MAX_DIST) * w;
+      // «подальше» — до безопасной дистанции, не до края карты: без капа
+      // стрелки убегали вечно вместо стрельбы (аудит: −17пп winrate)
+      const cap = Math.max(self.range, 3) + 1;
+      return 0.5 * Math.min(dist(cand.to, anchor.pos), cap) * w;
     }
     // Манера удара: премия своему виду атаки, штраф чужому. Штраф обязателен —
     // без него «бей наверняка» не запрещал бы добирать слабым ударом остаток
@@ -1058,8 +1108,11 @@ function scorePreference(
       if (cand.action === 'weakAttack') return STRIKE_STYLE_BONUS * w;
       return isAttack(cand.action) ? -STRIKE_STYLE_BONUS * w : 0;
     case 'strikeHard':
+      // «наверняка» о расчёте, не о жадности: полный удар обязателен и
+      // прицелен (стойка режет митигацию), добор слабым остатка хода манера
+      // не запрещает — запрет сжигал треть DPS хода и хоронил слово (аудит)
       if (cand.action === 'attack') return STRIKE_STYLE_BONUS * w;
-      return isAttack(cand.action) ? -STRIKE_STYLE_BONUS * w : 0;
+      return cand.action === 'selflessAttack' ? -STRIKE_STYLE_BONUS * w : 0;
     case 'strikeDesperate':
       if (cand.action === 'selflessAttack') return STRIKE_STYLE_BONUS * w;
       return isAttack(cand.action) ? -STRIKE_STYLE_BONUS * w : 0;
@@ -1105,6 +1158,9 @@ function scorePreference(
       const target = units.find((u) => u.id === cand.targetId)!;
       const dest = shoveDest(self.pos, target.pos);
       const danger = ctx.hazardAt(dest) || zoneDangerAt(dest, units, target) > 0;
+      // премии «отрыва» и «сброса с высоты» пробовались планом words и убраны:
+      // по аудиту они лишь подменяли удары толчками (−4пп наиву). Толчок
+      // оживёт аренами с шипами у точек столкновения, не скорингом
       return (danger ? 3.5 : 0.8) * w;
     }
     case 'barrage': {
@@ -1218,8 +1274,9 @@ export function scoreCandidate(
   if (isAttack(cand.action) && cand.targetId) {
     const weapon = candWeapon(self, cand);
     const target = units.find((u) => u.id === cand.targetId)!;
+    const stance = stanceOf(firedRules);
     const expDmg = Math.min(
-      expectedAttackDamage(self, cand.action, target, units, ctx, cand.to, weapon) *
+      expectedAttackDamage(self, cand.action, target, units, ctx, cand.to, weapon, stance) *
         shadowMult(self, cand.to, units, ctx.blocked) *
         retributionMult(self, target, units),
       target.hp,
@@ -1228,8 +1285,13 @@ export function scoreCandidate(
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
     // рипост (план защиты): ближний удар по глухой обороне вернётся раной —
-    // умный переключается на другую цель, настойчивый платит
-    if (weapon.range === 1 && !lethal && target.coverLevel >= FULL_COVER) {
+    // умный переключается, настойчивый платит; стойка «наверняка» не ловит
+    if (
+      weapon.range === 1 &&
+      !lethal &&
+      target.coverLevel >= FULL_COVER &&
+      !(stance.hard && cand.action === 'attack')
+    ) {
       factors.push({
         label: 'рипост цели',
         value: -(RIPOSTE_DMG / self.maxHp) * 6 * instincts.survival,
@@ -1374,6 +1436,7 @@ export function decide(
       candidateCount: 1,
       condRules,
       firedCount: 0,
+      stance: stanceOf(fired),
     };
   }
 
@@ -1399,7 +1462,15 @@ export function decide(
     .slice()
     .sort((f1, f2) => Math.abs(f2.value) - Math.abs(f1.value))
     .slice(0, 3);
-  return { chosen: b.cand, score: b.score, factors: top, candidateCount: candidates.length, condRules, firedCount: fired.length };
+  return {
+    chosen: b.cand,
+    score: b.score,
+    factors: top,
+    candidateCount: candidates.length,
+    condRules,
+    firedCount: fired.length,
+    stance: stanceOf(fired),
+  };
 }
 
 export { describePreference };
