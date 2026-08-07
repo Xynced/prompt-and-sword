@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { type BattleEvent, type BattleResult, runBattle } from './battle.js';
 import { type IrSet, makeFoes, makeIrSets, makeRushVariant } from './scenarios.js';
 import { understandingCard } from './cards.js';
@@ -6,6 +6,7 @@ import { describeDraft } from './constructor.js';
 import { type CompileRequest, anthropicModelCall, compileFreeText, type ModelCall } from './compiler/compile.js';
 import { fileCache } from './compiler/cache-node.js';
 import { balanceSweep, kiteRewrite } from './balance.js';
+import { printAudit, wordsAudit } from './words-audit.js';
 import { fingerprint } from './metrics.js';
 import {
   advance,
@@ -271,7 +272,7 @@ function demoRun(runSeed: number): void {
           kiteRewrite(state);
         }
         if (state.pendingReward?.[0]) {
-          claimReward(state, { kind: 'concept', id: state.pendingReward[0] });
+          claimReward(state, { kind: 'option', index: 0 });
           console.log(`  ${state.log.at(-1)}`);
         }
         break;
@@ -335,6 +336,24 @@ function balanceCmd(n: number): void {
     console.log(`  ${id}: ${count}`);
   }
   console.log(`Наёмник нанят: ${report.mercHired} раз`);
+}
+
+/** Аудит слов (план words): дельта winrate каждого слова к базовым билдам. */
+function wordsAuditCmd(seedCount: number, jsonPath?: string, from?: number, to?: number): void {
+  console.log(`Аудит слов: ${seedCount} сидов × 6 партий × 12 боёв × 2 базовых билда (наив/кайт)\n`);
+  const t0 = performance.now();
+  const rows = wordsAudit({
+    seedCount,
+    ...(from !== undefined ? { from } : {}),
+    ...(to !== undefined ? { to } : {}),
+    onEntry: (label, i, total) => console.error(`  [${i}/${total}] ${label}`),
+  });
+  console.error(`\nПрогон занял ${((performance.now() - t0) / 1000).toFixed(0)} с\n`);
+  printAudit(rows);
+  if (jsonPath) {
+    writeFileSync(jsonPath, JSON.stringify(rows, null, 1));
+    console.log(`\nСырые данные: ${jsonPath}`);
+  }
 }
 
 // ---------- LLM-компилятор (живые вызовы; кэш в .cache/) ----------
@@ -475,6 +494,8 @@ if (cmd === 'gateA') {
   demoRun(Number(args[0] ?? 1));
 } else if (cmd === 'balance') {
   balanceCmd(Number(args[0] ?? 500));
+} else if (cmd === 'words-audit') {
+  wordsAuditCmd(Number(args[0] ?? 10), args[1], args[2] !== undefined ? Number(args[2]) : undefined, args[3] !== undefined ? Number(args[3]) : undefined);
 } else if (cmd === 'compile') {
   const text = args[0];
   if (!text) {
@@ -487,6 +508,6 @@ if (cmd === 'gateA') {
   await corpusCmd(args.filter((a) => a.endsWith('.txt')), 'grom');
 } else {
   console.log(
-    'Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed> | balance [N] | compile "<текст>" [герой] | corpus [файлы…]]',
+    'Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed> | balance [N] | words-audit [сиды] [json] | compile "<текст>" [герой] | corpus [файлы…]]',
   );
 }

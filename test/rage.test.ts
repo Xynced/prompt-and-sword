@@ -5,7 +5,7 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { heroArchetype } from '../src/heroes.js';
 import { compilePhrase } from '../src/constructor.js';
 import { describeActive } from '../src/cards.js';
-import { CONCEPTS, DEEP_WORDS } from '../src/vocab.js';
+import { CONCEPTS, RARE_WORDS } from '../src/vocab.js';
 import { validateOutput } from '../src/compiler/schema.js';
 import type { ActiveSpec, CombatUnit, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
@@ -160,7 +160,7 @@ describe('ярость в бою', () => {
 
 describe('слово «впасть в ярость» по слоям', () => {
   it('словарь: глубокое слово с ярлыком', () => {
-    expect(DEEP_WORDS).toContain('act.rage');
+    expect(RARE_WORDS).toContain('act.rage');
     expect(CONCEPTS['act.rage'].label).toBe('впасть в ярость');
   });
 

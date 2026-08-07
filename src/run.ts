@@ -1,6 +1,6 @@
 import { type BattleResult, type UnitSpec, runBattle } from './battle.js';
 import { type PhraseDraft, compilePhrase } from './constructor.js';
-import { CORE_WORDS, type ConceptId, DEEP_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
+import { COMMON_WORDS, type ConceptId, RARE_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
 import { archer, berserker, bonesetter, duelist, grunt, hunter, ogre, packLeader, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, warlord, wolf } from './foes.js';
@@ -68,8 +68,12 @@ export interface RunState {
    * с той же расстановкой. Сбрасывается при переходе; пусто — дефолт слотов.
    */
   deploy: Record<string, Pos>;
-  /** Трофей за победу в бою: выбор из закрытых концептов; null — забран/нет. */
-  pendingReward: ConceptId[] | null;
+  /**
+   * Трофей за победу в бою: варианты на выбор, вариант — связка из 1+ слов
+   * (забираются разом). Урок предлагает «2 обычных или 1 редкое», обычный бой —
+   * обычные слова, элита — редкие. null — забран/нет.
+   */
+  pendingReward: ConceptId[][] | null;
   status: 'ongoing' | 'won' | 'lost';
   log: string[];
 }
@@ -341,17 +345,17 @@ export function battleSeed(state: RunState): number {
 }
 
 /**
- * Закрытые концепты на выбор: чередуем простые и глубокие слова
+ * Закрытые концепты на выбор: чередуем обычные и редкие слова
  * (если пул пуст — добираем из другого). Детерминировано rng.
  */
 function conceptChoices(state: RunState, rng: Rng, count: number): ConceptId[] {
   const locked = (pool: readonly ConceptId[]): ConceptId[] =>
     shuffle(pool.filter((c) => !state.vocab.includes(c)), rng);
-  const core = locked(CORE_WORDS);
-  const deep = locked(DEEP_WORDS);
+  const common = locked(COMMON_WORDS);
+  const rare = locked(RARE_WORDS);
   const out: ConceptId[] = [];
   while (out.length < count) {
-    const next = out.length % 2 === 0 ? (core.shift() ?? deep.shift()) : (deep.shift() ?? core.shift());
+    const next = out.length % 2 === 0 ? (common.shift() ?? rare.shift()) : (rare.shift() ?? common.shift());
     if (next === undefined) break;
     out.push(next);
   }
@@ -429,23 +433,40 @@ export function playFight(state: RunState): BattleResult {
 
 // ---- Трофей боя ----
 
-/** Трофей за победу: 3–4 закрытых слова на выбор; null — открывать нечего. */
-function fightReward(state: RunState): ConceptId[] | null {
+/**
+ * Трофей за победу (план words): урок — выбор «2 обычных слова или 1 редкое»
+ * (широта против глубины — первое настоящее решение забега); обычный бой —
+ * 3 обычных слова на выбор; элита — 3 редких. Пустой пул добирается из
+ * другого; null — открывать нечего.
+ */
+function fightReward(state: RunState): ConceptId[][] | null {
   const rng = mulberry32(state.runSeed * 449 + state.at * 31 + 7);
-  const count = 3 + (rng() < 0.5 ? 1 : 0);
-  const choices = conceptChoices(state, rng, count);
-  return choices.length > 0 ? choices : null;
+  const locked = (pool: readonly ConceptId[]): ConceptId[] =>
+    shuffle(pool.filter((c) => !state.vocab.includes(c)), rng);
+  const common = locked(COMMON_WORDS);
+  const rare = locked(RARE_WORDS);
+  const node = currentNode(state);
+  if (node.kind === 'lesson') {
+    const options: ConceptId[][] = [];
+    if (common.length >= 2) options.push([common[0]!, common[1]!]);
+    if (rare[0]) options.push([rare[0]]);
+    return options.length > 0 ? options : null;
+  }
+  const pool = node.kind === 'elite' ? [...rare, ...common] : [...common, ...rare];
+  const options = pool.slice(0, 3).map((c) => [c]);
+  return options.length > 0 ? options : null;
 }
 
-export type RewardChoice = { kind: 'concept'; id: ConceptId } | { kind: 'skip' };
+export type RewardChoice = { kind: 'option'; index: number } | { kind: 'skip' };
 
 /** Забрать (или отвергнуть) трофей боя. Пока трофей не решён, дальше не уйти. */
 export function claimReward(state: RunState, choice: RewardChoice): SetPhrasesResult {
   if (!state.pendingReward) return { ok: false, error: 'Трофея нет' };
-  if (choice.kind === 'concept') {
-    if (!state.pendingReward.includes(choice.id)) return { ok: false, error: 'Такого трофея нет' };
-    state.vocab.push(choice.id);
-    state.log.push(`Трофей: открыт концепт ${choice.id}`);
+  if (choice.kind === 'option') {
+    const option = state.pendingReward[choice.index];
+    if (!option) return { ok: false, error: 'Такого трофея нет' };
+    state.vocab.push(...option);
+    state.log.push(`Трофей: открыт${option.length > 1 ? 'ы концепты' : ' концепт'} ${option.join(', ')}`);
   } else {
     state.log.push('Трофей оставлен на поле');
   }
