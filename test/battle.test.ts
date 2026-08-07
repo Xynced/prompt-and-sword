@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { type UnitSpec, runBattle } from '../src/battle.js';
 import { makeFoes, makeIrSets } from '../src/scenarios.js';
+import { grunt, slinger } from '../src/foes.js';
+import { heroArchetype } from '../src/heroes.js';
+import { dist } from '../src/grid.js';
+import type { Rule } from '../src/ir.js';
 
 function specs(): UnitSpec[] {
   const set = makeIrSets()[0]!;
@@ -113,6 +117,57 @@ describe('буквалист без сработавшего правила', ()
       // буквалист стоит на месте
       expect(d.to).toEqual({ x: 1, y: 3 });
     }
+  });
+});
+
+describe('«держать позицию» — поводок, а не якорь', () => {
+  const r = (rule: Omit<Rule, 'scope'>): Rule => ({ ...rule, scope: 'self' });
+  const hold = (weight: number): Rule => r({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight, source: 'держать позицию' });
+  const atk = (weight: number): Rule => r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'nearest' }, weight, source: 'бей ближайшего' });
+  const spawn = { x: 2, y: 8 };
+  // толстое тело: сцена меряет, куда боец уходит, а не кто кого убил
+  const scene = (rules: Rule[]): UnitSpec[] => [
+    { id: 'u', name: 'u', side: 'party', maxHp: 300, atk: 8, range: 1, speed: 5, move: 2, lenses: ['plain'], rules, spawn },
+    grunt(1),
+    slinger(1),
+  ];
+  const drift = (rules: Rule[]): number => {
+    let max = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      for (const e of runBattle(seed, scene(rules), 'late').events) {
+        if (e.t === 'move' && e.unit === 'u') max = Math.max(max, dist(spawn, e.to));
+      }
+    }
+    return max;
+  };
+
+  it('без приказа держит место, под приказом отходит, тяжёлое слово позиции сильнее', () => {
+    expect(drift([hold(1.5)])).toBeLessThanOrEqual(1); // слово работает: с места не уходит
+    expect(drift([atk(1.5)])).toBeGreaterThan(6); // без слова боец идёт через поле
+    const leash = drift([hold(1.5), atk(1.5)]);
+    expect(leash).toBeGreaterThan(1); // приказ перебивает: боец сходит с места
+    expect(leash).toBeLessThan(6); // но дальше своей позиции не уходит
+    expect(drift([hold(4), atk(1.5)])).toBeLessThan(leash); // весомее слово позиции — короче поводок
+  });
+
+  it('врождённая «Глыба» Скалы не глушит приказ игрока', () => {
+    const skala = heroArchetype('skala');
+    const spec = (rules: Rule[]): UnitSpec => ({
+      id: 'skala', name: skala.name, side: 'party', lenses: ['plain'],
+      rules: [...rules, ...skala.innate], maxHp: skala.stats.maxHp, speed: skala.stats.speed,
+      move: skala.stats.move, weapons: skala.weapons, passives: skala.passives, spawn,
+    });
+    let ap = 0;
+    let obeyed = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      for (const e of runBattle(seed, [spec([atk(1.5)]), grunt(1), slinger(1)], 'late').events) {
+        if (e.t === 'decision' && e.unit === 'skala') {
+          ap++;
+          if (e.action === 'move' || e.action.includes('ttack')) obeyed++;
+        }
+      }
+    }
+    expect(obeyed / ap).toBeGreaterThan(0.5); // приказ перебивает способность чаще, чем нет
   });
 });
 
