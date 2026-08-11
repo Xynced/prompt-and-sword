@@ -137,6 +137,20 @@ const textMode: Record<string, boolean> = {};
 let debugLenses = false;
 
 /**
+ * Свободный режим — тестовая кнопка: весь словарь открыт разом, не дожидаясь
+ * трофеев и скриптория. Нужен, чтобы щупать новые слова и связки без забега;
+ * обратно не выключается (закрыть слово, на котором уже написан принцип,
+ * значило бы сломать приказы).
+ */
+const freeVocab = (): boolean =>
+  (Object.keys(CONCEPTS) as ConceptId[]).every((c) => run.vocab.includes(c));
+function unlockAllWords(): void {
+  for (const c of Object.keys(CONCEPTS) as ConceptId[]) {
+    if (!run.vocab.includes(c)) run.vocab.push(c);
+  }
+}
+
+/**
  * Свободный текст — режим по умолчанию, когда компилятор доступен; без ключа —
  * только чипсы. Вне debug-режима чипсы при живом компиляторе скрыты совсем:
  * игрок видит только свои слова и «как прочёл» (план линз).
@@ -475,6 +489,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
     }
   }
   if (has('act.holdPosition')) out.push({ value: { id: 'act.holdPosition' }, label: 'держать позицию' });
+  if (has('act.wait')) out.push({ value: { id: 'act.wait' }, label: 'ждать' });
   if (has('act.retreat')) out.push({ value: { id: 'act.retreat' }, label: 'отступать' });
   if (has('act.bait')) out.push({ value: { id: 'act.bait' }, label: 'изображать приманку' });
   if (has('act.trade')) out.push({ value: { id: 'act.trade' }, label: 'идти на размен' });
@@ -1174,6 +1189,15 @@ function nodePanelHtml(): string {
   return '';
 }
 
+/** Кнопка теста «свободный режим» — на карте и в редакторе приказов. */
+function freeVocabBtnHtml(): string {
+  const on = freeVocab();
+  return `<button class="linkish" data-action="free-vocab" ${on ? 'disabled' : ''}
+    title="тест: открыть все слова словаря разом">${
+      on ? 'свободный режим: весь словарь открыт' : 'свободный режим'
+    }</button>`;
+}
+
 function mapScreenHtml(): string {
   return `<div class="spread">
     <div class="page-l">
@@ -1188,6 +1212,7 @@ function mapScreenHtml(): string {
         <span>узел ${run.at + 1} из ${run.map.length}</span>
         <span class="spacer"></span>
         <button class="linkish" data-action="toggle-debug">${debugLenses ? 'debug: скрыть характеры' : 'debug'}</button>
+        ${freeVocabBtnHtml()}
         <button class="linkish" data-action="export-journal">журнал плейтеста</button>
         <span>${
           run.resolved && run.status === 'ongoing'
@@ -1553,6 +1578,7 @@ function editorHtml(): string {
       </div>
       <div class="foot-row">
         <button data-action="close-editor">закрыть</button>
+        ${freeVocabBtnHtml()}
         <span class="spacer"></span>
         ${replay}
       </div>
@@ -1949,6 +1975,10 @@ function bind(): void {
           break;
         case 'toggle-debug':
           debugLenses = !debugLenses;
+          render();
+          break;
+        case 'free-vocab':
+          unlockAllWords();
           render();
           break;
         case 'toggle-play':

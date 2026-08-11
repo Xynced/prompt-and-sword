@@ -278,8 +278,8 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
             },
           ];
         }
-        if (r.then.kind === 'standoff') {
-          // держать дистанцию — трусу по сердцу: исполняет рьяно
+        if (r.then.kind === 'standoff' || r.then.kind === 'wait') {
+          // держать дистанцию и выжидать — трусу по сердцу: исполняет рьяно
           return [
             {
               ...r,
@@ -318,7 +318,9 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         r.then.kind === 'coverRetreat' ||
         r.then.kind === 'avoidLineOfFire' ||
         r.then.kind === 'standoff' ||
-        r.then.kind === 'brace'
+        r.then.kind === 'brace' ||
+        // «подожди» фанатик не слышит вовсе: ждать нечего, враг уже здесь
+        r.then.kind === 'wait'
           ? {
               ...r,
               then: { kind: 'attack', target: 'nearest' },
