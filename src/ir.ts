@@ -40,6 +40,10 @@ import { dist } from './grid.js';
  *              жмётся врождённым правилом, словарь бережём для words-плана),
  *              feint (финт — актив трюкачки, тоже без слова: открыть врага
  *              под удары своих)
+ * Темп:
+ *   Действия:  wait (ждать — не сближаться и приберечь ход, пока до меня не
+ *              докатилось; вторая половина замысла — отдельное правило с
+ *              условием: «подожди, а ПОТОМ …»)
  */
 
 export type Selector =
@@ -108,6 +112,7 @@ export type Preference =
   | { kind: 'spread' }
   | { kind: 'preempt' }
   | { kind: 'castRitual' }
+  | { kind: 'wait' }
   | { kind: 'rage' }
   | { kind: 'heal' }
   | { kind: 'bless' }
@@ -315,6 +320,8 @@ export function describePreference(p: Preference): string {
       return 'бить на упреждение';
     case 'castRitual':
       return 'замахиваться ритуалом';
+    case 'wait':
+      return 'ждать';
     case 'rage':
       return 'впасть в ярость';
     case 'heal':

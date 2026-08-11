@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 13;
+export const PROMPT_VERSION = 14;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -76,6 +76,8 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
     '{"id":"act.rage"} — впасть в ярость: раз в бой и до конца боя бить сильнее ценой большего входящего урона; правило говорит КОГДА войти; работает только у носителя ярости',
   'act.heal':
     '{"id":"act.heal"} — лечить: тратить ход на исцеление раненого союзника (кому хуже всех — решает сам); заряды считаны; работает только у целителя',
+  'act.wait':
+    '{"id":"act.wait"} — ждать: не идти навстречу врагу и беречь ход, пока бой не докатился; подошедшего врага всё равно бьёт. Замысел «подожди, а ПОТОМ …» — это ДВЕ фразы: {"condition":{"id":"always"},"preference":{"id":"act.wait"}} и вторая с условием момента (например cond.battleDrags или cond.allyInDanger) и нужным действием',
 };
 
 export interface PromptContext {

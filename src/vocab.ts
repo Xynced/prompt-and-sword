@@ -53,7 +53,9 @@ export type ConceptId =
   | 'act.castRitual'
   // классы (план классов) — слова активов
   | 'act.rage'
-  | 'act.heal';
+  | 'act.heal'
+  // темп: не «где» и не «кого», а «когда»
+  | 'act.wait';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -108,6 +110,7 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.castRitual': { id: 'act.castRitual', label: 'замахиваться ритуалом', category: 'action' },
   'act.rage': { id: 'act.rage', label: 'впасть в ярость', category: 'action' },
   'act.heal': { id: 'act.heal', label: 'лечить', category: 'action' },
+  'act.wait': { id: 'act.wait', label: 'ждать', category: 'action' },
 };
 
 /**
@@ -163,6 +166,10 @@ export const COMMON_WORDS: ConceptId[] = [
   'space.lineOfFire',
   'space.chokepoint',
   'space.behindCover',
+  // слово темпа: само по себе не решает, но открывает связку «сначала одно,
+  // потом другое» с любым условием («затянулся», «в опасности», «накатывают»).
+  // Аудитом ещё не мерено — новое слово, место в пуле предварительное
+  'act.wait',
 ];
 
 /**
