@@ -546,6 +546,8 @@ button.primary:disabled:hover { background: var(--ink); }
 }
 .slot-row .mark { font: 400 12px/1 var(--hand); color: var(--red); width: 16px; flex: none; }
 .slot-row .fields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+/* глубокие чипсы: маркер вложенного уровня условия («и если …») */
+.slot-row .nest { color: var(--red); font: 400 12px/1 var(--hand); flex: none; opacity: 0.7; }
 .slot-row.empty { color: rgba(31, 27, 22, 0.4); font: 400 13.5px/1.35 var(--serif); }
 select {
   font: 400 11px/1.2 var(--mono);
