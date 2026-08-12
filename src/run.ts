@@ -445,6 +445,21 @@ export function playFight(state: RunState): BattleResult {
   return result;
 }
 
+/**
+ * Пропустить учебный бой. Урок бесплатно переигрывается до победы, так что
+ * трофей за него — вопрос упорства, а не мастерства: пропуск выдаёт тот же
+ * трофей и оставляет забег в том же состоянии, что и победа в уроке.
+ */
+export function skipLesson(state: RunState): void {
+  const node = currentNode(state);
+  if (state.status !== 'ongoing' || state.resolved || node.kind !== 'lesson') {
+    throw new Error('Сейчас не учебный бой');
+  }
+  state.resolved = true;
+  state.pendingReward = fightReward(state);
+  state.log.push('Урок пропущен — забег начинается');
+}
+
 // ---- Трофей боя ----
 
 /**
