@@ -18,6 +18,7 @@ import {
   rest,
   scriptoriumOffer,
   setPhrases,
+  skipLesson,
   startRun,
 } from '../src/run.js';
 import { COMMON_WORDS, RARE_WORDS, STARTING_VOCAB } from '../src/vocab.js';
@@ -186,6 +187,28 @@ describe('забег', () => {
       }
     }
     throw new Error('не нашлось сида, где урок проигрывается и переигрывается');
+  });
+
+  it('урок можно пропустить: узел пройден, трофей тот же, партия цела', () => {
+    // сид, где урок берётся с первой попытки: словарь не менялся ни там, ни там
+    let won: RunState | null = null;
+    for (let seed = 1; seed <= 20 && !won; seed++) {
+      const s = startRun(seed);
+      if (playFight(s).winner === 'party') won = s;
+    }
+    if (!won) throw new Error('не нашлось сида, где урок берётся с первой попытки');
+    const state = startRun(won.runSeed);
+
+    skipLesson(state);
+    expect(state.status).toBe('ongoing');
+    expect(state.resolved).toBe(true);
+    expect(state.heroes.every((h) => h.alive && h.hp === h.stats.maxHp)).toBe(true);
+    expect(state.pendingReward).toEqual(won.pendingReward);
+    // пропускать нечего дважды и не на уроке
+    expect(() => skipLesson(state)).toThrow();
+    claimReward(state, { kind: 'skip' });
+    advance(state, currentNode(state).next[0]!);
+    expect(() => skipLesson(state)).toThrow();
   });
 
   it('hp переносится в спеки следующего боя и в сам бой', () => {

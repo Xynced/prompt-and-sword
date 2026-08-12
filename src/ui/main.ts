@@ -39,6 +39,7 @@ import {
   scriptoriumOffer,
   setMark,
   setPhrases,
+  skipLesson,
   startRun,
 } from '../run.js';
 import { foeIntel } from '../foes.js';
@@ -1208,7 +1209,13 @@ function nodePanelHtml(): string {
       </div>
       ${nudge}
       <div class="btn-row"><button class="primary" data-action="fight">⚔ выступить</button>
-        <button data-action="open-editor">переписать приказы</button></div>
+        <button data-action="open-editor">переписать приказы</button>
+        ${
+          node.kind === 'lesson'
+            ? `<button class="linkish" data-action="skip-lesson"
+                 title="забрать трофей урока и начать забег, не играя учебный бой">пропустить урок</button>`
+            : ''
+        }</div>
     </div>`;
   }
   if (node.kind === 'event') {
@@ -1998,6 +2005,11 @@ function bind(): void {
       switch (a) {
         case 'fight':
           startBattle();
+          break;
+        case 'skip-lesson':
+          skipLesson(run);
+          lessonNudge = false;
+          render();
           break;
         case 'mark-foe': {
           const foe = el.dataset.foe!;
