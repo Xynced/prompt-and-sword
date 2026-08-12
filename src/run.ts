@@ -5,6 +5,7 @@ import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
 import { archer, berserker, bonesetter, duelist, grunt, hunter, ogre, packLeader, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, warlord, wolf } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
+import { scenarioForNode } from './objectives.js';
 import { LENS_POOL, rollLenses } from './lens.js';
 import { ARENA_H, type ArenaTag, PARTY_ZONE_MAX_X, pickTerrain, tileAt } from './terrain.js';
 import { posEq } from './grid.js';
@@ -147,6 +148,9 @@ export function generateMap(runSeed: number): MapNode[] {
 // ---- Состав врагов по узлам ----
 
 export function foesForNode(node: MapNode): UnitSpec[] {
+  // сценарий узла (план objectives) может нести свой состав
+  const scenario = scenarioForNode(node);
+  if (scenario?.foes) return scenario.foes();
   switch (node.kind) {
     case 'lesson':
       // урок учит петле «перепиши и переиграй»: дефолт «все бьют ближайшего»
@@ -272,8 +276,10 @@ function compileHero(state: RunState, hero: HeroState): Rule[] {
   });
 }
 
-/** Эффективная точка спавна героя: ручная расстановка или дефолт слота. */
+/** Эффективная точка спавна героя: фикс сценария, ручная расстановка или дефолт слота. */
 export function deployedSpawn(state: RunState, hero: HeroState): Pos {
+  const fixed = scenarioForNode(currentNode(state))?.heroSpawns?.[state.heroes.indexOf(hero)];
+  if (fixed) return { ...fixed };
   return state.deploy[hero.id] ?? hero.stats.spawn;
 }
 
@@ -304,6 +310,9 @@ export function setDeploy(state: RunState, heroId: string, pos: Pos): SetPhrases
   const node = currentNode(state);
   if (!FIGHT_KINDS.includes(node.kind) || state.resolved) {
     return { ok: false, error: 'Расстановка меняется перед боем' };
+  }
+  if (scenarioForNode(node)?.heroSpawns) {
+    return { ok: false, error: 'Лагерь разбит: расстановка не в ваших руках' };
   }
   const hero = state.heroes.find((h) => h.id === heroId);
   if (!hero) return { ok: false, error: `Нет героя ${heroId}` };
@@ -383,7 +392,12 @@ export function playFight(state: RunState): BattleResult {
     }
     state.log.push('Канун битвы: лагерь и перевязка — в бой со свежими силами');
   }
-  const result = runBattle(battleSeed(state), [...heroSpecs(state), ...foeSpecs(state)], arenaForNode(node));
+  const result = runBattle(
+    battleSeed(state),
+    [...heroSpecs(state), ...foeSpecs(state)],
+    arenaForNode(node),
+    scenarioForNode(node)?.setup,
+  );
 
   if (result.winner !== 'party') {
     if (node.kind === 'lesson') {

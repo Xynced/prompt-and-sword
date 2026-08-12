@@ -37,6 +37,7 @@ import {
   HAZARD_DMG,
   HIGH_GROUND_DMG,
   OFTEN_STANCE_BONUS,
+  QUARRY_BIAS,
   RIPOSTE_DMG,
   SELFLESS_ATK_MULT,
   SELFLESS_VULN_MULT,
@@ -1336,6 +1337,11 @@ export function scoreCandidate(
     const lethal = expDmg >= target.hp;
     const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
+    // цель задачи боя (план objectives): слабая тяга к юниту с тегом quarry —
+    // фон, который любое слово игрока перебивает
+    if (target.tags.includes('quarry')) {
+      factors.push({ label: 'инстинкт:задача', value: QUARRY_BIAS });
+    }
     // рипост (план защиты): ближний удар по глухой обороне вернётся раной —
     // умный переключается, настойчивый платит; стойка «наверняка» не ловит
     if (
