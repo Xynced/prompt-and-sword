@@ -203,6 +203,15 @@ button.primary:disabled:hover { background: var(--ink); }
   font: 400 14px/1.35 var(--serif);
   background: rgba(156, 59, 40, 0.06);
 }
+/* задача боя (план objectives): видна на узле и в бою всегда */
+.task-line {
+  border-left: 3px solid var(--red);
+  padding: 4px 10px;
+  font: 400 13px/1.35 var(--serif);
+  color: rgba(31, 27, 22, 0.85);
+  background: rgba(156, 59, 40, 0.05);
+}
+.task-line .kicker { display: block; color: rgba(31, 27, 22, 0.45); }
 .error { color: var(--red); font: 400 10.5px/1.4 var(--mono); }
 
 /* ---- реестр приказов (правая страница) ---- */

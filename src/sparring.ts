@@ -1,4 +1,4 @@
-import { type BattleEvent, type BattleResult, type UnitSpec, runBattle } from './battle.js';
+import { type BattleEvent, type BattleResult, type BattleSetup, type UnitSpec, runBattle } from './battle.js';
 import type { ArenaTag } from './terrain.js';
 
 /**
@@ -58,9 +58,10 @@ export function sparring(
   partyBefore: readonly UnitSpec[],
   partyAfter: readonly UnitSpec[],
   arena?: ArenaTag,
+  setup?: BattleSetup,
 ): SparringResult {
-  const before = runBattle(seed, [...partyBefore, ...foes], arena);
-  const after = runBattle(seed, [...partyAfter, ...foes], arena);
+  const before = runBattle(seed, [...partyBefore, ...foes], arena, setup);
+  const after = runBattle(seed, [...partyAfter, ...foes], arena, setup);
   return {
     before,
     after,

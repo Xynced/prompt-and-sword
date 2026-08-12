@@ -14,6 +14,7 @@ import {
   startRun,
 } from './run.js';
 import { mulberry32 } from './rng.js';
+import { scenarioForNode } from './objectives.js';
 
 /**
  * Фаза 5: автобаланс прогонами. Детерминированный бот играет забег целиком:
@@ -46,6 +47,40 @@ export function kiteRewrite(state: RunState): void {
     const r = setPhrases(state, h.id, phrases);
     if (!r.ok) throw new Error(`kiteRewrite: ${r.error}`);
   }
+}
+
+/**
+ * Дефолт-формулировка бота на kill-задачи (план objectives): цели волны 1
+ * несут тег leader, и фокус выражается словом «вожак» — если бот его уже
+ * открыл (sel.leader — обычный трофей, не стартовое слово; без него бот
+ * играет наивом на слабом инстинкте задачи). Формулировка на один узел:
+ * возвращённая функция восстанавливает фразы — иначе винрейты задач
+ * несравнимы с обычными узлами.
+ */
+export function objectiveRewrite(state: RunState): (() => void) | null {
+  const kind = scenarioForNode(currentNode(state))?.setup.objective?.kind;
+  if (kind !== 'killTarget' && kind !== 'killBefore') return null;
+  if (!state.vocab.includes('sel.leader')) return null;
+  const saved = state.heroes.map((h) => ({ hero: h, phrases: h.phrases }));
+  for (const h of state.heroes) {
+    if (!h.alive) continue;
+    const r = setPhrases(state, h.id, [
+      {
+        condition: { id: 'always' } as const,
+        preference: { id: 'act.attack', target: 'sel.leader' } as const,
+        weight: 2,
+      },
+      {
+        condition: { id: 'always' } as const,
+        preference: { id: 'act.attack', target: 'sel.nearest' } as const,
+        weight: 1,
+      },
+    ]);
+    if (!r.ok) throw new Error(`objectiveRewrite: ${r.error}`);
+  }
+  return () => {
+    for (const s of saved) s.hero.phrases = s.phrases;
+  };
 }
 
 export interface FightRecord {
@@ -104,7 +139,9 @@ export function playBotRun(runSeed: number): RunOutcome {
     if (FIGHT_KINDS.includes(node.kind)) {
       if (node.kind === 'boss') out.bossEntryHpFrac = partyHpFrac(state);
       const aliveBefore = new Set(state.heroes.filter((h) => h.alive).map((h) => h.id));
+      const restorePhrases = objectiveRewrite(state);
       const r = playFight(state);
+      restorePhrases?.();
       const won = r.winner === 'party';
       out.fights.push({ layer: node.layer, kind: node.kind, won, partyHpFrac: partyHpFrac(state) });
       if (node.kind === 'lesson') {
