@@ -874,6 +874,22 @@ const BLESS_RULE_BONUS = 2.5;
  */
 const FEINT_RULE_BONUS = 3.2;
 
+/**
+ * Премия правилу «добивать» атаке, снимающей цель. Поверх lethal-бонуса
+ * агрессии (+4) и сильнее lethal-премии размена (3 × вес): слово о том, что
+ * снятая цель важнее любого другого расхода хода — даже удара побольнее по
+ * здоровому. Не-летальные атаки слово не трогает: кого бить — решает attack.
+ */
+const FINISH_RULE_BONUS = 4;
+
+/**
+ * Премия правилу «бить туда же» атаке по врагу, которого последним ударил
+ * кто-то из своих (канал lastAttackerId — тот же, что у кары Зари, только
+ * с точки зрения бьющего). Уровень манеры удара (2.5): наклоняет выбор цели
+ * при прочих равных, но не пересиливает явное «атаковать X» (3 × вес).
+ */
+const FOCUS_FIRE_BONUS = 2.5;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units));
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -1298,6 +1314,23 @@ function scorePreference(
         (units.find((u) => u.id === cand.targetId)!.atk /
           Math.max(...alliesOf(self, units).map((a) => a.atk), 1))
       );
+    case 'finish': {
+      // добивать: премия только удару, который снимает цель, — приоритет
+      // добивания, а не тяга к раненым (кого бить, по-прежнему решает attack)
+      if (!isAttack(cand.action) || !cand.targetId) return 0;
+      const target = units.find((u) => u.id === cand.targetId)!;
+      const expDmg = expectedAttackDamage(self, cand.action, target, units, ctx, cand.to, candWeapon(self, cand));
+      return expDmg >= target.hp ? FINISH_RULE_BONUS * w : 0;
+    }
+    case 'focusFire': {
+      // бить туда же: премия атаке по врагу, которого уже бил кто-то из своих
+      if (!isAttack(cand.action) || !cand.targetId) return 0;
+      const target = units.find((u) => u.id === cand.targetId)!;
+      const started = units.some(
+        (a) => a.alive && a.side === self.side && target.lastAttackerId === a.id,
+      );
+      return started ? FOCUS_FIRE_BONUS * w * apShare(cand.action) : 0;
+    }
   }
 }
 

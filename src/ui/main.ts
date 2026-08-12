@@ -6,6 +6,7 @@ import {
   type ConditionDraft,
   type PhraseDraft,
   type PreferenceDraft,
+  type SimpleConditionDraft,
   compilePhrase,
   describeDraft,
 } from '../constructor.js';
@@ -447,12 +448,41 @@ function conditionOptions(): Opt<ConditionDraft>[] {
       out.push({ value: { id: 'cond.allyInDanger', ally: h.id }, label: `если ${names[h.id]} в опасности` });
     }
   }
+  if (has('cond.hpAbove')) {
+    out.push(
+      { value: { id: 'cond.hpAbove', who: 'self', frac: 0.5 }, label: 'пока моё hp ≥ 50%' },
+      { value: { id: 'cond.hpAbove', who: 'self', frac: 0.7 }, label: 'пока моё hp ≥ 70%' },
+    );
+  }
   if (has('cond.battleDrags')) out.push({ value: { id: 'cond.battleDrags' }, label: 'если бой затянулся' });
   if (has('cond.initiativeEdge')) out.push({ value: { id: 'cond.initiativeEdge' }, label: 'если мы быстрее' });
   if (has('cond.allyFallen')) out.push({ value: { id: 'cond.allyFallen' }, label: 'если кто-то из наших пал' });
   if (has('cond.surrounded')) out.push({ value: { id: 'cond.surrounded' }, label: 'если меня окружили' });
   if (has('cond.underCharge')) out.push({ value: { id: 'cond.underCharge' }, label: 'если враги накатывают' });
+  if (has('cond.firstBlood')) out.push({ value: { id: 'cond.firstBlood' }, label: 'если кровь пролилась' });
+  if (has('cond.leaderDown')) out.push({ value: { id: 'cond.leaderDown' }, label: 'если вожак врага пал' });
+  if (has('cond.wasHit')) out.push({ value: { id: 'cond.wasHit' }, label: 'если меня ударили' });
+  if (has('cond.enemyAdjacent')) out.push({ value: { id: 'cond.enemyAdjacent' }, label: 'если враг вплотную' });
+  if (has('cond.allyAdjacent')) out.push({ value: { id: 'cond.allyAdjacent' }, label: 'если союзник рядом' });
+  if (has('cond.alone')) out.push({ value: { id: 'cond.alone' }, label: 'если я в отрыве' });
+  if (has('cond.weOutnumber')) out.push({ value: { id: 'cond.weOutnumber' }, label: 'если нас больше' });
+  if (has('cond.enemyShooters')) out.push({ value: { id: 'cond.enemyShooters' }, label: 'если у врага стрелки' });
+  if (has('cond.enemyCasters')) out.push({ value: { id: 'cond.enemyCasters' }, label: 'если у врага заклинатель' });
+  if (has('cond.enemyWavering')) out.push({ value: { id: 'cond.enemyWavering' }, label: 'если враг дрогнул' });
+  if (has('cond.lastEnemy')) out.push({ value: { id: 'cond.lastEnemy' }, label: 'если враг остался один' });
+  if (has('cond.allyHurt')) out.push({ value: { id: 'cond.allyHurt' }, label: 'если кто-то из наших ранен' });
+  if (has('cond.enemiesClustered')) out.push({ value: { id: 'cond.enemiesClustered' }, label: 'если враги скучились' });
   return out;
+}
+
+/**
+ * Варианты для вложенных уровней условия (глубокие чипсы): те же условия,
+ * «всегда» читается как пустое звено; союз («и»/«или») несёт чипс на стыке.
+ */
+function moreConditionOptions(): Opt<ConditionDraft>[] {
+  return conditionOptions().map((o) =>
+    o.value.id === 'always' ? { value: o.value, label: '— всё —' } : o,
+  );
 }
 
 function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
@@ -469,6 +499,12 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
       'sel.marked',
       'sel.shooter',
       'sel.farthest',
+      'sel.strongest',
+      'sel.fastest',
+      'sel.healer',
+      'sel.caster',
+      'sel.straggler',
+      'sel.tormentor',
     ] as const
   ).filter(has);
   const selRu: Record<string, string> = {
@@ -480,6 +516,12 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
     'sel.marked': 'помеченного',
     'sel.shooter': 'стрелка',
     'sel.farthest': 'самого дальнего',
+    'sel.strongest': 'самого здорового',
+    'sel.fastest': 'самого быстрого',
+    'sel.healer': 'вражеского лекаря',
+    'sel.caster': 'вражеского заклинателя',
+    'sel.straggler': 'отбившегося',
+    'sel.tormentor': 'обидчика наших',
   };
   if (has('act.attack')) {
     for (const s of selectors) out.push({ value: { id: 'act.attack', target: s }, label: `атаковать ${selRu[s]}` });
@@ -509,6 +551,10 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('act.castRitual')) out.push({ value: { id: 'act.castRitual' }, label: 'замахиваться ритуалом' });
   if (has('act.rage')) out.push({ value: { id: 'act.rage' }, label: 'впасть в ярость' });
   if (has('act.heal')) out.push({ value: { id: 'act.heal' }, label: 'лечить раненых' });
+  if (has('act.bless')) out.push({ value: { id: 'act.bless' }, label: 'благословлять' });
+  if (has('act.feint')) out.push({ value: { id: 'act.feint' }, label: 'финтить' });
+  if (has('act.finish')) out.push({ value: { id: 'act.finish' }, label: 'добивать' });
+  if (has('act.focusFire')) out.push({ value: { id: 'act.focusFire' }, label: 'бить туда же' });
   if (has('act.brace')) out.push({ value: { id: 'act.brace' }, label: 'вставать в глухую оборону' });
   if (has('act.strikeOften')) out.push({ value: { id: 'act.strikeOften' }, label: 'бить часто' });
   if (has('act.strikeHard')) out.push({ value: { id: 'act.strikeHard' }, label: 'бить наверняка' });
@@ -531,7 +577,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   return out;
 }
 
-function selectHtml<T>(cls: string, hero: string, idx: number, opts: Opt<T>[], current: T): string {
+function selectHtml<T>(cls: string, hero: string, idx: number, opts: Opt<T>[], current: T, attrs = ''): string {
   const cur = canon(current);
   const options = opts
     .map((o) => {
@@ -539,7 +585,7 @@ function selectHtml<T>(cls: string, hero: string, idx: number, opts: Opt<T>[], c
       return `<option value='${esc(v)}' ${v === cur ? 'selected' : ''}>${esc(o.label)}</option>`;
     })
     .join('');
-  return `<select class="${cls}" data-hero="${hero}" data-idx="${idx}">${options}</select>`;
+  return `<select class="${cls}" data-hero="${hero}" data-idx="${idx}"${attrs ? ` ${attrs}` : ''}>${options}</select>`;
 }
 
 // ---------- кадры боя (по одному решению за кадр) ----------
@@ -1546,10 +1592,42 @@ function editorHtml(): string {
               <button class="mini" data-action="add-phrase" data-hero="${eh.id}">заполнить</button>
             </div>`;
           }
+          // глубокие чипсы: условие фразы — цепочка до трёх уровней со связкой
+          // «и»/«или» (одна на фразу); следующий уровень появляется, когда
+          // выбран предыдущий
+          const chain: SimpleConditionDraft[] =
+            ph.condition.id === 'and' || ph.condition.id === 'or'
+              ? ph.condition.conds
+              : ph.condition.id === 'always'
+                ? []
+                : [ph.condition];
+          const op: 'and' | 'or' = ph.condition.id === 'or' ? 'or' : 'and';
+          const opChip = (lvl: number): string =>
+            lvl === 1
+              ? `<select class="op-select" data-hero="${eh.id}" data-idx="${i}">
+                  <option value="and" ${op === 'and' ? 'selected' : ''}>и</option>
+                  <option value="or" ${op === 'or' ? 'selected' : ''}>или</option>
+                </select>`
+              : `<span class="nest">${op === 'or' ? 'или' : 'и'}</span>`;
+          const condSelects = [
+            selectHtml('cond-select', eh.id, i, conditionOptions(), chain[0] ?? { id: 'always' }, 'data-level="0"'),
+          ];
+          for (let lvl = 1; lvl < 3 && chain.length >= lvl; lvl++) {
+            condSelects.push(
+              `<span class="nest">⌞</span>${opChip(lvl)}${selectHtml(
+                'cond-select',
+                eh.id,
+                i,
+                moreConditionOptions(),
+                chain[lvl] ?? { id: 'always' },
+                `data-level="${lvl}"`,
+              )}`,
+            );
+          }
           return `<div class="slot-row">
             <span class="mark">${NUM[i]}</span>
             <span class="fields">
-              ${selectHtml('cond-select', eh.id, i, conditionOptions(), ph.condition)}
+              ${condSelects.join('')}
               ${selectHtml('pref-select', eh.id, i, preferenceOptions(eh.id), ph.preference)}
               <select class="weight-select" data-hero="${eh.id}" data-idx="${i}">
                 <option value="1" ${(ph.weight ?? 1) === 1 ? 'selected' : ''}>обычно</option>
@@ -1825,13 +1903,29 @@ function render(): void {
 }
 
 function draftsFromEditor(heroId: string): PhraseDraft[] {
-  const rows = [...app.querySelectorAll<HTMLSelectElement>(`.cond-select[data-hero="${heroId}"]`)];
+  const rows = [...app.querySelectorAll<HTMLSelectElement>(`.cond-select[data-hero="${heroId}"][data-level="0"]`)];
   return rows.map((condSel) => {
     const idx = condSel.dataset.idx!;
+    // глубокие чипсы: уровни условия собираются в конъюнкцию «и»
+    const conds: SimpleConditionDraft[] = [];
+    for (const lvl of [0, 1, 2]) {
+      const sel = app.querySelector<HTMLSelectElement>(
+        `.cond-select[data-hero="${heroId}"][data-idx="${idx}"][data-level="${lvl}"]`,
+      );
+      if (!sel) continue;
+      const c = JSON.parse(sel.value) as SimpleConditionDraft;
+      if (c.id !== 'always') conds.push(c);
+    }
+    const opSel = app.querySelector<HTMLSelectElement>(
+      `.op-select[data-hero="${heroId}"][data-idx="${idx}"]`,
+    );
+    const op: 'and' | 'or' = opSel?.value === 'or' ? 'or' : 'and';
+    const condition: ConditionDraft =
+      conds.length === 0 ? { id: 'always' } : conds.length === 1 ? conds[0]! : { id: op, conds };
     const prefSel = app.querySelector<HTMLSelectElement>(`.pref-select[data-hero="${heroId}"][data-idx="${idx}"]`)!;
     const wSel = app.querySelector<HTMLSelectElement>(`.weight-select[data-hero="${heroId}"][data-idx="${idx}"]`)!;
     return {
-      condition: JSON.parse(condSel.value) as ConditionDraft,
+      condition,
       preference: JSON.parse(prefSel.value) as PreferenceDraft,
       weight: Number(wSel.value),
     };

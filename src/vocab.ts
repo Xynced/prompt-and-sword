@@ -55,7 +55,33 @@ export type ConceptId =
   | 'act.rage'
   | 'act.heal'
   // темп: не «где» и не «кого», а «когда»
-  | 'act.wait';
+  | 'act.wait'
+  // вторая партия слов (план words) — условия под глубокие чипсы «и»
+  | 'cond.hpAbove'
+  | 'cond.firstBlood'
+  | 'cond.leaderDown'
+  | 'cond.wasHit'
+  | 'cond.enemyAdjacent'
+  | 'cond.allyAdjacent'
+  | 'cond.alone'
+  | 'cond.weOutnumber'
+  | 'cond.enemyShooters'
+  | 'cond.enemyCasters'
+  | 'cond.enemyWavering'
+  | 'cond.lastEnemy'
+  | 'cond.allyHurt'
+  | 'cond.enemiesClustered'
+  | 'sel.strongest'
+  | 'sel.fastest'
+  | 'sel.healer'
+  | 'sel.caster'
+  | 'sel.straggler'
+  | 'sel.tormentor'
+  | 'act.finish'
+  | 'act.focusFire'
+  // слова-гейты к уже существующим активам (прецедент rage/heal)
+  | 'act.bless'
+  | 'act.feint';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -111,6 +137,30 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.rage': { id: 'act.rage', label: 'впасть в ярость', category: 'action' },
   'act.heal': { id: 'act.heal', label: 'лечить', category: 'action' },
   'act.wait': { id: 'act.wait', label: 'ждать', category: 'action' },
+  'cond.hpAbove': { id: 'cond.hpAbove', label: 'пока цел (HP выше X)', category: 'condition' },
+  'cond.firstBlood': { id: 'cond.firstBlood', label: 'кровь пролилась', category: 'condition' },
+  'cond.leaderDown': { id: 'cond.leaderDown', label: 'вожак врага пал', category: 'condition' },
+  'cond.wasHit': { id: 'cond.wasHit', label: 'меня ударили', category: 'condition' },
+  'cond.enemyAdjacent': { id: 'cond.enemyAdjacent', label: 'враг вплотную', category: 'condition' },
+  'cond.allyAdjacent': { id: 'cond.allyAdjacent', label: 'союзник рядом', category: 'condition' },
+  'cond.alone': { id: 'cond.alone', label: 'я в отрыве', category: 'condition' },
+  'cond.weOutnumber': { id: 'cond.weOutnumber', label: 'нас больше', category: 'condition' },
+  'cond.enemyShooters': { id: 'cond.enemyShooters', label: 'у врага стрелки', category: 'condition' },
+  'cond.enemyCasters': { id: 'cond.enemyCasters', label: 'у врага заклинатель', category: 'condition' },
+  'cond.enemyWavering': { id: 'cond.enemyWavering', label: 'враг дрогнул', category: 'condition' },
+  'cond.lastEnemy': { id: 'cond.lastEnemy', label: 'враг остался один', category: 'condition' },
+  'cond.allyHurt': { id: 'cond.allyHurt', label: 'кто-то из наших ранен', category: 'condition' },
+  'cond.enemiesClustered': { id: 'cond.enemiesClustered', label: 'враги скучились', category: 'condition' },
+  'sel.strongest': { id: 'sel.strongest', label: 'самый здоровый', category: 'selector' },
+  'sel.fastest': { id: 'sel.fastest', label: 'самый быстрый', category: 'selector' },
+  'sel.healer': { id: 'sel.healer', label: 'вражеский лекарь', category: 'selector' },
+  'sel.caster': { id: 'sel.caster', label: 'вражеский заклинатель', category: 'selector' },
+  'sel.straggler': { id: 'sel.straggler', label: 'отбившийся', category: 'selector' },
+  'sel.tormentor': { id: 'sel.tormentor', label: 'обидчик наших', category: 'selector' },
+  'act.finish': { id: 'act.finish', label: 'добивать', category: 'action' },
+  'act.focusFire': { id: 'act.focusFire', label: 'бить туда же', category: 'action' },
+  'act.bless': { id: 'act.bless', label: 'благословить', category: 'action' },
+  'act.feint': { id: 'act.feint', label: 'финтить', category: 'action' },
 };
 
 /**
@@ -170,6 +220,26 @@ export const COMMON_WORDS: ConceptId[] = [
   // потом другое» с любым условием («затянулся», «в опасности», «накатывают»).
   // Аудитом ещё не мерено — новое слово, место в пуле предварительное
   'act.wait',
+  // вторая партия слов: условия под глубокие чипсы «и» — сами по себе дёшевы,
+  // ценность в конъюнкциях («в отрыве И у врага стрелки → за укрытие»).
+  // Аудитом не мерено — весь блок предварительный, см. журнал плана words
+  'cond.hpAbove',
+  'cond.firstBlood',
+  'cond.wasHit',
+  'cond.enemyAdjacent',
+  'cond.allyAdjacent',
+  'cond.alone',
+  'cond.weOutnumber',
+  'cond.enemyShooters',
+  'cond.enemyCasters',
+  'cond.allyHurt',
+  // селекторы ровной пользы: зеркала уже открытых или мягкие приоритеты
+  'sel.strongest',
+  'sel.fastest',
+  'sel.straggler',
+  'sel.tormentor',
+  // фокус-огонь без метки: канал lastAttackerId, награда за навал
+  'act.focusFire',
 ];
 
 /**
@@ -217,6 +287,21 @@ export const RARE_WORDS: ConceptId[] = [
   'act.preempt',
   // манера каста: тратить ход на замах — крысы +28пп
   'act.castRitual',
+  // вторая партия слов (аудитом не мерено, редкость предварительная):
+  // условия-события — переломы боя, естественные триггеры смены плана
+  'cond.leaderDown',
+  'cond.enemyWavering',
+  'cond.lastEnemy',
+  // гейт-условие под АОЕ-пары («скучились → накрыть»)
+  'cond.enemiesClustered',
+  // контр-селекторы: есть бой, где они решают (лекарь латает элиту, шаман жжёт)
+  'sel.healer',
+  'sel.caster',
+  // добивание — приоритет снятия цели с поля, кандидат в слова-события
+  'act.finish',
+  // слова-гейты активов (прецедент heal/rage): жрец и трюкачка
+  'act.bless',
+  'act.feint',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */

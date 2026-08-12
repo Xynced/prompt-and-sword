@@ -406,6 +406,16 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
             },
           ];
         }
+        if (r.then.kind === 'finish') {
+          // добивать издыхающих — то же бесчестье, что и бить слабейшего
+          return [
+            {
+              ...r,
+              then: { kind: 'attack', target: 'mostDangerous' },
+              marks: marked(r, { lens: 'duelist', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
         return [r];
       });
       // вполсилы не бьёт — это оскорбление противника; толкаться — недостойно;

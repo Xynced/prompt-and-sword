@@ -44,6 +44,23 @@ import { dist } from './grid.js';
  *   Действия:  wait (ждать — не сближаться и приберечь ход, пока до меня не
  *              докатилось; вторая половина замысла — отдельное правило с
  *              условием: «подожди, а ПОТОМ …»)
+ * Вторая партия слов (план words):
+ *   Условия:   enemyAdjacent (враг вплотную), allyAdjacent (союзник рядом),
+ *              alone (я в отрыве), weOutnumber (нас больше), enemyShooters
+ *              (у врага стрелки), enemyCasters (у врага заклинатель),
+ *              enemyWavering (враг дрогнул — половина пала), lastEnemy (враг
+ *              остался один), allyHurt (кто-то из наших ранен),
+ *              enemiesClustered (враги скучились); плюс словами игрока стали
+ *              hpAbove, firstBlood, leaderDown, wasHit
+ *   Селекторы: strongest (самый здоровый), fastest (самый быстрый), healer
+ *              (вражеский лекарь), caster (вражеский заклинатель), straggler
+ *              (отбившийся от своих), tormentor (обидчик наших)
+ *   Действия:  finish (добивать), focusFire (бить туда же); плюс слова-гейты
+ *              bless и feint к уже существующим активам
+ * Вложенность (глубокие чипсы): and — конъюнкция условий («если А: если Б —
+ *   делай X» → одно правило с when = and[А, Б]), or — дизъюнкция («если А
+ *   или Б»). «Или» одним правилом — не то же, что две фразы: при обоих
+ *   истинных условиях or-правило горит один раз, две фразы — удвоенным весом.
  */
 
 export type Selector =
@@ -54,7 +71,13 @@ export type Selector =
   | 'attacker'
   | 'marked'
   | 'shooter'
-  | 'farthest';
+  | 'farthest'
+  | 'strongest'
+  | 'fastest'
+  | 'healer'
+  | 'caster'
+  | 'straggler'
+  | 'tormentor';
 
 /** С какого раунда бой считается затянувшимся. */
 export const BATTLE_DRAGS_ROUND = 5;
@@ -78,7 +101,35 @@ export type Condition =
   /** Вожак противника пал. */
   | { kind: 'leaderDown' }
   /** Меня уже били в этом бою (есть последний обидчик). */
-  | { kind: 'wasHit' };
+  | { kind: 'wasHit' }
+  // вторая партия слов (план words)
+  /** Враг вплотную — хотя бы один смежен со мной. */
+  | { kind: 'enemyAdjacent' }
+  /** Плечом к плечу — рядом (смежно) стоит живой союзник. */
+  | { kind: 'allyAdjacent' }
+  /** Я в отрыве — ни одного живого союзника в двух клетках. */
+  | { kind: 'alone' }
+  /** Нас больше, чем врагов (зеркало outnumbered). */
+  | { kind: 'weOutnumber' }
+  /** У врага живы стрелки (дальность > 1). */
+  | { kind: 'enemyShooters' }
+  /** У врага жив носитель площадного оружия. */
+  | { kind: 'enemyCasters' }
+  /** Враг дрогнул: пала уже хотя бы половина вражеского отряда. */
+  | { kind: 'enemyWavering' }
+  /** Враг остался один. */
+  | { kind: 'lastEnemy' }
+  /** Кто-то из наших (кроме меня) ранен ниже половины. */
+  | { kind: 'allyHurt' }
+  /** Враги скучились: хотя бы двое стоят вплотную друг к другу. */
+  | { kind: 'enemiesClustered' }
+  /**
+   * Конъюнкция — глубокие чипсы: «если А: если Б — …». Из черновиков внутри
+   * только простые условия и «или»; вложенные группы конструктор расплющивает сам.
+   */
+  | { kind: 'and'; conds: Condition[] }
+  /** Дизъюнкция — «если А или Б»: горит, когда истинно хотя бы одно. */
+  | { kind: 'or'; conds: Condition[] };
 
 /** Ссылка на позицию-якорь для пространственных предпочтений. */
 export type PosRef = { type: 'ally'; id: string } | { type: 'enemy'; sel: Selector };
@@ -116,7 +167,12 @@ export type Preference =
   | { kind: 'rage' }
   | { kind: 'heal' }
   | { kind: 'bless' }
-  | { kind: 'feint' };
+  | { kind: 'feint' }
+  // вторая партия слов (план words): манеры выбора цели, а не «кого бить»
+  /** Добивать: предпочитать удар, который снимает цель с поля. */
+  | { kind: 'finish' }
+  /** Бить туда же: наваливаться на врага, которого уже бил кто-то из своих. */
+  | { kind: 'focusFire' };
 
 /**
  * Структурная пометка линзы: что характер сделал с правилом (план линз).
@@ -207,6 +263,34 @@ export function evalCondition(
       return units.some((u) => !u.alive && u.side !== self.side && u.tags?.includes('leader'));
     case 'wasHit':
       return self.lastAttackerId !== undefined;
+    case 'enemyAdjacent':
+      return enemiesOf(self, units).some((e) => dist(e.pos, self.pos) === 1);
+    case 'allyAdjacent':
+      return alliesOf(self, units).some((a) => a.id !== self.id && dist(a.pos, self.pos) === 1);
+    case 'alone':
+      return !alliesOf(self, units).some((a) => a.id !== self.id && dist(a.pos, self.pos) <= 2);
+    case 'weOutnumber':
+      return alliesOf(self, units).length > enemiesOf(self, units).length;
+    case 'enemyShooters':
+      return enemiesOf(self, units).some((e) => e.range > 1);
+    case 'enemyCasters':
+      return enemiesOf(self, units).some((e) => e.aoe !== undefined);
+    case 'enemyWavering': {
+      const fallen = units.filter((u) => u.side !== self.side && !u.alive).length;
+      return fallen >= 1 && fallen >= enemiesOf(self, units).length;
+    }
+    case 'lastEnemy':
+      return enemiesOf(self, units).length === 1;
+    case 'allyHurt':
+      return alliesOf(self, units).some((a) => a.id !== self.id && a.hp < 0.5 * a.maxHp);
+    case 'enemiesClustered': {
+      const es = enemiesOf(self, units);
+      return es.some((e) => es.some((o) => o.id !== e.id && dist(e.pos, o.pos) === 1));
+    }
+    case 'and':
+      return cond.conds.every((c) => evalCondition(c, self, units, round));
+    case 'or':
+      return cond.conds.some((c) => evalCondition(c, self, units, round));
   }
 }
 
@@ -251,6 +335,50 @@ export function resolveSelector(
     }
     case 'farthest':
       return pick((u) => -dist(u.pos, self.pos));
+    case 'strongest':
+      return pick((u) => -u.hp);
+    case 'fastest':
+      return pick((u) => -u.speed);
+    case 'healer': {
+      // ближайший вражеский лекарь (актив исцеления); лекарей нет — ближайший
+      const healers = enemies.filter((u) => u.active?.heal);
+      if (healers.length === 0) return pick((u) => dist(u.pos, self.pos));
+      return healers.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
+    case 'caster': {
+      // ближайший вражеский носитель площадного оружия; нет — ближайший
+      const casters = enemies.filter((u) => u.aoe);
+      if (casters.length === 0) return pick((u) => dist(u.pos, self.pos));
+      return casters.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
+    case 'straggler':
+      // отбившийся: враг, до чьего ближайшего своего дальше всего; врагу без
+      // своих отбиваться не от кого — он и есть отряд (и единственный кандидат)
+      return pick((u) => {
+        const own = enemies.filter((o) => o.id !== u.id);
+        return own.length === 0 ? -Infinity : -Math.min(...own.map((o) => dist(o.pos, u.pos)));
+      });
+    case 'tormentor': {
+      // обидчик наших: чей удар последним получил кто-то из живых своих
+      // (канал lastAttackerId — тот же, что у кары Зари); никого — ближайший
+      const guilty = enemies.filter((e) =>
+        units.some((a) => a.alive && a.side === self.side && a.lastAttackerId === e.id),
+      );
+      if (guilty.length === 0) return pick((u) => dist(u.pos, self.pos));
+      return guilty.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
   }
 }
 
@@ -330,5 +458,9 @@ export function describePreference(p: Preference): string {
       return 'благословить';
     case 'feint':
       return 'финтить';
+    case 'finish':
+      return 'добивать';
+    case 'focusFire':
+      return 'бить туда же';
   }
 }

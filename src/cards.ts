@@ -22,6 +22,12 @@ const SEL_RU: Record<string, string> = {
   marked: 'помеченного',
   shooter: 'стрелка',
   farthest: 'самого дальнего',
+  strongest: 'самого здорового',
+  fastest: 'самого быстрого',
+  healer: 'вражеского лекаря',
+  caster: 'вражеского заклинателя',
+  straggler: 'отбившегося от своих',
+  tormentor: 'обидчика наших',
 };
 
 function condRu(c: Condition, nm: (id: string) => string): string {
@@ -56,6 +62,32 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если вожак врага пал — ';
     case 'wasHit':
       return 'если меня уже били — ';
+    case 'enemyAdjacent':
+      return 'если враг вплотную — ';
+    case 'allyAdjacent':
+      return 'пока рядом стоит кто-то из наших — ';
+    case 'alone':
+      return 'если я в отрыве от своих — ';
+    case 'weOutnumber':
+      return 'если нас больше — ';
+    case 'enemyShooters':
+      return 'пока у врага живы стрелки — ';
+    case 'enemyCasters':
+      return 'пока у врага жив заклинатель — ';
+    case 'enemyWavering':
+      return 'если враг дрогнул — ';
+    case 'lastEnemy':
+      return 'если враг остался один — ';
+    case 'allyHurt':
+      return 'если кто-то из наших ранен — ';
+    case 'enemiesClustered':
+      return 'если враги скучились — ';
+    case 'and':
+      // вложенность читается сцепкой «если … — если … — »
+      return c.conds.map((s) => condRu(s, nm)).join('');
+    case 'or':
+      // «если … — или если … — »: части уже кончаются на « — »
+      return c.conds.map((s) => condRu(s, nm)).join('или ');
   }
 }
 
@@ -123,6 +155,10 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'благословляю: усиливаю удары самого ударного из наших до конца боя';
     case 'feint':
       return 'финчу: обманным выпадом открываю врага под удары своих';
+    case 'finish':
+      return 'добиваю: если удар может снять цель с поля — бью его, остальное подождёт';
+    case 'focusFire':
+      return 'бью туда же: наваливаюсь на того, кого уже бьют наши';
   }
 }
 
@@ -256,6 +292,7 @@ export function lensQuip(m: LensMark, names: Record<string, string> = {}, rule?:
           ? 'Нас меньше. Ладно — война есть война.'
           : 'Слабых не добиваю. Вызываю сильнейшего.';
       if (from === 'flank') return 'В спину не бью — только лицом к лицу.';
+      if (from === 'finish') return 'Добивать? Бесчестье. Вызываю сильнейшего.';
       break;
     case 'gloryhound':
       return 'Достойная цель — только вожак.';

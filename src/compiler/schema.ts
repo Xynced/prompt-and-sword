@@ -1,4 +1,10 @@
-import type { ConditionDraft, PhraseDraft, PreferenceDraft, SelectorDraft } from '../constructor.js';
+import type {
+  ConditionDraft,
+  PhraseDraft,
+  PreferenceDraft,
+  SelectorDraft,
+  SimpleConditionDraft,
+} from '../constructor.js';
 import type { ConceptId } from '../vocab.js';
 
 /**
@@ -23,6 +29,12 @@ const SELECTORS: SelectorDraft[] = [
   'sel.marked',
   'sel.shooter',
   'sel.farthest',
+  'sel.strongest',
+  'sel.fastest',
+  'sel.healer',
+  'sel.caster',
+  'sel.straggler',
+  'sel.tormentor',
 ];
 
 /** Условия и предпочтения без параметров: одна ветка схемы и валидации на всех. */
@@ -33,6 +45,19 @@ const PARAMLESS_CONDITIONS = [
   'cond.allyFallen',
   'cond.surrounded',
   'cond.underCharge',
+  'cond.firstBlood',
+  'cond.leaderDown',
+  'cond.wasHit',
+  'cond.enemyAdjacent',
+  'cond.allyAdjacent',
+  'cond.alone',
+  'cond.weOutnumber',
+  'cond.enemyShooters',
+  'cond.enemyCasters',
+  'cond.enemyWavering',
+  'cond.lastEnemy',
+  'cond.allyHurt',
+  'cond.enemiesClustered',
 ] as const;
 const PARAMLESS_PREFERENCES = [
   'act.holdPosition',
@@ -59,6 +84,10 @@ const PARAMLESS_PREFERENCES = [
   'act.rage',
   'act.heal',
   'act.wait',
+  'act.finish',
+  'act.focusFire',
+  'act.bless',
+  'act.feint',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -72,19 +101,30 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
     additionalProperties: false,
   });
 
-  const conditions: object[] = [obj({ id: { const: 'always' } })];
-  if (has('cond.hpBelow')) {
-    const who: object[] = [{ const: 'self' }];
-    if (allyIds.length > 0) who.push(obj({ ally: { type: 'string', enum: allyIds } }));
-    conditions.push(
-      obj({ id: { const: 'cond.hpBelow' }, who: { anyOf: who }, frac: { type: 'number' } }),
-    );
+  // простые условия — отдельно: из них же собирается ветка конъюнкции «и»
+  const simple: object[] = [];
+  const who: object[] = [{ const: 'self' }];
+  if (allyIds.length > 0) who.push(obj({ ally: { type: 'string', enum: allyIds } }));
+  for (const cond of ['cond.hpBelow', 'cond.hpAbove'] as const) {
+    if (has(cond)) simple.push(obj({ id: { const: cond }, who: { anyOf: who }, frac: { type: 'number' } }));
   }
   for (const cond of PARAMLESS_CONDITIONS) {
-    if (has(cond)) conditions.push(obj({ id: { const: cond } }));
+    if (has(cond)) simple.push(obj({ id: { const: cond } }));
   }
   if (has('cond.allyInDanger') && allyIds.length > 0) {
-    conditions.push(obj({ id: { const: 'cond.allyInDanger' }, ally: { type: 'string', enum: allyIds } }));
+    simple.push(obj({ id: { const: 'cond.allyInDanger' }, ally: { type: 'string', enum: allyIds } }));
+  }
+  const conditions: object[] = [obj({ id: { const: 'always' } }), ...simple];
+  // глубокие чипсы: «и»/«или» — грамматика, не слова; доступны при любом открытом условии
+  if (simple.length > 0) {
+    for (const op of ['and', 'or'] as const) {
+      conditions.push(
+        obj({
+          id: { const: op },
+          conds: { type: 'array', items: { anyOf: simple }, minItems: 2, maxItems: 3 },
+        }),
+      );
+    }
   }
 
   const preferences: object[] = [];
@@ -132,32 +172,41 @@ function validateCondition(
 ): ConditionDraft | null {
   if (!isRecord(v)) return null;
   const inAllies = (a: unknown): a is string => typeof a === 'string' && allyIds.includes(a);
+  if (
+    typeof v.id === 'string' &&
+    (PARAMLESS_CONDITIONS as readonly string[]).includes(v.id)
+  ) {
+    const id = v.id as (typeof PARAMLESS_CONDITIONS)[number];
+    // {id: union} не сужается в союз одиночных форм — каждая форма и есть {id}
+    return vocab.includes(id) ? ({ id } as SimpleConditionDraft) : null;
+  }
   switch (v.id) {
     case 'always':
       return { id: 'always' };
-    case 'cond.hpBelow': {
-      if (!vocab.includes('cond.hpBelow') || typeof v.frac !== 'number' || !Number.isFinite(v.frac)) return null;
+    case 'cond.hpBelow':
+    case 'cond.hpAbove': {
+      if (!vocab.includes(v.id) || typeof v.frac !== 'number' || !Number.isFinite(v.frac)) return null;
       const frac = Math.min(0.9, Math.max(0.1, v.frac));
-      if (v.who === 'self') return { id: 'cond.hpBelow', who: 'self', frac };
-      if (isRecord(v.who) && inAllies(v.who.ally)) return { id: 'cond.hpBelow', who: { ally: v.who.ally }, frac };
+      if (v.who === 'self') return { id: v.id, who: 'self', frac };
+      if (isRecord(v.who) && inAllies(v.who.ally)) return { id: v.id, who: { ally: v.who.ally }, frac };
       return null;
     }
-    case 'cond.outnumbered':
-      return vocab.includes('cond.outnumbered') ? { id: 'cond.outnumbered' } : null;
-    case 'cond.battleDrags':
-      return vocab.includes('cond.battleDrags') ? { id: 'cond.battleDrags' } : null;
-    case 'cond.initiativeEdge':
-      return vocab.includes('cond.initiativeEdge') ? { id: 'cond.initiativeEdge' } : null;
-    case 'cond.allyFallen':
-      return vocab.includes('cond.allyFallen') ? { id: 'cond.allyFallen' } : null;
-    case 'cond.surrounded':
-      return vocab.includes('cond.surrounded') ? { id: 'cond.surrounded' } : null;
-    case 'cond.underCharge':
-      return vocab.includes('cond.underCharge') ? { id: 'cond.underCharge' } : null;
     case 'cond.allyInDanger':
       return vocab.includes('cond.allyInDanger') && inAllies(v.ally)
         ? { id: 'cond.allyInDanger', ally: v.ally }
         : null;
+    case 'and':
+    case 'or': {
+      // комбинатор: 2–3 ПРОСТЫХ условия (без always и вложенных комбинаторов)
+      if (!Array.isArray(v.conds) || v.conds.length < 2 || v.conds.length > 3) return null;
+      const conds: SimpleConditionDraft[] = [];
+      for (const s of v.conds) {
+        const c = validateCondition(s, vocab, allyIds);
+        if (!c || c.id === 'and' || c.id === 'or' || c.id === 'always') return null;
+        conds.push(c);
+      }
+      return { id: v.id, conds };
+    }
     default:
       return null;
   }
@@ -172,6 +221,14 @@ function validatePreference(
   const inAllies = (a: unknown): a is string => typeof a === 'string' && allyIds.includes(a);
   const isSelector = (s: unknown): s is SelectorDraft =>
     SELECTORS.includes(s as SelectorDraft) && vocab.includes(s as SelectorDraft);
+  if (
+    typeof v.id === 'string' &&
+    (PARAMLESS_PREFERENCES as readonly string[]).includes(v.id)
+  ) {
+    const id = v.id as (typeof PARAMLESS_PREFERENCES)[number];
+    // {id: union} не сужается в союз одиночных форм — каждая форма и есть {id}
+    return vocab.includes(id) ? ({ id } as PreferenceDraft) : null;
+  }
   switch (v.id) {
     case 'act.attack':
       return vocab.includes('act.attack') && isSelector(v.target)
@@ -179,54 +236,6 @@ function validatePreference(
         : null;
     case 'act.protect':
       return vocab.includes('act.protect') && inAllies(v.ally) ? { id: 'act.protect', ally: v.ally } : null;
-    case 'act.holdPosition':
-      return vocab.includes('act.holdPosition') ? { id: 'act.holdPosition' } : null;
-    case 'act.retreat':
-      return vocab.includes('act.retreat') ? { id: 'act.retreat' } : null;
-    case 'act.bait':
-      return vocab.includes('act.bait') ? { id: 'act.bait' } : null;
-    case 'act.trade':
-      return vocab.includes('act.trade') ? { id: 'act.trade' } : null;
-    case 'act.coverRetreat':
-      return vocab.includes('act.coverRetreat') ? { id: 'act.coverRetreat' } : null;
-    case 'act.standoff':
-      return vocab.includes('act.standoff') ? { id: 'act.standoff' } : null;
-    case 'space.flank':
-      return vocab.includes('space.flank') ? { id: 'space.flank' } : null;
-    case 'space.lineOfFire':
-      return vocab.includes('space.lineOfFire') ? { id: 'space.lineOfFire' } : null;
-    case 'space.chokepoint':
-      return vocab.includes('space.chokepoint') ? { id: 'space.chokepoint' } : null;
-    case 'act.brace':
-      return vocab.includes('act.brace') ? { id: 'act.brace' } : null;
-    case 'act.strikeOften':
-      return vocab.includes('act.strikeOften') ? { id: 'act.strikeOften' } : null;
-    case 'act.strikeHard':
-      return vocab.includes('act.strikeHard') ? { id: 'act.strikeHard' } : null;
-    case 'act.strikeDesperate':
-      return vocab.includes('act.strikeDesperate') ? { id: 'act.strikeDesperate' } : null;
-    case 'space.highGround':
-      return vocab.includes('space.highGround') ? { id: 'space.highGround' } : null;
-    case 'space.behindCover':
-      return vocab.includes('space.behindCover') ? { id: 'space.behindCover' } : null;
-    case 'space.avoidHazard':
-      return vocab.includes('space.avoidHazard') ? { id: 'space.avoidHazard' } : null;
-    case 'act.shove':
-      return vocab.includes('act.shove') ? { id: 'act.shove' } : null;
-    case 'space.spread':
-      return vocab.includes('space.spread') ? { id: 'space.spread' } : null;
-    case 'act.barrage':
-      return vocab.includes('act.barrage') ? { id: 'act.barrage' } : null;
-    case 'act.preempt':
-      return vocab.includes('act.preempt') ? { id: 'act.preempt' } : null;
-    case 'act.castRitual':
-      return vocab.includes('act.castRitual') ? { id: 'act.castRitual' } : null;
-    case 'act.rage':
-      return vocab.includes('act.rage') ? { id: 'act.rage' } : null;
-    case 'act.heal':
-      return vocab.includes('act.heal') ? { id: 'act.heal' } : null;
-    case 'act.wait':
-      return vocab.includes('act.wait') ? { id: 'act.wait' } : null;
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {
