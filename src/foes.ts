@@ -441,6 +441,35 @@ export function pyro(n: number): UnitSpec {
 }
 
 /**
+ * Ритуалист (план objectives, сценарий «сорвать ритуал») — сам почти не
+ * дерётся: прячется за огром и тянет время. Бой ведётся задачей killBefore:
+ * жив к дедлайну — дочитал, поражение. Тег leader — чтобы контр («вали
+ * вожака») и дефолт бота выражались стартовым словом.
+ */
+export function ritualist(behindId: string): UnitSpec {
+  return {
+    id: 'ritualist',
+    name: 'Ритуалист',
+    side: 'foe',
+    maxHp: 34,
+    weapons: [{ name: 'жертвенный серп', dmg: 4, range: 1 }],
+    speed: 6,
+    move: 2,
+    tags: ['leader'],
+    lenses: ['plain'],
+    rules: [
+      rule({
+        when: { kind: 'always' },
+        then: { kind: 'behind', ref: { type: 'ally', id: behindId } },
+        weight: 2,
+        source: 'ритуалист: прятаться за огром и читать',
+      }),
+      rule({ when: { kind: 'always' }, then: { kind: 'retreat' }, weight: 1.2, source: 'ритуалист: не подпускать к себе' }),
+    ],
+  };
+}
+
+/**
  * Засада: бугбер-душегуб (Bugbear Thug) — быстрый охотник на тыл: обтекает
  * фронт, режет хрупких, из-за угла бьёт больнее (sneak). С волками —
  * загонная охота; контр — телохранитель и спина к камню.

@@ -71,6 +71,29 @@ export interface UnitSpec {
   spawn?: Pos;
 }
 
+/**
+ * Задача боя (план objectives): чем кончается бой помимо «перебей всех».
+ * killTarget — смерть цели решает бой мгновенно, остальных можно не трогать;
+ * killBefore — то же, но если цель жива к началу раунда round, бой проигран;
+ * survive — партия жива к концу раунда rounds = победа, врагов можно не бить.
+ */
+export type Objective =
+  | { kind: 'eliminate' }
+  | { kind: 'killTarget'; targetId: string }
+  | { kind: 'killBefore'; targetId: string; round: number }
+  | { kind: 'survive'; rounds: number };
+
+/** Волна подкреплений: выходит на поле в начале раунда и действует в нём же. */
+export interface Wave {
+  round: number;
+  specs: UnitSpec[];
+}
+
+export interface BattleSetup {
+  objective?: Objective;
+  waves?: Wave[];
+}
+
 export type BattleEvent =
   | { t: 'spawn'; unit: string; name: string; side: Side; pos: Pos; maxHp: number }
   | { t: 'round'; n: number }
@@ -192,17 +215,54 @@ function rollDamage(base: number, rng: Rng): number {
   return Math.max(1, Math.round(expectedDamage(base) * (0.85 + 0.3 * rng())));
 }
 
-function winnerOf(units: readonly Fighter[]): Side | undefined {
-  const partyAlive = units.some((u) => u.alive && u.side === 'party');
-  const foeAlive = units.some((u) => u.alive && u.side === 'foe');
-  if (partyAlive && foeAlive) return undefined;
-  return partyAlive ? 'party' : 'foe';
+/** Ближайшая к want свободная небитая клетка: фиксированный обход колец, без rng. */
+function freeSpawnNear(want: Pos, units: readonly Fighter[], blocked: (p: Pos) => boolean): Pos {
+  const free = (p: Pos): boolean =>
+    inBounds(p) && !blocked(p) && !units.some((u) => u.alive && posEq(u.pos, p));
+  for (let ring = 0; ring < 18; ring++) {
+    for (let dy = -ring; dy <= ring; dy++) {
+      for (let dx = -ring; dx <= ring; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        const p = { x: want.x + dx, y: want.y + dy };
+        if (free(p)) return p;
+      }
+    }
+  }
+  return { ...want }; // поле целиком занято — невозможно на 18×18
 }
 
 /** Детерминированный бой: тот же seed + те же принципы = тот же лог событий. */
-export function runBattle(seed: number, specs: readonly UnitSpec[], arena: ArenaTag = 'late'): BattleResult {
+export function runBattle(
+  seed: number,
+  specs: readonly UnitSpec[],
+  arena: ArenaTag = 'late',
+  setup: BattleSetup = {},
+): BattleResult {
   const rng = mulberry32(seed);
   const units = placeUnits(specs, rng);
+  const objective: Objective = setup.objective ?? { kind: 'eliminate' };
+  const waves = setup.waves ?? [];
+  // цель kill-задачи помечается тегом quarry: слабый фоновый инстинкт в
+  // скоринге тянет к ней без слов (рамка плана objectives)
+  const quarryId =
+    objective.kind === 'killTarget' || objective.kind === 'killBefore' ? objective.targetId : undefined;
+  const tagQuarry = (u: Fighter): void => {
+    if (u.id === quarryId && !u.tags.includes('quarry')) u.tags.push('quarry');
+  };
+  for (const u of units) tagQuarry(u);
+
+  // конец боя: смерть цели kill-задачи решает мгновенно; сторона без живых
+  // тел не проиграла, пока её волны ещё в пути
+  const checkEnd = (round: number): Side | undefined => {
+    if (!units.some((u) => u.alive && u.side === 'party')) return 'foe';
+    if (quarryId) {
+      const quarry = units.find((u) => u.id === quarryId);
+      if (quarry && !quarry.alive) return 'party';
+    }
+    const wavesPending = waves.some((w) => w.round > round);
+    if (units.some((u) => u.alive && u.side === 'foe') || wavesPending) return undefined;
+    return 'party';
+  };
   // рабочая копия схемы; камни, совпавшие с чьей-то точкой спавна, убираем
   // (кастомные спавны тестов/сценариев)
   const layout = pickTerrain(seed, arena);
@@ -238,6 +298,26 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     rounds = round;
     events.push({ t: 'round', n: round });
+    // волны подкреплений: выходят в начале раунда и действуют в нём же;
+    // занятая или каменная клетка — ближайшая свободная по кольцам
+    for (const wave of waves) {
+      if (wave.round !== round) continue;
+      for (const [i, spec] of wave.specs.entries()) {
+        const want = spec.spawn ?? FOE_SPAWN_SLOTS[i % FOE_SPAWN_SLOTS.length]!;
+        const f = makeFighter(spec, freeSpawnNear(want, units, blocked));
+        tagQuarry(f);
+        units.push(f);
+        events.push({ t: 'spawn', unit: f.id, name: f.name, side: f.side, pos: { ...f.pos }, maxHp: f.maxHp });
+      }
+    }
+    // дедлайн kill-задачи: цель дожила до раунда round — дочитала своё
+    if (objective.kind === 'killBefore' && round >= objective.round) {
+      const quarry = units.find((u) => u.id === objective.targetId);
+      if (quarry?.alive) {
+        events.push({ t: 'end', winner: 'foe', rounds: round });
+        return { winner: 'foe', rounds: round, events, units, terrain };
+      }
+    }
     const order = units
       .filter((u) => u.alive)
       .sort((a, b) => b.speed - a.speed || (a.id < b.id ? -1 : 1));
@@ -259,7 +339,7 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           ...(pulsesLeft > 0 ? { holds: true as const } : {}),
         });
         applyAoe(unit, unit.aoe?.ritual?.mult ?? 1, aoeVictims(at, units, AOE_RITUAL_RADIUS));
-        const w = winnerOf(units);
+        const w = checkEnd(round);
         if (w) {
           events.push({ t: 'end', winner: w, rounds: round });
           return { winner: w, rounds: round, events, units, terrain };
@@ -565,12 +645,18 @@ export function runBattle(seed: number, specs: readonly UnitSpec[], arena: Arena
           over = true; // пас завершает ход: тратить остаток очков не на что
         }
 
-        const w = winnerOf(units);
+        const w = checkEnd(round);
         if (w) {
           events.push({ t: 'end', winner: w, rounds: round });
           return { winner: w, rounds: round, events, units, terrain };
         }
       }
+    }
+
+    // задача «выстоять»: партия дожила до конца раунда rounds — победа
+    if (objective.kind === 'survive' && round >= objective.rounds) {
+      events.push({ t: 'end', winner: 'party', rounds: round });
+      return { winner: 'party', rounds: round, events, units, terrain };
     }
   }
 
