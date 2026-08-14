@@ -43,8 +43,9 @@ import {
   startRun,
 } from '../run.js';
 import { foeIntel } from '../foes.js';
+import { DEBUG_BATTLES, type DebugSetup, MAX_DEBUG_PARTY, debugBattleById, debugBrief, debugRun } from '../debug.js';
 import { scenarioForNode } from '../objectives.js';
-import { heroArchetype } from '../heroes.js';
+import { HERO_POOL, heroArchetype } from '../heroes.js';
 import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../playtest.js';
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU, applyLens } from '../lens.js';
@@ -66,7 +67,7 @@ const importedBuild = urlBuild ? importBuild(urlBuild) : undefined;
 if (importedBuild && !importedBuild.ok) {
   alert(`Строка билда не прочитана: ${importedBuild.error}. Начат обычный забег.`);
 }
-const run: RunState =
+let run: RunState =
   importedBuild?.ok === true ? importedBuild.state : startRun(Number.isFinite(urlSeed) ? urlSeed : 1);
 
 // ---------- состояние UI ----------
@@ -97,6 +98,15 @@ let lessonNudge = false;
 /** Герой, выбранный для перестановки на мини-поле расстановки. */
 let deployPick: string | null = null;
 let fitScale = 1;
+/** Панель отладки: сборка конкретного боя. */
+let debugOpen = false;
+let debugError = '';
+/** Черновик сборки; пустой слот — архетип ''. */
+const debugDraft: { battle: string; seed: number; party: { archetypeId: string; lenses: LensId[] }[] } = {
+  battle: DEBUG_BATTLES[0]!.id,
+  seed: 1,
+  party: [],
+};
 
 // ---------- журнал плейтеста (Ворота B/C) ----------
 // Копит замыслы словами (корпус Ворот C) и поведение тестера (спарринг,
@@ -276,7 +286,7 @@ function applyPhrases(heroId: string, drafts: PhraseDraft[]): ReturnType<typeof 
 
 // ---------- тексты ----------
 
-const NUM = ['i.', 'ii.', 'iii.', 'iv.'];
+const NUM = ['i.', 'ii.', 'iii.', 'iv.', 'v.', 'vi.'];
 
 const NODE_GLYPH: Record<NodeKind, string> = {
   lesson: 'α',
@@ -1279,6 +1289,7 @@ function mapScreenHtml(): string {
         <span>узел ${run.at + 1} из ${run.map.length}</span>
         <span class="spacer"></span>
         <button class="linkish" data-action="toggle-debug">${debugLenses ? 'debug: скрыть характеры' : 'debug'}</button>
+        <button class="linkish" data-action="open-debug" title="отладка: любой сценарий, партия и характеры">собрать бой</button>
         ${freeVocabBtnHtml()}
         <button class="linkish" data-action="export-journal">журнал плейтеста</button>
         <span>${
@@ -1690,6 +1701,120 @@ function editorHtml(): string {
   </div>`;
 }
 
+// ---------- оверлей: отладка ----------
+
+/**
+ * Панель отладки: собрать конкретный бой руками — сценарий каталога, состав
+ * партии, характеры. Собранное — обычный забег из одного узла (debugRun),
+ * поэтому дальше работают все экраны: расстановка, приказы, бой, разбор.
+ * Та же сборка играется headless в тестах и `pnpm sim debug`.
+ */
+function debugPanelHtml(): string {
+  const battle = debugBattleById(debugDraft.battle);
+  const brief = debugBrief(debugDraft.battle);
+  const battleOpts = DEBUG_BATTLES.map(
+    (b) => `<option value="${b.id}" ${b.id === debugDraft.battle ? 'selected' : ''}>${esc(b.label)}</option>`,
+  ).join('');
+  const slots = Array.from({ length: MAX_DEBUG_PARTY }, (_, i) => {
+    const cur = debugDraft.party[i] ?? { archetypeId: '', lenses: [] };
+    const heroOpts = [
+      `<option value="" ${cur.archetypeId ? '' : 'selected'}>— пусто —</option>`,
+      ...HERO_POOL.map(
+        (h) => `<option value="${h.id}" ${h.id === cur.archetypeId ? 'selected' : ''}>${esc(h.name)} — ${esc(h.class)}</option>`,
+      ),
+    ].join('');
+    const chips = (Object.keys(LENS_RU) as LensId[])
+      .map(
+        (l) => `<button class="lens-chip ${cur.lenses.includes(l) ? 'on' : ''}"
+          data-action="debug-lens" data-slot="${i}" data-lens="${l}">${esc(LENS_RU[l])}</button>`,
+      )
+      .join('');
+    return `<div class="dbg-slot">
+      <select class="dbg-hero" data-slot="${i}">${heroOpts}</select>
+      <div class="dbg-lenses">${cur.archetypeId ? chips : '<span class="kicker">слот пуст</span>'}</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="overlay">
+    <div class="modal debug-panel">
+      <div class="head">
+        <span class="title">Отладка: собрать бой</span>
+        <span class="meta">любой сценарий × любая партия × любые характеры</span>
+      </div>
+      <div class="dbg-row">
+        <label>бой <select class="dbg-battle">${battleOpts}</select></label>
+        <label>сид <input class="dbg-seed" type="number" min="1" step="1" value="${debugDraft.seed}"></label>
+        <span class="spacer"></span>
+        <span class="kicker">${esc(battle.note)}</span>
+      </div>
+      ${brief ? `<div class="dbg-brief">Задача: ${esc(brief)}</div>` : ''}
+      <div class="dbg-slots">${slots}</div>
+      ${debugError ? `<div class="error">${esc(debugError)}</div>` : ''}
+      <div class="foot-row">
+        <button data-action="close-debug">закрыть</button>
+        <span class="kicker">характеры и весь словарь открываются сами</span>
+        <span class="spacer"></span>
+        <button class="primary" data-action="debug-build">собрать бой</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/** Открыть панель, подставив текущую партию как черновик. */
+function openDebugPanel(): void {
+  if (debugDraft.party.length === 0) {
+    debugDraft.party = run.heroes
+      .slice(0, MAX_DEBUG_PARTY)
+      .map((h) => ({ archetypeId: h.archetypeId, lenses: [...h.lenses] }));
+    debugDraft.seed = run.runSeed;
+  }
+  debugError = '';
+  debugOpen = true;
+  playing = false;
+  stopTimer();
+}
+
+/** Заменить забег собранным боем и сбросить состояние экранов. */
+function debugBuild(): void {
+  const setup: DebugSetup = {
+    battle: debugDraft.battle,
+    seed: debugDraft.seed,
+    party: debugDraft.party.filter((h) => h.archetypeId),
+  };
+  let state: RunState;
+  try {
+    state = debugRun(setup);
+  } catch (e) {
+    debugError = (e as Error).message;
+    return;
+  }
+  run = state;
+  battle = null;
+  frames = [];
+  frameIdx = 0;
+  playing = false;
+  stopTimer();
+  battleReveals = [];
+  editorOpen = false;
+  aftermathOpen = false;
+  logOpen = false;
+  unitCardId = null;
+  ordersDirty = false;
+  editError = {};
+  lessonNudge = false;
+  deployPick = null;
+  fightsAtNode = 0;
+  rewroteSinceBattle = false;
+  editHero = run.heroes[0]!.id;
+  visited.clear();
+  visited.add(run.at);
+  // отладка смотрит на всё: характеры видны, словарь открыт целиком
+  debugLenses = true;
+  unlockAllWords();
+  debugOpen = false;
+  debugError = '';
+}
+
 // ---------- оверлей: исход боя ----------
 
 function aftermathHtml(): string {
@@ -1864,6 +1989,7 @@ function runEndHtml(): string {
       <div class="btn-row" style="margin-top:4px">
         <button data-action="export-build">${won ? 'вот мой билд, побей мой сид' : 'экспорт билда'}</button>
         <button data-action="export-journal">журнал плейтеста</button>
+        <button data-action="open-debug">собрать бой</button>
         <span class="spacer"></span>
         <button class="primary" data-action="new-run">новый забег (seed ${run.runSeed + 1})</button>
       </div>
@@ -1889,17 +2015,19 @@ function render(): void {
       ? scriptoriumHtml()
       : mapScreenHtml();
   const cardHtml = unitCardId ? unitCardHtml(unitCardId) : '';
-  const overlay = editorOpen
-    ? editorHtml()
-    : battle && logOpen
-      ? battleLogHtml()
-      : cardHtml
-        ? cardHtml
-        : battle && aftermathOpen
-          ? aftermathHtml()
-          : !battle && run.status !== 'ongoing'
-            ? runEndHtml()
-            : '';
+  const overlay = debugOpen
+    ? debugPanelHtml()
+    : editorOpen
+      ? editorHtml()
+      : battle && logOpen
+        ? battleLogHtml()
+        : cardHtml
+          ? cardHtml
+          : battle && aftermathOpen
+            ? aftermathHtml()
+            : !battle && run.status !== 'ongoing'
+              ? runEndHtml()
+              : '';
   app.innerHTML = `<div class="stage">
     <div class="book" style="transform:${bookTransform()}">${screen}${overlay}</div>
   </div>`;
@@ -1940,6 +2068,27 @@ function draftsFromEditor(heroId: string): PhraseDraft[] {
 }
 
 function bind(): void {
+  for (const sel of app.querySelectorAll<HTMLSelectElement>('select.dbg-battle')) {
+    sel.addEventListener('change', () => {
+      debugDraft.battle = sel.value;
+      render();
+    });
+  }
+  for (const sel of app.querySelectorAll<HTMLSelectElement>('select.dbg-hero')) {
+    sel.addEventListener('change', () => {
+      const i = Number(sel.dataset.slot);
+      debugDraft.party[i] = { archetypeId: sel.value, lenses: sel.value ? (debugDraft.party[i]?.lenses ?? []) : [] };
+      debugError = '';
+      render();
+    });
+  }
+  for (const inp of app.querySelectorAll<HTMLInputElement>('input.dbg-seed')) {
+    inp.addEventListener('change', () => {
+      const v = Number(inp.value);
+      debugDraft.seed = Number.isFinite(v) && v > 0 ? Math.floor(v) : 1;
+      render();
+    });
+  }
   for (const sel of app.querySelectorAll<HTMLSelectElement>('select[data-hero]')) {
     sel.addEventListener('change', () => {
       const heroId = sel.dataset.hero!;
@@ -2100,6 +2249,29 @@ function bind(): void {
           break;
         case 'toggle-debug':
           debugLenses = !debugLenses;
+          render();
+          break;
+        case 'open-debug':
+          openDebugPanel();
+          render();
+          break;
+        case 'close-debug':
+          debugOpen = false;
+          render();
+          break;
+        case 'debug-lens': {
+          const slot = debugDraft.party[Number(el.dataset.slot)];
+          const lens = el.dataset.lens as LensId;
+          if (slot) {
+            slot.lenses = slot.lenses.includes(lens)
+              ? slot.lenses.filter((l) => l !== lens)
+              : [...slot.lenses, lens];
+          }
+          render();
+          break;
+        }
+        case 'debug-build':
+          debugBuild();
           render();
           break;
         case 'free-vocab':

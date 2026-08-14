@@ -6,11 +6,17 @@ import { describeDraft } from './constructor.js';
 import { type CompileRequest, anthropicModelCall, compileFreeText, type ModelCall } from './compiler/compile.js';
 import { fileCache } from './compiler/cache-node.js';
 import { balanceSweep, kiteRewrite } from './balance.js';
+import { DEBUG_BATTLES, type DebugSetup, debugBattleById, debugBrief, debugRun } from './debug.js';
+import { HERO_POOL } from './heroes.js';
+import { LENS_RU } from './lens.js';
+import type { LensId } from './types.js';
 import { printAudit, wordsAudit } from './words-audit.js';
 import { fingerprint } from './metrics.js';
 import {
+  type RunState,
   advance,
   chooseInEvent,
+  foeSpecs,
   chooseInScriptorium,
   claimReward,
   currentNode,
@@ -147,18 +153,9 @@ function fmtPos(p: { x: number; y: number }): string {
   return `(${p.x},${p.y})`;
 }
 
-function verboseRun(setName: string, seed: number): void {
-  const set = [...makeIrSets(), makeRushVariant()].find((s) => s.name === setName);
-  if (!set) {
-    console.error(`Неизвестный набор: ${setName}`);
-    return;
-  }
-  const specs = [...set.party, ...makeFoes()];
-  const names = new Map(specs.map((s) => [s.id, s.name]));
+/** Печать боя событие за событием — общая для `run` и `debug`. */
+function printBattleLog(r: BattleResult, names: Map<string, string>): void {
   const nm = (id: string): string => names.get(id) ?? id;
-  const r = runBattle(seed, specs);
-  console.log(`${set.desc} | seed=${seed}`);
-  console.log(`Арена: ${r.terrain.name} — ${r.terrain.scenario}\n`);
   for (const e of r.events) {
     switch (e.t) {
       case 'round':
@@ -232,6 +229,82 @@ function verboseRun(setName: string, seed: number): void {
         break;
     }
   }
+}
+
+function verboseRun(setName: string, seed: number): void {
+  const set = [...makeIrSets(), makeRushVariant()].find((s) => s.name === setName);
+  if (!set) {
+    console.error(`Неизвестный набор: ${setName}`);
+    return;
+  }
+  const specs = [...set.party, ...makeFoes()];
+  const r = runBattle(seed, specs);
+  console.log(`${set.desc} | seed=${seed}`);
+  console.log(`Арена: ${r.terrain.name} — ${r.terrain.scenario}\n`);
+  printBattleLog(r, new Map(specs.map((u) => [u.id, u.name])));
+}
+
+/**
+ * Отладочный бой: конкретный сценарий каталога × заданная партия × заданные
+ * характеры. Собирает тот же RunState, что и debug-панель UI, и печатает бой
+ * событие за событием.
+ */
+function debugCmd(args: string[]): void {
+  const opt = (name: string): string | undefined =>
+    args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+
+  const battleId = opt('battle');
+  if (!battleId) {
+    console.log('Бои каталога:');
+    for (const b of DEBUG_BATTLES) console.log(`  ${b.id.padEnd(12)} ${b.label} — ${b.note}`);
+    console.log(`\nГерои: ${HERO_POOL.map((h) => `${h.id} (${h.name}, ${h.class})`).join(', ')}`);
+    console.log(`Характеры: ${Object.entries(LENS_RU).map(([id, ru]) => `${id} (${ru})`).join(', ')}`);
+    console.log('\nПример: pnpm sim debug --battle=behead --party=grom,dart,lia --lenses=grom:coward,fanatic --seed=7');
+    return;
+  }
+
+  // --lenses=grom:coward,fanatic;dart:plain — характеры по герою, точка с запятой между героями
+  const lensesBy = new Map<string, string[]>();
+  for (const chunk of (opt('lenses') ?? '').split(';').filter(Boolean)) {
+    const [hero, list = ''] = chunk.split(':');
+    lensesBy.set(hero!, list.split(',').filter(Boolean));
+  }
+  const seed = Number(opt('seed') ?? 1);
+  if (!Number.isFinite(seed)) {
+    console.error(`Сид — число, а не «${opt('seed')}»`);
+    process.exitCode = 1;
+    return;
+  }
+  const setup: DebugSetup = {
+    battle: battleId,
+    seed,
+    party: (opt('party') ?? 'grom,dart,lia').split(',').filter(Boolean).map((id) => ({
+      archetypeId: id,
+      lenses: (lensesBy.get(id) ?? ['plain']) as LensId[],
+    })),
+  };
+
+  let state: RunState;
+  try {
+    state = debugRun(setup);
+  } catch (e) {
+    console.error((e as Error).message);
+    process.exitCode = 1;
+    return;
+  }
+  const battle = debugBattleById(setup.battle);
+  console.log(`${battle.label} — ${battle.note} | seed=${seed}`);
+  const brief = debugBrief(setup.battle);
+  if (brief) console.log(`Задача: ${brief}`);
+  for (const h of state.heroes) {
+    console.log(`  ${h.name}: [${h.lenses.map((l) => LENS_RU[l]).join(', ') || 'без характера'}] — ${h.phrases.map((d) => describeDraft(d)).join('; ')}`);
+  }
+  console.log(`  против: ${foeSpecs(state).map((f) => f.name).join(', ')}`);
+
+  const r = playFight(state);
+  console.log(`Арена: ${r.terrain.name} — ${r.terrain.scenario}\n`);
+  // имена берём из спавнов: так в лог попадают и волны подкреплений
+  printBattleLog(r, new Map(r.events.flatMap((e) => (e.t === 'spawn' ? [[e.unit, e.name] as const] : []))));
 }
 
 /** Демо забега: дефолтные принципы, урок при поражении переигрывается с фокусом. */
@@ -490,6 +563,8 @@ if (cmd === 'gateA') {
   const setName = args[0] ?? 'rush';
   const seed = Number(args[1] ?? 1);
   verboseRun(setName, seed);
+} else if (cmd === 'debug') {
+  debugCmd(args);
 } else if (cmd === 'demo-run') {
   demoRun(Number(args[0] ?? 1));
 } else if (cmd === 'balance') {
@@ -508,6 +583,6 @@ if (cmd === 'gateA') {
   await corpusCmd(args.filter((a) => a.endsWith('.txt')), 'grom');
 } else {
   console.log(
-    'Использование: pnpm sim [gateA | run <набор> <seed> | demo-run <seed> | balance [N] | words-audit [сиды] [json] | compile "<текст>" [герой] | corpus [файлы…]]',
+    'Использование: pnpm sim [gateA | run <набор> <seed> | debug [--battle=… --party=… --lenses=… --seed=…] | demo-run <seed> | balance [N] | words-audit [сиды] [json] | compile "<текст>" [герой] | corpus [файлы…]]',
   );
 }

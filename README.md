@@ -10,6 +10,8 @@ pnpm test          # юнит-тесты (включая критерии Вор
 pnpm sim gateA     # статистика: 5 наборов IR × 50 сидов + тест дивергенции
 pnpm sim run rush 1  # подробный лог одного боя (набор, seed)
 pnpm sim demo-run 1  # забег целиком по карте: карточки, бои, события, босс
+pnpm sim debug       # каталог боёв отладки, героев и характеров
+pnpm sim debug --battle=ritual --party=skala,iva,vesta --lenses='skala:coward,fanatic' --seed=4  # конкретный бой
 pnpm sim balance 1000  # автобаланс: бот играет N забегов, кривая сложности по слоям
 pnpm dev             # веб-UI: играбельный забег (http://localhost:5173, ?seed=N или ?build=ps1.…)
 pnpm build           # статическая сборка в dist/ (демо для itch.io)
