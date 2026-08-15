@@ -40,7 +40,11 @@ export type SimpleConditionDraft =
   | { id: 'cond.lull' }
   | { id: 'cond.onHighGround' }
   | { id: 'cond.cornered' }
-  | { id: 'cond.inFormation' };
+  | { id: 'cond.inFormation' }
+  | { id: 'cond.inZone' }
+  | { id: 'cond.enemyInZone' }
+  | { id: 'cond.timeShort' }
+  | { id: 'cond.prizeHeld' };
 
 /**
  * Условие фразы: простое — или один комбинатор (глубокие чипсы): «и» (and,
@@ -69,7 +73,8 @@ export type SelectorDraft =
   | 'sel.straggler'
   | 'sel.tormentor'
   | 'sel.heckler'
-  | 'sel.unengaged';
+  | 'sel.unengaged'
+  | 'sel.intruder';
 
 export type PreferenceDraft =
   | { id: 'act.attack'; target: SelectorDraft }
@@ -115,7 +120,10 @@ export type PreferenceDraft =
   | { id: 'act.mark' }
   | { id: 'space.fallback' }
   | { id: 'space.clearLine' }
-  | { id: 'act.pin' };
+  | { id: 'act.pin' }
+  | { id: 'space.holdLine' }
+  | { id: 'act.evacuate' }
+  | { id: 'act.carry' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -145,6 +153,7 @@ const SELECTOR_MAP: Record<SelectorDraft, Selector> = {
   'sel.tormentor': 'tormentor',
   'sel.heckler': 'heckler',
   'sel.unengaged': 'unengaged',
+  'sel.intruder': 'intruder',
 };
 
 /** Слово-роль за ссылкой на своего; имя героя слова не стоит. */
@@ -156,6 +165,8 @@ export const ROLE_CONCEPT: Record<AllyRole, ConceptId> = {
   nearest: 'sel.allyNearest',
   caster: 'sel.allyCaster',
   healer: 'sel.allyHealer',
+  ward: 'sel.allyWard',
+  carrier: 'sel.allyCarrier',
 };
 
 const allyConcepts = (ref: AllyRef): ConceptId[] =>
@@ -267,6 +278,14 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
       return 'если меня прижали: ';
     case 'cond.inFormation':
       return 'пока строй сомкнут: ';
+    case 'cond.inZone':
+      return 'пока я на рубеже: ';
+    case 'cond.enemyInZone':
+      return 'если враг на рубеже: ';
+    case 'cond.timeShort':
+      return 'если время на исходе: ';
+    case 'cond.prizeHeld':
+      return 'пока трофей у наших: ';
     case 'and':
       return c.conds.map((s) => condText(s, nm)).join('');
     case 'or':
@@ -293,6 +312,12 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       ? 'не застить своим стрелкам'
       : p.id === 'act.pin'
       ? 'связывать врагов боем'
+      : p.id === 'space.holdLine'
+      ? 'держать рубеж'
+      : p.id === 'act.evacuate'
+      ? 'уходить к выходу'
+      : p.id === 'act.carry'
+      ? 'нести трофей'
       : p.id === 'act.lure'
       ? `уводить врагов от ${allyText(p.ally, nm)}`
       : p.id === 'act.screen'
@@ -442,6 +467,14 @@ function compileCondition(c: ConditionDraft): Condition {
       return { kind: 'cornered' };
     case 'cond.inFormation':
       return { kind: 'inFormation' };
+    case 'cond.inZone':
+      return { kind: 'inZone' };
+    case 'cond.enemyInZone':
+      return { kind: 'enemyInZone' };
+    case 'cond.timeShort':
+      return { kind: 'timeShort' };
+    case 'cond.prizeHeld':
+      return { kind: 'prizeHeld' };
     case 'and':
       return { kind: 'and', conds: c.conds.map((s) => compileCondition(s)) };
     case 'or':
@@ -475,6 +508,12 @@ export function compilePhrase(
       ? { kind: 'clearLine' }
       : p.id === 'act.pin'
       ? { kind: 'pin' }
+      : p.id === 'space.holdLine'
+      ? { kind: 'holdLine' }
+      : p.id === 'act.evacuate'
+      ? { kind: 'evacuate' }
+      : p.id === 'act.carry'
+      ? { kind: 'carry' }
       : p.id === 'act.lure'
       ? { kind: 'lure', ally: p.ally }
       : p.id === 'act.screen'

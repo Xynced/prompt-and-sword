@@ -81,6 +81,10 @@ export function fingerprint(result: BattleResult): Fingerprint {
       case 'die':
         alive.delete(e.unit);
         break;
+      case 'flee':
+        // ушёл с поля (задача прорыва): в дистанциях больше не участвует
+        alive.delete(e.unit);
+        break;
       default:
         break;
     }

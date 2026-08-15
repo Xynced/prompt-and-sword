@@ -1,4 +1,4 @@
-import type { Pos } from './types.js';
+import type { Pos, Zone } from './types.js';
 
 export const GRID_W = 18;
 export const GRID_H = 18;
@@ -18,6 +18,26 @@ export function posEq(a: Pos, b: Pos): boolean {
 
 export function posKey(p: Pos): string {
   return `${p.x},${p.y}`;
+}
+
+/** Клетка внутри зоны задачи (план objectives, волна 2). */
+export function posInZone(p: Pos, z: Zone): boolean {
+  return p.x >= z.x1 && p.x <= z.x2 && p.y >= z.y1 && p.y <= z.y2;
+}
+
+/** Чебышёв-дистанция до зоны; 0 — внутри. */
+export function zoneDist(p: Pos, z: Zone): number {
+  const dx = p.x < z.x1 ? z.x1 - p.x : p.x > z.x2 ? p.x - z.x2 : 0;
+  const dy = p.y < z.y1 ? z.y1 - p.y : p.y > z.y2 ? p.y - z.y2 : 0;
+  return Math.max(dx, dy);
+}
+
+/** Ближайшая к p клетка зоны — якорь путевой тяги «к зоне». */
+export function zoneAnchor(p: Pos, z: Zone): Pos {
+  return {
+    x: Math.min(Math.max(p.x, z.x1), z.x2),
+    y: Math.min(Math.max(p.y, z.y1), z.y2),
+  };
 }
 
 /** Клетки строго между a и b (Брезенхэм, концы не включаются). */

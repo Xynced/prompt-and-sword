@@ -1,5 +1,5 @@
-import type { CombatUnit, LensId, Pos } from './types.js';
-import { GRID_H, GRID_W, dist } from './grid.js';
+import type { CombatUnit, LensId, Pos, Zone } from './types.js';
+import { GRID_H, GRID_W, dist, posInZone, zoneDist } from './grid.js';
 
 /**
  * IR — промежуточное представление принципов. 12 концептов MVP:
@@ -102,6 +102,23 @@ import { GRID_H, GRID_W, dist } from './grid.js';
  *              вплотную никто из наших, кроме меня; пара к act.pin)
  *   Условиям рельефа нужен вид на землю — опциональный GroundView в
  *   evalCondition; не передан — условия рельефа молчат (нет арены — нет слова)
+ * План objectives, волна 2 — слова задач боя (зоны, подопечные, трофей):
+ *   Ссылки:    роли ward (подопечный задачи — юнит с тегом ward: обоз, чтец,
+ *              старейшина) и carrier (наш носильщик — кто несёт трофей, тег
+ *              carrier); обе дают защитным связкам якорь, переживающий смену
+ *              сценария
+ *   Условия:   inZone (я на рубеже — стою в зоне задачи), enemyInZone (враг
+ *              на рубеже), timeShort (время на исходе — до дедлайна задачи
+ *              ≤ TIME_SHORT_LEFT раундов), prizeHeld (трофей у наших — кто-то
+ *              из своих несёт ношу). Зону и дедлайн читают из GroundView —
+ *              без задачи слова молчат, как рельефные без арены
+ *   Селекторы: intruder (прорывающийся — враг в зоне задачи или ближайший к
+ *              ней: контра обороны рубежа и перехват гонца), ward — внутренний
+ *              селектор врагов «бить подопечного» (слова игрока не имеет:
+ *              подопечный — своя сторона)
+ *   Действия:  holdLine (держать рубеж — стоять в зоне задачи), evacuate
+ *              (уходить к выходу — пробиваться в зону задачи), carry (нести
+ *              трофей — поднять ношу и доставить в зону)
  * Вложенность (глубокие чипсы): and — конъюнкция условий («если А: если Б —
  *   делай X» → одно правило с when = and[А, Б]), or — дизъюнкция («если А
  *   или Б»). «Или» одним правилом — не то же, что две фразы: при обоих
@@ -124,7 +141,9 @@ export type Selector =
   | 'straggler'
   | 'tormentor'
   | 'heckler'
-  | 'unengaged';
+  | 'unengaged'
+  | 'intruder'
+  | 'ward';
 
 /**
  * Роль своего вместо имени (план teamwork, вторая волна): принцип переживает
@@ -139,7 +158,9 @@ export type AllyRole =
   | 'taunter'
   | 'nearest'
   | 'caster'
-  | 'healer';
+  | 'healer'
+  | 'ward'
+  | 'carrier';
 
 /** Ссылка на своего: имя героя (как было) или роль. */
 export type AllyRef = string | { role: AllyRole };
@@ -157,7 +178,12 @@ export const ALLY_ROLE_RU: Record<AllyRole, { nom: string; gen: string; ins: str
   nearest: { nom: 'ближайший свой', gen: 'ближайшего своего', ins: 'ближайшим своим' },
   caster: { nom: 'наш заклинатель', gen: 'нашего заклинателя', ins: 'нашим заклинателем' },
   healer: { nom: 'наш лекарь', gen: 'нашего лекаря', ins: 'нашим лекарем' },
+  ward: { nom: 'подопечный задачи', gen: 'подопечного задачи', ins: 'подопечным задачи' },
+  carrier: { nom: 'наш носильщик', gen: 'нашего носильщика', ins: 'нашим носильщиком' },
 };
+
+/** «Время на исходе»: осталось не больше стольких раундов до дедлайна задачи. */
+export const TIME_SHORT_LEFT = 2;
 
 /** С какого раунда бой считается затянувшимся. */
 export const BATTLE_DRAGS_ROUND = 5;
@@ -226,6 +252,15 @@ export type Condition =
   | { kind: 'cornered' }
   /** Строй сомкнут: каждый из наших со смежным своим (зеркало spreadThin). */
   | { kind: 'inFormation' }
+  // план objectives, волна 2 — условия задач боя (зона и дедлайн из GroundView)
+  /** Я на рубеже: стою в зоне задачи; без зоны молчит. */
+  | { kind: 'inZone' }
+  /** Враг на рубеже: хотя бы один живой враг в зоне задачи. */
+  | { kind: 'enemyInZone' }
+  /** Время на исходе: до дедлайна задачи ≤ TIME_SHORT_LEFT раундов; без таймера молчит. */
+  | { kind: 'timeShort' }
+  /** Трофей у наших: кто-то из своих (включая меня) несёт ношу (тег carrier). */
+  | { kind: 'prizeHeld' }
   /**
    * Конъюнкция — глубокие чипсы: «если А: если Б — …». Из черновиков внутри
    * только простые условия и «или»; вложенные группы конструктор расплющивает сам.
@@ -306,7 +341,14 @@ export type Preference =
   /** Не застить своим: не вставать на линию выстрела своих стрелков. */
   | { kind: 'clearLine' }
   /** Связывать боем: держать контакт с врагом, которого не держит никто из своих. */
-  | { kind: 'pin' };
+  | { kind: 'pin' }
+  // план objectives, волна 2: слова задач боя
+  /** Держать рубеж: стоять в зоне задачи и не отдавать её. */
+  | { kind: 'holdLine' }
+  /** Уходить к выходу: пробиваться в зону задачи — бой не главное. */
+  | { kind: 'evacuate' }
+  /** Нести трофей: поднять ношу задачи и доставить её в зону. */
+  | { kind: 'carry' };
 
 /**
  * Структурная пометка линзы: что характер сделал с правилом (план линз).
@@ -388,6 +430,12 @@ export function resolveAlly(
       return best(mates.filter((a) => a.aoe !== undefined), (u) => dist(u.pos, self.pos));
     case 'healer':
       return best(mates.filter((a) => a.active?.heal), (u) => dist(u.pos, self.pos));
+    case 'ward':
+      // подопечный задачи: обоз, чтец, старейшина — тег вешает бой из задачи
+      return best(mates.filter((a) => a.tags?.includes('ward')), (u) => dist(u.pos, self.pos));
+    case 'carrier':
+      // носильщик трофея: тег живёт от поднятия до смерти или доставки
+      return best(mates.filter((a) => a.tags?.includes('carrier')), (u) => dist(u.pos, self.pos));
   }
 }
 
@@ -399,6 +447,10 @@ export function resolveAlly(
 export interface GroundView {
   heightAt: (p: Pos) => number;
   blocked: (p: Pos) => boolean;
+  /** Зона задачи боя (план objectives, волна 2); нет задачи с зоной — зонные слова молчат. */
+  zone?: Zone;
+  /** Раунд-дедлайн задачи (ритуал, рассвет, рубеж); нет таймера — «время на исходе» молчит. */
+  deadline?: number;
 }
 
 export function evalCondition(
@@ -543,6 +595,18 @@ export function evalCondition(
       if (own.length < 2) return false;
       return own.every((u) => own.some((o) => o.id !== u.id && dist(o.pos, u.pos) <= 1));
     }
+    case 'inZone':
+      return !!ground?.zone && posInZone(self.pos, ground.zone);
+    case 'enemyInZone': {
+      const z = ground?.zone;
+      return !!z && enemiesOf(self, units).some((e) => posInZone(e.pos, z));
+    }
+    case 'timeShort':
+      // осталось ≤ TIME_SHORT_LEFT раундов до дедлайна задачи; без таймера молчит
+      return ground?.deadline !== undefined && ground.deadline - round <= TIME_SHORT_LEFT;
+    case 'prizeHeld':
+      // «у наших» — включая меня: условие про судьбу ноши, а не про чужие руки
+      return alliesOf(self, units).some((a) => a.tags?.includes('carrier'));
     case 'and':
       return cond.conds.every((c) => evalCondition(c, self, units, round, ground));
     case 'or':
@@ -550,11 +614,16 @@ export function evalCondition(
   }
 }
 
-/** Разрешение селектора по врагам. Детерминированный тайбрейк по id. */
+/**
+ * Разрешение селектора по врагам. Детерминированный тайбрейк по id.
+ * `ground` нужен только зонным селекторам (intruder) — без него они падают в
+ * «ближайшего», как все контр-селекторы без своей цели.
+ */
 export function resolveSelector(
   sel: Selector,
   self: CombatUnit,
   units: readonly CombatUnit[],
+  ground?: GroundView,
 ): CombatUnit | undefined {
   const enemies = enemiesOf(self, units);
   if (enemies.length === 0) return undefined;
@@ -654,6 +723,23 @@ export function resolveSelector(
       const free = enemies.filter((e) => !mates.some((a) => dist(a.pos, e.pos) === 1));
       if (free.length === 0) return pick((u) => dist(u.pos, self.pos));
       return free.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
+    case 'intruder': {
+      // прорывающийся: враг в зоне задачи, а нет таких — ближайший к ней
+      // (тайбрейк — кто ближе ко мне); без зоны — просто ближайший
+      const z = ground?.zone;
+      if (!z) return pick((u) => dist(u.pos, self.pos));
+      return pick((u) => zoneDist(u.pos, z) * 1000 + dist(u.pos, self.pos));
+    }
+    case 'ward': {
+      // внутренний селектор врагов сценария: бить подопечного задачи
+      const wards = enemies.filter((u) => u.tags.includes('ward'));
+      if (wards.length === 0) return pick((u) => dist(u.pos, self.pos));
+      return wards.reduce((best, u) => {
         const s = dist(u.pos, self.pos);
         const bs = dist(best.pos, self.pos);
         return s < bs || (s === bs && u.id < best.id) ? u : best;
@@ -764,5 +850,11 @@ export function describePreference(p: Preference): string {
       return 'не застить своим';
     case 'pin':
       return 'связывать боем';
+    case 'holdLine':
+      return 'держать рубеж';
+    case 'evacuate':
+      return 'уходить к выходу';
+    case 'carry':
+      return 'нести трофей';
   }
 }

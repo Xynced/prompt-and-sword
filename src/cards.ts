@@ -30,6 +30,8 @@ const SEL_RU: Record<string, string> = {
   tormentor: 'обидчика наших',
   heckler: 'вражеского крикуна',
   unengaged: 'свободного врага',
+  intruder: 'прорывающегося к рубежу',
+  ward: 'подопечного задачи',
 };
 
 /** Ссылка на своего в нужном падеже: имя героя не склоняем, роль — по таблице. */
@@ -111,6 +113,14 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если меня прижали и деваться некуда — ';
     case 'inFormation':
       return 'пока мы стоим строем, плечом к плечу — ';
+    case 'inZone':
+      return 'пока я стою на рубеже задачи — ';
+    case 'enemyInZone':
+      return 'если враг ворвался на рубеж — ';
+    case 'timeShort':
+      return 'если время задачи на исходе — ';
+    case 'prizeHeld':
+      return 'пока трофей на руках у наших — ';
     case 'and':
       // вложенность читается сцепкой «если … — если … — »
       return c.conds.map((s) => condRu(s, nm)).join('');
@@ -210,6 +220,12 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'своим не защу: не встаю на линию выстрела наших стрелков — пусть бьют мимо меня';
     case 'pin':
       return 'связываю боем: держу контакт с врагом, которого больше никто из наших не держит';
+    case 'holdLine':
+      return 'держу рубеж: встаю в зону задачи и не отдаю её';
+    case 'evacuate':
+      return 'ухожу к выходу: пробиваюсь в зону задачи — бой не главное';
+    case 'carry':
+      return 'несу трофей: поднимаю ношу и тащу её к выходу';
   }
 }
 

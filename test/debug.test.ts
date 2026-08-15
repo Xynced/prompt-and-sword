@@ -48,7 +48,14 @@ describe('каталог боёв', () => {
     );
     expect(compositions.size).toBe(DEBUG_BATTLES.length);
     const scenarios = DEBUG_BATTLES.map((b) => scenarioForNode(b.node)?.id).filter(Boolean);
-    expect(new Set(scenarios)).toEqual(new Set(['behead', 'camp', 'ritual', 'waves']));
+    expect(new Set(scenarios)).toEqual(
+      new Set([
+        'behead', 'camp', 'ritual', 'waves',
+        // волна 2 плана objectives — виртуальные узлы каталога
+        'redoubt', 'convoy', 'vigil', 'dawn', 'sabotage',
+        'breakout', 'rearguard', 'escort', 'relic', 'chase',
+      ]),
+    );
   });
 
   it('задача сценария видна до боя, у обычного узла её нет', () => {

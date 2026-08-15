@@ -45,6 +45,18 @@ export const DEBUG_BATTLES: readonly DebugBattle[] = [
   { id: 'ritual', label: 'Сорвать ритуал', note: 'сценарий: дедлайн вместо ничьей на измор', node: { kind: 'elite', layer: 5, slot: 0 } },
   { id: 'troll', label: 'Таймер-тролль', note: 'зарастает быстрее вялого урона', node: { kind: 'elite', layer: 5, slot: 1 } },
   { id: 'boss', label: 'Босс', note: 'вождь орды, шаман и охотник', node: { kind: 'boss', layer: 7, slot: 0 } },
+  // волна 2 плана objectives — виртуальные узлы (слои 2/4 боёв не порождают):
+  // сценарии живут здесь и в тестах, раскладка по забегу — следующий шаг плана
+  { id: 'redoubt', label: 'Оборона рубежа', note: 'сценарий: волны рвутся в зону у своего края', node: { kind: 'fight', layer: 2, slot: 0 } },
+  { id: 'convoy', label: 'Защита обоза', note: 'сценарий: волки рвут неподвижный обоз', node: { kind: 'fight', layer: 2, slot: 1 } },
+  { id: 'vigil', label: 'Свой ритуал', note: 'сценарий: чтец занят — сберечь до конца чтения', node: { kind: 'fight', layer: 2, slot: 2 } },
+  { id: 'dawn', label: 'До рассвета', note: 'сценарий: выстоять против волн до таймера', node: { kind: 'fight', layer: 2, slot: 3 } },
+  { id: 'sabotage', label: 'Диверсия', note: 'сценарий: разбить тотем за строем охраны', node: { kind: 'fight', layer: 2, slot: 4 } },
+  { id: 'breakout', label: 'Прорыв', note: 'сценарий: увести двоих за дальний край сквозь заслон', node: { kind: 'fight', layer: 4, slot: 0 } },
+  { id: 'rearguard', label: 'Отход с боем', note: 'сценарий: из полукольца к своему краю', node: { kind: 'fight', layer: 4, slot: 1 } },
+  { id: 'escort', label: 'Эскорт', note: 'сценарий: старейшина сам бредёт к перевалу', node: { kind: 'fight', layer: 4, slot: 2 } },
+  { id: 'relic', label: 'Трофей', note: 'сценарий: поднять реликвию и унести за свой край', node: { kind: 'fight', layer: 4, slot: 3 } },
+  { id: 'chase', label: 'Погоня', note: 'сценарий: перехватить гонца до кромки поля', node: { kind: 'fight', layer: 4, slot: 4 } },
 ];
 
 /** Герой отладочной партии: архетип, характер и (необязательно) свои приказы. */

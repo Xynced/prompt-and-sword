@@ -42,6 +42,7 @@ const SELECTORS: SelectorDraft[] = [
   'sel.tormentor',
   'sel.heckler',
   'sel.unengaged',
+  'sel.intruder',
 ];
 
 /** Условия и предпочтения без параметров: одна ветка схемы и валидации на всех. */
@@ -75,6 +76,10 @@ const PARAMLESS_CONDITIONS = [
   'cond.onHighGround',
   'cond.cornered',
   'cond.inFormation',
+  'cond.inZone',
+  'cond.enemyInZone',
+  'cond.timeShort',
+  'cond.prizeHeld',
 ] as const;
 const PARAMLESS_PREFERENCES = [
   'act.holdPosition',
@@ -113,6 +118,9 @@ const PARAMLESS_PREFERENCES = [
   'space.fallback',
   'space.clearLine',
   'act.pin',
+  'space.holdLine',
+  'act.evacuate',
+  'act.carry',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */

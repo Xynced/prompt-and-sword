@@ -119,7 +119,18 @@ export type ConceptId =
   | 'cond.cornered'
   | 'cond.inFormation'
   | 'sel.heckler'
-  | 'sel.unengaged';
+  | 'sel.unengaged'
+  // план objectives, волна 2 — слова задач боя: зоны, подопечные, трофей
+  | 'cond.inZone'
+  | 'cond.enemyInZone'
+  | 'cond.timeShort'
+  | 'cond.prizeHeld'
+  | 'sel.intruder'
+  | 'sel.allyWard'
+  | 'sel.allyCarrier'
+  | 'space.holdLine'
+  | 'act.evacuate'
+  | 'act.carry';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -229,6 +240,16 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'cond.inFormation': { id: 'cond.inFormation', label: 'строй сомкнут', category: 'condition' },
   'sel.heckler': { id: 'sel.heckler', label: 'вражеский крикун', category: 'selector' },
   'sel.unengaged': { id: 'sel.unengaged', label: 'свободный враг', category: 'selector' },
+  'cond.inZone': { id: 'cond.inZone', label: 'я на рубеже', category: 'condition' },
+  'cond.enemyInZone': { id: 'cond.enemyInZone', label: 'враг на рубеже', category: 'condition' },
+  'cond.timeShort': { id: 'cond.timeShort', label: 'время на исходе', category: 'condition' },
+  'cond.prizeHeld': { id: 'cond.prizeHeld', label: 'трофей у наших', category: 'condition' },
+  'sel.intruder': { id: 'sel.intruder', label: 'прорывающийся', category: 'selector' },
+  'sel.allyWard': { id: 'sel.allyWard', label: 'подопечный задачи', category: 'selector' },
+  'sel.allyCarrier': { id: 'sel.allyCarrier', label: 'наш носильщик', category: 'selector' },
+  'space.holdLine': { id: 'space.holdLine', label: 'держать рубеж', category: 'space' },
+  'act.evacuate': { id: 'act.evacuate', label: 'уходить к выходу', category: 'action' },
+  'act.carry': { id: 'act.carry', label: 'нести трофей', category: 'action' },
 };
 
 /**
@@ -399,6 +420,18 @@ export const COMMON_WORDS: ConceptId[] = [
   // распыления (−4/−4пп, пик +7 расстрел, худший −20 дуэль): воюет с
   // фокус-метой — слово для боёв, где врагов больше, чем наших
   'sel.unengaged',
+  // план objectives, волна 2 — слова задач боя. Вне сценарных узлов зона и
+  // таймер отсутствуют, слова молчат (паттерн «держать высоту» на плоской
+  // арене) — в пул кладём базовый пласт, аудитом не мерено:
+  // условия зоны — гейты обороны рубежа и прорыва
+  'cond.inZone',
+  'cond.enemyInZone',
+  // роль подопечного задачи: защитные связки («прикрывай подопечного»)
+  // переезжают между обозом, чтецом и старейшиной без переписывания
+  'sel.allyWard',
+  // позиционные слова задач: стоять в зоне / пробиваться в неё
+  'space.holdLine',
+  'act.evacuate',
 ];
 
 /**
@@ -506,6 +539,19 @@ export const RARE_WORDS: ConceptId[] = [
   // Искомая ниша «бить отчаянно» пока не подтвердилась (+0, пик +3):
   // прижатому выгоднее закрыться, чем разменяться
   'cond.cornered',
+  // план objectives, волна 2 — редкий пласт слов задач (события и механика
+  // целиком, аудитом не мерено):
+  // «время на исходе» — слово-событие таймерных задач: смена плана на
+  // последних раундах (ритуал, рассвет, рубеж)
+  'cond.timeShort',
+  // трофейная пара: «нести трофей» — гейт механики целиком (без слова ношу
+  // поднимают только инстинктом носильщика), условие — гейт охранных связок
+  'act.carry',
+  'cond.prizeHeld',
+  'sel.allyCarrier',
+  // контр-селектор зонных задач: снять того, кто рвётся к рубежу/выходу —
+  // оборона рубежа и перехват гонца (образец sel.healer: есть бой, где решает)
+  'sel.intruder',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */

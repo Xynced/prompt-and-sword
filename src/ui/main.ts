@@ -509,6 +509,10 @@ function conditionOptions(): Opt<ConditionDraft>[] {
   if (has('cond.onHighGround')) out.push({ value: { id: 'cond.onHighGround' }, label: 'пока я на высоте' });
   if (has('cond.cornered')) out.push({ value: { id: 'cond.cornered' }, label: 'если меня прижали' });
   if (has('cond.inFormation')) out.push({ value: { id: 'cond.inFormation' }, label: 'пока строй сомкнут' });
+  if (has('cond.inZone')) out.push({ value: { id: 'cond.inZone' }, label: 'пока я на рубеже' });
+  if (has('cond.enemyInZone')) out.push({ value: { id: 'cond.enemyInZone' }, label: 'если враг на рубеже' });
+  if (has('cond.timeShort')) out.push({ value: { id: 'cond.timeShort' }, label: 'если время на исходе' });
+  if (has('cond.prizeHeld')) out.push({ value: { id: 'cond.prizeHeld' }, label: 'пока трофей у наших' });
   return out;
 }
 
@@ -544,6 +548,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
       'sel.tormentor',
       'sel.heckler',
       'sel.unengaged',
+      'sel.intruder',
     ] as const
   ).filter(has);
   const selRu: Record<string, string> = {
@@ -563,6 +568,7 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
     'sel.tormentor': 'обидчика наших',
     'sel.heckler': 'вражеского крикуна',
     'sel.unengaged': 'свободного врага',
+    'sel.intruder': 'прорывающегося',
   };
   if (has('act.attack')) {
     for (const s of selectors) out.push({ value: { id: 'act.attack', target: s }, label: `атаковать ${selRu[s]}` });
@@ -593,6 +599,9 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.fallback')) out.push({ value: { id: 'space.fallback' }, label: 'отходить за спины своих' });
   if (has('space.clearLine')) out.push({ value: { id: 'space.clearLine' }, label: 'не застить своим стрелкам' });
   if (has('act.pin')) out.push({ value: { id: 'act.pin' }, label: 'связывать врагов боем' });
+  if (has('space.holdLine')) out.push({ value: { id: 'space.holdLine' }, label: 'держать рубеж' });
+  if (has('act.evacuate')) out.push({ value: { id: 'act.evacuate' }, label: 'уходить к выходу' });
+  if (has('act.carry')) out.push({ value: { id: 'act.carry' }, label: 'нести трофей' });
   if (has('act.holdPosition')) out.push({ value: { id: 'act.holdPosition' }, label: 'держать позицию' });
   if (has('act.wait')) out.push({ value: { id: 'act.wait' }, label: 'ждать' });
   if (has('act.retreat')) out.push({ value: { id: 'act.retreat' }, label: 'отступать' });
@@ -952,6 +961,21 @@ function buildFrames(
         float(e.unit, '✝', 'info');
         break;
       }
+      // задачи боя (план objectives, волна 2): уход с поля и судьба трофея
+      case 'flee': {
+        units.get(e.unit)!.alive = false;
+        pending?.parts.push(`${nm(e.unit)} уходит с поля`);
+        float(e.unit, 'ушёл', 'info');
+        break;
+      }
+      case 'pickup':
+        pending?.parts.push(`${nm(e.unit)} поднимает трофей`);
+        float(e.unit, 'трофей!', 'buff');
+        break;
+      case 'drop':
+        pending?.parts.push(`${nm(e.unit)} роняет трофей`);
+        float(e.unit, 'ноша пала', 'info');
+        break;
       case 'rage':
         pending?.parts.push('впадает в ярость');
         float(e.unit, 'ярость!', 'buff');
@@ -1079,8 +1103,10 @@ function startBattle(): void {
   // foeSpecs — с применённой меткой: бой на экране и бой в забеге (playFight) — один бой
   const foes = foeSpecs(run);
   const leaderIds = new Set(foes.filter((f) => f.tags?.includes('leader')).map((f) => f.id));
-  const specs = [...heroSpecs(run), ...foes];
-  battle = runBattle(battleSeed(run), specs, arenaForNode(node), scenarioForNode(node)?.setup);
+  const scenario = scenarioForNode(node);
+  // NPC сценария (обоз, чтец, старейшина) — тем же порядком, что в playFight
+  const specs = [...heroSpecs(run), ...(scenario?.allies?.() ?? []), ...foes];
+  battle = runBattle(battleSeed(run), specs, arenaForNode(node), scenario?.setup);
   recordEvent({
     t: 'battle',
     node: node.kind,
