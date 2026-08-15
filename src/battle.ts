@@ -1,10 +1,35 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
-import { AP_PER_TURN, COVER, FULL_COVER, HAZARD_DMG, RIPOSTE_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
+import {
+  AP_PER_TURN,
+  ATTACK_MULT,
+  BASIC_SAVE_MULT,
+  COVER,
+  FULL_COVER,
+  HAZARD_DMG,
+  RIPOSTE_DMG,
+  SAVE_DC,
+  SELFLESS_VULN_MULT,
+  applyDefenses,
+  d20,
+  degreeOf,
+  expectedDamage,
+} from './tuning.js';
 import { applyLens } from './lens.js';
 import { type Rule, evalCondition, resolveAlly } from './ir.js';
 import { dist, hasLoS, inBounds, isFlanking, posEq, posInZone } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
-import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, Pos, Side, WeaponSpec, Zone } from './types.js';
+import type {
+  ActiveSpec,
+  AoeSpec,
+  DamageType,
+  Defenses,
+  LensId,
+  PassiveSpec,
+  Pos,
+  Side,
+  WeaponSpec,
+  Zone,
+} from './types.js';
 import {
   type ActionKind,
   type Decision,
@@ -15,8 +40,13 @@ import {
   blastReady,
   candApCost,
   candMove,
+  acOf,
+  attackBonusOf,
   castVictims,
+  dmgTypeOf,
   gangBonus,
+  saveKindFor,
+  saveOf,
   stepBackDest,
   twinVictim,
   ritualReady,
@@ -72,6 +102,8 @@ export interface UnitSpec {
   active?: ActiveSpec;
   /** Классовые пассивы (план классов); всегда включены, слов не требуют. */
   passives?: PassiveSpec;
+  /** Защиты по типам урона (план damage-types): сопротивления, слабости, иммунитеты. */
+  defenses?: Defenses;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
   /** Неодушевлённый объект задачи (обоз, тотем): хода не получает, телом блокирует клетку. */
@@ -127,6 +159,12 @@ export interface BattleSetup {
   nerve?: number;
 }
 
+/** Чем кончилась встреча урона с защитами цели (план damage-types). */
+export type DamageSoak = 'resist' | 'weak' | 'immune';
+
+/** Исход броска атаки, если он был не рядовым попаданием (план damage-types). */
+export type AttackOutcome = 'miss' | 'crit';
+
 export type BattleEvent =
   | { t: 'spawn'; unit: string; name: string; side: Side; pos: Pos; maxHp: number }
   | { t: 'round'; n: number }
@@ -164,7 +202,17 @@ export type BattleEvent =
   | { t: 'intercept'; unit: string; target: string }
   /** Рипост: ближний удар по глухой обороне ранит бьющего (`unit`); by — оборонявшийся. */
   | { t: 'riposte'; unit: string; by: string; dmg: number; hp: number }
-  | { t: 'aoeHit'; unit: string; by: string; dmg: number; hp: number }
+  | {
+      t: 'aoeHit';
+      unit: string;
+      by: string;
+      dmg: number;
+      hp: number;
+      dmgType?: DamageType;
+      soak?: DamageSoak;
+      /** Спасбросок жертвы: увернулась начисто, вполовину или поймала вдвое. */
+      save?: 'critSuccess' | 'success' | 'fail' | 'critFail';
+    }
   /** Замах ритуала: зона 5×5 у `at` объявлена, ударит в начале следующего хода кастера. */
   | { t: 'telegraph'; unit: string; at: Pos; dmg: number }
   | {
@@ -177,6 +225,12 @@ export type BattleEvent =
       targetHp: number;
       /** Имя приёма — только у оружия с китом (план weapon-moves). */
       move?: string;
+      /** Тип урона удара (план damage-types); у безликого оружия отсутствует. */
+      dmgType?: DamageType;
+      /** Защиты цели вмешались: съела броня, добавила слабость, обнулил иммунитет. */
+      soak?: DamageSoak;
+      /** Бросок против КБ решил иначе: мимо или вдвое (план damage-types). */
+      outcome?: AttackOutcome;
     }
   | { t: 'cover'; unit: string; level: number; ally?: string }
   | { t: 'wait'; unit: string }
@@ -229,6 +283,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     aoe: spec.aoe ?? weapons?.find((w) => w.aoe)?.aoe,
     active: spec.active,
     passives: spec.passives,
+    ...(spec.defenses ? { defenses: spec.defenses } : {}),
     ...(spec.inert ? { inert: true as const } : {}),
     compiled: applyLens(spec.lenses, spec.rules),
   };
@@ -263,8 +318,16 @@ export function spawnPreview(seed: number, specs: readonly UnitSpec[]): { id: st
   return assignSpawns(specs, rng).map((pos, i) => ({ id: specs[i]!.id, pos: { ...pos } }));
 }
 
-function rollDamage(base: number, rng: Rng): number {
-  return Math.max(1, Math.round(expectedDamage(base) * (0.85 + 0.3 * rng())));
+/**
+ * Урон дошедшего удара. Без собственного разброса: весь разброс боя живёт на
+ * броске атаки (план damage-types). Прежний джиттер ±15% после бросков стал
+ * вторым источником шума и ломал слова о выборе цели — «добивай раненых»
+ * против волчьей стаи проигрывал наиву, потому что «слабейший» скакал от
+ * дрожи урона; с одним источником разброса слово снова окупается (замер — в
+ * журнале плана).
+ */
+function strikeDamage(base: number): number {
+  return Math.max(1, Math.round(expectedDamage(base)));
 }
 
 /** Ближайшая к want свободная небитая клетка: фиксированный обход колец, без rng. */
@@ -411,12 +474,36 @@ export function runBattle(
 
   // общий урон площадного каста: фиксированный, по всем жертвам (friendly
   // fire), с событием aoeHit и смертями; порядок жертв — порядок в units
-  const applyAoe = (caster: Fighter, mult: number, victims: readonly Fighter[]): void => {
+  const applyAoe = (
+    caster: Fighter,
+    mult: number,
+    victims: readonly Fighter[],
+    round: number,
+    form: 'blast' | 'line' | 'ritual',
+    dmgType?: DamageType,
+  ): void => {
     for (const v of victims) {
-      const dmg = aoeDamage(caster, mult, v, units);
+      // базовый спасбросок pf2e (план damage-types): яд — Стойкостью, разум —
+      // Волей, прочее — Реакцией; крит-успех спасает начисто, крит-провал
+      // ловит вдвое. Здесь и кончилась «безрисковость» площадных: жертва
+      // получает свой бросок, но зона по-прежнему бьёт всех
+      const natural = d20(seed, v.id, round, 0, `save:${form}:${caster.id}`);
+      const save = saveOf(v, saveKindFor(dmgType));
+      const degree = degreeOf(natural, natural + save, SAVE_DC);
+      const dmg = aoeDamage(caster, mult, v, units, dmgType, BASIC_SAVE_MULT[degree]);
+      const soak = applyDefenses(1, dmgType, v.defenses).soak;
       v.hp = Math.max(0, v.hp - dmg);
       v.lastAttackerId = caster.id;
-      events.push({ t: 'aoeHit', unit: v.id, by: caster.id, dmg, hp: v.hp });
+      events.push({
+        t: 'aoeHit',
+        unit: v.id,
+        by: caster.id,
+        dmg,
+        hp: v.hp,
+        ...(dmgType ? { dmgType } : {}),
+        ...(soak ? { soak } : {}),
+        save: degree,
+      });
       if (v.hp === 0) {
         v.alive = false;
         events.push({ t: 'die', unit: v.id });
@@ -470,7 +557,14 @@ export function runBattle(
           t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at },
           ...(pulsesLeft > 0 ? { holds: true as const } : {}),
         });
-        applyAoe(unit, unit.aoe?.ritual?.mult ?? 1, aoeVictims(at, units, AOE_RITUAL_RADIUS));
+        applyAoe(
+          unit,
+          unit.aoe?.ritual?.mult ?? 1,
+          aoeVictims(at, units, AOE_RITUAL_RADIUS),
+          round,
+          'ritual',
+          unit.aoe?.ritual?.dmgType,
+        );
         const w = checkEnd(round);
         if (w) {
           events.push({ t: 'end', winner: w, rounds: round });
@@ -527,6 +621,10 @@ export function runBattle(
 
       while (ap > 0 && !over && unit.alive) {
         const decision = decide(unit, units, round, blocked, ap, ctx);
+        // очки хода на момент решения — часть ключа броска (план damage-types)
+        // и разброса нерва: обе механики говорят об одном и том же моменте
+        // хода, а `ap` ниже уже списан ценой действия
+        const apAt = ap;
         // стойки манер (план words): держатся до следующего решения юнита —
         // приманка сохраняет прикрытие и на чужих ходах
         unit.stance = decision.stance;
@@ -612,86 +710,143 @@ export function runBattle(
               mRange === 1 && isFlanking(unit.pos, target.pos, allyPositions, targetAllyPositions);
             // фланговый множитель: у плута «в спину» — свой, острее общего
             const flankMult = flank ? unit.passives?.sneak?.flankMult ?? 1.5 : 1;
-            const raw = rollDamage(
-              weapon.dmg *
-                rageDmgMult(unit) *
-                blessMult(unit) *
-                shadowMult(unit, unit.pos, units, blocked) *
-                retributionMult(unit, target, units) *
-                (stanceAttackMult(move, unit.stance) + gangBonus(move, unit, target, units)) *
-                flankMult,
-              rng,
-            );
-            // каменное укрытие цели не складывается с прикрытием — берётся максимум;
-            // пирс приёма или стойки «наверняка» режет митигацию (сильнейший)
-            const mitigation = stanceMitigation(
-              Math.max(effectiveCover(target, units), ctx.coverFrom(unit.pos, target.pos)),
-              move,
-              unit.stance,
-            );
-            const dmg = Math.max(
-              1,
-              Math.round(
-                raw *
-                  (1 - mitigation) *
-                  (target.exposed ? SELFLESS_VULN_MULT : 1) *
-                  rageVulnMult(target),
-              ) + heightDmgBonus(unit, heightAt(unit.pos), mRange),
-            );
-            target.hp = Math.max(0, target.hp - dmg);
-            target.lastAttackerId = unit.id;
-            events.push({
-              t: 'attack',
-              unit: unit.id,
-              action,
-              target: target.id,
-              dmg,
-              flank,
-              targetHp: target.hp,
-              ...(weapon.moves ? { move: move.name } : {}),
-            });
-            if (target.hp === 0) {
-              target.alive = false;
-              events.push({ t: 'die', unit: target.id });
-            } else if (
-              (unit.passives?.markOnHit || unit.stance?.mark) &&
-              !target.tags.includes('marked')
-            ) {
-              // охотник — пассивкой, носитель слова «метить цель» — стойкой
-              // (третья волна teamwork): метит добычу самим ударом; одна метка
-              // на стороне цели, прежняя снимается — стая идёт за метящим
-              for (const u of units) {
-                if (u.side === target.side) u.tags = u.tags.filter((t) => t !== 'marked');
+            // бросок атаки (план damage-types): d20 + бонус оружия против КБ
+            // цели, четыре степени успеха pf2e. Крит удваивает урон ДО защит
+            // (порядок pf2e: удвоение → иммунитет → слабость → сопротивление),
+            // провал — промах: ни урона, ни райдеров, ни метки
+            const dmgType = dmgTypeOf(weapon, move);
+            const natural = d20(seed, unit.id, round, apAt, `atk:${target.id}:${move.id}`);
+            const degree = degreeOf(natural, natural + attackBonusOf(weapon), acOf(target));
+            const swing = ATTACK_MULT[degree];
+            if (swing === 0) {
+              events.push({
+                t: 'attack',
+                unit: unit.id,
+                action,
+                target: target.id,
+                dmg: 0,
+                flank,
+                targetHp: target.hp,
+                ...(weapon.moves ? { move: move.name } : {}),
+                ...(dmgType ? { dmgType } : {}),
+                outcome: 'miss',
+              });
+            } else {
+              const raw = strikeDamage(
+                weapon.dmg *
+                  rageDmgMult(unit) *
+                  blessMult(unit) *
+                  shadowMult(unit, unit.pos, units, blocked) *
+                  retributionMult(unit, target, units) *
+                  (stanceAttackMult(move, unit.stance) + gangBonus(move, unit, target, units)) *
+                  flankMult *
+                  swing,
+              );
+              // каменное укрытие цели не складывается с прикрытием — берётся максимум;
+              // пирс приёма или стойки «наверняка» режет митигацию (сильнейший)
+              const mitigation = stanceMitigation(
+                Math.max(effectiveCover(target, units), ctx.coverFrom(unit.pos, target.pos)),
+                move,
+                unit.stance,
+              );
+              // защиты цели по типу урона: иммунный получает ноль, поэтому
+              // общий пол «минимум 1» стоит ДО защит, а не после
+              const bite = applyDefenses(
+                Math.max(
+                  1,
+                  Math.round(
+                    raw *
+                      (1 - mitigation) *
+                      (target.exposed ? SELFLESS_VULN_MULT : 1) *
+                      rageVulnMult(target),
+                  ) + heightDmgBonus(unit, heightAt(unit.pos), mRange),
+                ),
+                dmgType,
+                target.defenses,
+              );
+              const dmg = bite.dmg;
+              target.hp = Math.max(0, target.hp - dmg);
+              target.lastAttackerId = unit.id;
+              events.push({
+                t: 'attack',
+                unit: unit.id,
+                action,
+                target: target.id,
+                dmg,
+                flank,
+                targetHp: target.hp,
+                ...(weapon.moves ? { move: move.name } : {}),
+                ...(dmgType ? { dmgType } : {}),
+                ...(bite.soak ? { soak: bite.soak } : {}),
+                ...(degree === 'critSuccess' ? { outcome: 'crit' as const } : {}),
+              });
+              if (target.hp === 0) {
+                target.alive = false;
+                events.push({ t: 'die', unit: target.id });
+              } else if (
+                (unit.passives?.markOnHit || unit.stance?.mark) &&
+                !target.tags.includes('marked')
+              ) {
+                // охотник — пассивкой, носитель слова «метить цель» — стойкой
+                // (третья волна teamwork): метит добычу самим ударом; одна метка
+                // на стороне цели, прежняя снимается — стая идёт за метящим
+                for (const u of units) {
+                  if (u.side === target.side) u.tags = u.tags.filter((t) => t !== 'marked');
+                }
+                target.tags.push('marked');
+                events.push({ t: 'mark', unit: unit.id, target: target.id });
               }
-              target.tags.push('marked');
-              events.push({ t: 'mark', unit: unit.id, target: target.id });
             }
             // сдвоенный приём (райдер twin): вторая стрела — в ближайшего
             // другого врага в дальности; перехват телохранителя и метка
             // достаются только основной цели, фланг стрелку не положен
             if (move.twin) {
               const second = twinVictim(unit, unit.pos, target, units, blocked, heightAt(unit.pos), mRange);
-              if (second) {
-                const raw2 = rollDamage(
+              // у второй стрелы свой бросок против своей цели: промах по
+              // одному не отменяет попадания по другому (правило pf2e)
+              const natural2 = second ? d20(seed, unit.id, round, apAt, `atk:${second.id}:${move.id}`) : 0;
+              const degree2 = second
+                ? degreeOf(natural2, natural2 + attackBonusOf(weapon), acOf(second))
+                : 'fail';
+              if (second && ATTACK_MULT[degree2] === 0) {
+                events.push({
+                  t: 'attack',
+                  unit: unit.id,
+                  action,
+                  target: second.id,
+                  dmg: 0,
+                  flank: false,
+                  targetHp: second.hp,
+                  ...(weapon.moves ? { move: move.name } : {}),
+                  ...(dmgType ? { dmgType } : {}),
+                  outcome: 'miss',
+                });
+              } else if (second) {
+                const raw2 = strikeDamage(
                   weapon.dmg *
                     rageDmgMult(unit) *
                     blessMult(unit) *
                     shadowMult(unit, unit.pos, units, blocked) *
                     retributionMult(unit, second, units) *
-                    stanceAttackMult(move, unit.stance),
-                  rng,
+                    stanceAttackMult(move, unit.stance) *
+                    ATTACK_MULT[degree2],
                 );
                 const mit2 = stanceMitigation(
                   Math.max(effectiveCover(second, units), ctx.coverFrom(unit.pos, second.pos)),
                   move,
                   unit.stance,
                 );
-                const dmg2 = Math.max(
-                  1,
-                  Math.round(
-                    raw2 * (1 - mit2) * (second.exposed ? SELFLESS_VULN_MULT : 1) * rageVulnMult(second),
-                  ) + heightDmgBonus(unit, heightAt(unit.pos), mRange),
+                const bite2 = applyDefenses(
+                  Math.max(
+                    1,
+                    Math.round(
+                      raw2 * (1 - mit2) * (second.exposed ? SELFLESS_VULN_MULT : 1) * rageVulnMult(second),
+                    ) + heightDmgBonus(unit, heightAt(unit.pos), mRange),
+                  ),
+                  dmgType,
+                  second.defenses,
                 );
+                const dmg2 = bite2.dmg;
                 second.hp = Math.max(0, second.hp - dmg2);
                 second.lastAttackerId = unit.id;
                 events.push({
@@ -703,6 +858,9 @@ export function runBattle(
                   flank: false,
                   targetHp: second.hp,
                   ...(weapon.moves ? { move: move.name } : {}),
+                  ...(dmgType ? { dmgType } : {}),
+                  ...(bite2.soak ? { soak: bite2.soak } : {}),
+                  ...(degree2 === 'critSuccess' ? { outcome: 'crit' as const } : {}),
                 });
                 if (second.hp === 0) {
                   second.alive = false;
@@ -730,7 +888,7 @@ export function runBattle(
             }
             // толчок приёма («щитом в грудь»): цель сдвигается на 1 от бьющего,
             // некуда — просто урон. После рипоста: сначала ответ, потом отлёт
-            if (move.push && unit.alive && target.alive) {
+            if (move.push && swing > 0 && unit.alive && target.alive) {
               const dest = shoveDest(unit.pos, target.pos);
               if (
                 inBounds(dest) &&
@@ -828,14 +986,14 @@ export function runBattle(
           if (blast && blastReady(unit) && dist(unit.pos, at) <= blast.range && hasLoS(unit.pos, at, blocked)) {
             unit.blastUses = (unit.blastUses ?? 0) + 1;
             events.push({ t: 'aoeCast', unit: unit.id, form: 'blast', at: { ...at } });
-            applyAoe(unit, blast.mult, aoeVictims(at, units));
+            applyAoe(unit, blast.mult, aoeVictims(at, units), round, 'blast', blast.dmgType);
           }
         } else if (action === 'aoeLine' && at) {
           // волна клинка: мгновенная полоса от себя, `at` — клетка-направление
           const line = unit.aoe?.line;
           if (line && dist(unit.pos, at) === 1) {
             events.push({ t: 'aoeCast', unit: unit.id, form: 'line', at: { ...at } });
-            applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked));
+            applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked), round, 'line', line.dmgType);
           }
         } else if (action === 'rage') {
           // вход в ярость: статус до конца боя, второго входа нет по устройству

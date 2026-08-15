@@ -170,7 +170,20 @@ describe('objective: carry (трофей)', () => {
     const specs = [
       // носильщик успевает поднять (громила ещё далеко), но медленный —
       // громила догоняет и убивает уже с ношей
-      dummy('frail', 'party', { rules: [carryRule], maxHp: 6, move: 1, speed: 9, spawn: { x: 8, y: 9 } }),
+      // КБ 5: громила по такой мишени не промахивается — тест про падение
+      // ноши, а не про броски (план damage-types)
+      dummy('frail', 'party', {
+        // приказ нести — с запасом веса: под накатом громилы обычный вес
+        // перебивается самосохранением, а тест здесь про падение ноши
+        rules: [r({ when: { kind: 'always' }, then: { kind: 'carry' }, weight: 3, source: 'нести трофей' })],
+        maxHp: 6,
+        move: 1,
+        speed: 9,
+        spawn: { x: 8, y: 9 },
+        // КБ 5: громила по такой мишени не промахивается — тест про ношу,
+        // а не про броски (план damage-types)
+        defenses: { ac: 5 },
+      }),
       dummy('grom', 'party', { rules: [hold], spawn: { x: 0, y: 0 } }),
       dummy('brute', 'foe', { atk: 30, move: 3, speed: 5, spawn: { x: 16, y: 9 } }),
     ];
@@ -257,6 +270,7 @@ function heroSpec(archId: string, slot: number): UnitSpec {
     weapons: a.weapons,
     active: a.active,
     passives: a.passives,
+    defenses: a.defenses,
     spawn: { ...PARTY_SPAWNS[slot]! },
   };
 }
@@ -508,7 +522,10 @@ describe('смоуки волны 2: наив vs контр', () => {
   it('прорыв: наив вязнет в ограх, решительный увод уходит без потерь', () => {
     const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 0 }, NAIVE);
     const runners = smokeSweep({ kind: 'fight', layer: 4, slot: 0 }, [[evacHard], [evacHard], [evacHard]]);
-    expect(naive.wins).toBeLessThanOrEqual(8);
+    // порог поднят: с бросками (план damage-types) огры промахиваются чаще,
+    // чем били всегда, и наив прорубается силой в двух боях из трёх — но
+    // решительный увод по-прежнему уходит почти без исключений
+    expect(naive.wins).toBeLessThanOrEqual(14);
     expect(runners.wins).toBeGreaterThanOrEqual(18);
     expect(runners.deaths).toBeLessThan(0.5);
   });
@@ -533,10 +550,15 @@ describe('смоуки волны 2: наив vs контр', () => {
   });
 
   it('трофей: доставка крепким носильщиком кончает бой раньше резни', () => {
-    const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, NAIVE);
-    const carryZ = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, [[atkNearest], [atkNearest], [carryRule, atkNearest]]);
-    expect(carryZ.wins).toBeGreaterThanOrEqual(naive.wins);
-    expect(carryZ.rounds).toBeLessThan(naive.rounds - 2);
+    // выборка шире обычной: на 20 сидах запас по раундам не отличим от шума
+    const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, NAIVE, 60);
+    const carryZ = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, [[atkNearest], [atkNearest], [carryRule, atkNearest]], 60);
+    // доставка по-прежнему кончает бой раньше резни, но премиса про победы
+    // сместилась (план damage-types, замер 200 сидов): 144 победы против 158
+    // у наива при 11.08 раунда против 13.74. С бросками часть забегов
+    // «успеть» не успевает — зато носильщик реже платит смертями
+    expect(carryZ.rounds).toBeLessThan(naive.rounds - 1.5);
+    expect(carryZ.deaths).toBeLessThanOrEqual(naive.deaths);
   });
 
   it('погоня: наив рубит волков и упускает гонца; «прорывающийся» перехватывает', () => {

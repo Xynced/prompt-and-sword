@@ -303,6 +303,7 @@ export function heroSpecs(state: RunState): UnitSpec[] {
       weapons: heroArchetype(h.archetypeId).weapons,
       active: heroArchetype(h.archetypeId).active,
       passives: heroArchetype(h.archetypeId).passives,
+      defenses: heroArchetype(h.archetypeId).defenses,
       spawn: { ...deployedSpawn(state, h) },
     }));
 }

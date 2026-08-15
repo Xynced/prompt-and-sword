@@ -30,6 +30,7 @@ function hero(archId: string, slot: number, rules: Rule[]): UnitSpec {
     weapons: a.weapons,
     active: a.active,
     passives: a.passives,
+    defenses: a.defenses,
     spawn: { ...PARTY_SPAWNS[slot]! },
   };
 }
@@ -208,11 +209,14 @@ describe('ближники + лекарь: налётчики и костопр�
   });
 
   it('смоук: перелечка глушит мету добивания — «руби ближайшего» дешевле', () => {
-    const chop = sweep(() => partyWith([]), gang, 'late');
+    // выборка шире обычной: с бросками (план damage-types) разрыв двух
+    // формулировок здесь — единицы процентов, на 20 сидах он тонет
+    const chop = sweep(() => partyWith([]), gang, 'late', 60);
     const pick = sweep(
       () => [hero('grom', 0, [atkWeakest]), hero('lia', 1, [atkWeakest]), hero('zhalo', 2, [atkWeakest])],
       gang,
       'late',
+      60,
     );
     expect(chop.hpFrac).toBeGreaterThan(pick.hpFrac); // добивание вязнет в перелечке
   });
@@ -253,7 +257,10 @@ describe('танк + кастеры: огр и поджигатель', () => {
     }
     // порог сдвинут волной 1 weapon-moves: Гром без рискового темпа не
     // открывается и толкает ближников — партия наива живёт чуть дороже (~0.46)
-    expect(hpNaive / 20).toBeLessThan(0.5); // артиллерия за пробкой — дорогой бой
+    // порог сдвинут профилями защит (план damage-types): у героев появился
+    // КБ, и часть ударов огра с поджигателем проходит мимо — наив платит
+    // ~0.58 вместо прежних ~0.46, премиса «дорогой бой» держится
+    expect(hpNaive / 20).toBeLessThan(0.62); // артиллерия за пробкой — дорогой бой
     expect(hpSpread).toBeGreaterThan(hpNaive); // интервал бережёт
     expect(castsSpread).toBeLessThan(castsNaive); // и обесценивает залпы
   });
@@ -271,16 +278,20 @@ describe('засада: душегуб с волками', () => {
   });
 
   it('смоук: фокус тает засаду, телохранитель у плеча больше не ловушка', () => {
-    const naive = sweep(() => partyWith([]), ambush, 'late');
+    // выборка шире обычной: с бросками атаки (план damage-types) разница
+    // фокуса в 2–3 пп hp на 20 сидах тонет в шуме, на 60 держится
+    const naive = sweep(() => partyWith([]), ambush, 'late', 60);
     const focus = sweep(
       () => [hero('grom', 0, [focusWeak]), hero('lia', 1, [focusWeak]), hero('zhalo', 2, [focusWeak])],
       ambush,
       'late',
+      60,
     );
     const nanny = sweep(
       () => [hero('grom', 0, [atkNearest, protectLia]), hero('lia', 1, [atkNearest]), hero('zhalo', 2, [atkNearest])],
       ambush,
       'late',
+      60,
     );
     expect(focus.hpFrac).toBeGreaterThanOrEqual(naive.hpFrac); // фокус не хуже
     // раньше односторонняя нянька была ловушкой темпа (−0.15+ hp партии):

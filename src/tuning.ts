@@ -1,3 +1,6 @@
+import { situationHash } from './rng.js';
+import type { DamageType, Defenses } from './types.js';
+
 /**
  * Глобальный тюнинг темпа боя. Вынесен отдельно, чтобы battle и scoring
  * (battle импортирует scoring) считали урон одной формулой без цикла импортов.
@@ -7,8 +10,12 @@
  * Множитель урона. Меньше — длиннее бой: условным правилам (hp ниже X,
  * бой затянулся, союзник в опасности) нужно время, чтобы успеть выстрелить.
  * Цель — 10–14 раундов на типовой бой.
+ *
+ * Поднят с 0.6 до 0.75 вместе с бросками атаки (план damage-types): по среднему
+ * КБ удар доходит в 65% случаев и критует в 15%, то есть несёт 0.8 прежнего
+ * урона; 0.75 × 0.8 ≈ 0.6 — темп боя остаётся там, где был.
  */
-export const DMG_SCALE = 0.6;
+export const DMG_SCALE = 0.75;
 
 /** Ожидаемый урон от atk с учётом глобального множителя — для скоринга. */
 export function expectedDamage(atk: number): number {
@@ -192,6 +199,105 @@ export const APPEAL_FLOOR = 0.3;
  */
 export const TAUNT_PULL = 0.55;
 
+/**
+ * Защиты по типу урона (план damage-types). Порядок применения — как в pf2e и
+ * строго в этом порядке: множители (уже сидят в base) → иммунитет → слабость
+ * (+N) → сопротивление (−N).
+ *
+ * Пол здесь 0, а не общий «минимум 1 урона»: иммунитет обязан уметь давать
+ * ноль, иначе он не иммунитет. Урон без типа (untyped pf2e — «голые» юниты
+ * тестов, дефолт-тройка приёмов) не задевают ни слабости, ни сопротивления.
+ *
+ * `soak` — чем именно кончилось дело; идёт в событие боя, чтобы разбор мог
+ * сказать «броня съела», а не молча показать другое число.
+ */
+export function applyDefenses(
+  dmg: number,
+  type: DamageType | undefined,
+  def: Defenses | undefined,
+): { dmg: number; soak?: 'resist' | 'weak' | 'immune' } {
+  if (!type || !def) return { dmg };
+  if (def.immune?.includes(type)) return { dmg: 0, soak: 'immune' };
+  const weak = def.weak?.[type] ?? 0;
+  const resist = def.resist?.[type] ?? 0;
+  if (!weak && !resist) return { dmg };
+  const out = Math.max(0, dmg + weak - resist);
+  return { dmg: out, soak: weak > resist ? 'weak' : 'resist' };
+}
+
+
+/*
+ * Броски и защиты pf2e (план damage-types). Одна механика на все проверки:
+ * d20 + бонус против DC, четыре степени успеха с шагом 10, натуральная 20
+ * поднимает степень, натуральная 1 опускает.
+ */
+
+/** Степень успеха проверки (pf2e). */
+export type Degree = 'critFail' | 'fail' | 'success' | 'critSuccess';
+
+/** КБ по умолчанию — средний доспех; профили врагов задают свой. */
+export const DEFAULT_AC = 16;
+/** Бонус атаки по умолчанию: против среднего КБ — 65% попаданий, 15% критов. */
+export const DEFAULT_ATK_BONUS = 8;
+/** Спасбросок по умолчанию (Стойкость/Реакция/Воля). */
+export const DEFAULT_SAVE = 8;
+/** Сложность спасброска против площадного каста и прочих эффектов. */
+export const SAVE_DC = 18;
+
+/**
+ * Бросок d20 по ключу ситуации, а не из потока rng (тот же приём, что у нерва):
+ * кто бросает, в каком раунде, на каком остатке очков хода и по кому/чему.
+ *
+ * Так бросок принадлежит **моменту боя**, а не порядковому номеру вызова:
+ * партия, где игрок ничего не менял, играется побайтово так же, а в спарринге
+ * «те же кости» неизменившиеся куски боя честно совпадают с прежними — иначе
+ * один лишний удар в начале переписывал бы все броски до конца боя.
+ */
+export function d20(seed: number, unitId: string, round: number, ap: number, label: string): number {
+  return 1 + (situationHash(seed, unitId, round, ap, label) % 20);
+}
+
+/**
+ * Степень успеха: ±10 от DC — крит, натуральная 20/1 двигает на ступень.
+ * `natural` нужен отдельно от `total` именно ради этого правила.
+ */
+export function degreeOf(natural: number, total: number, dc: number): Degree {
+  const base: Degree =
+    total >= dc + 10 ? 'critSuccess'
+    : total >= dc ? 'success'
+    : total <= dc - 10 ? 'critFail'
+    : 'fail';
+  const order: Degree[] = ['critFail', 'fail', 'success', 'critSuccess'];
+  const step = natural === 20 ? 1 : natural === 1 ? -1 : 0;
+  return order[Math.min(3, Math.max(0, order.indexOf(base) + step))]!;
+}
+
+/** Урон удара по степени: крит вдвое, провал — промах. */
+export const ATTACK_MULT: Record<Degree, number> = { critFail: 0, fail: 0, success: 1, critSuccess: 2 };
+
+/** Базовый спасбросок pf2e: крит-успех — ноль, успех — половина, крит-провал — вдвое. */
+export const BASIC_SAVE_MULT: Record<Degree, number> = { critFail: 2, fail: 1, success: 0.5, critSuccess: 0 };
+
+/**
+ * Ожидаемый множитель урона по всем 20 граням — для скоринга: он обязан
+ * оценивать удар так же, как бой его исполнит, иначе выбор цели и оружия
+ * поедет. Перебор, а не формула: степень считает та же `degreeOf`.
+ */
+function expectedMult(bonus: number, dc: number, table: Record<Degree, number>): number {
+  let sum = 0;
+  for (let natural = 1; natural <= 20; natural++) sum += table[degreeOf(natural, natural + bonus, dc)];
+  return sum / 20;
+}
+
+/** Ожидаемая доля урона удара с бонусом bonus по цели с КБ ac (промахи и криты внутри). */
+export function expectedAttackMult(bonus: number, ac: number): number {
+  return expectedMult(bonus, ac, ATTACK_MULT);
+}
+
+/** Ожидаемая доля урона площадного каста по цели со спасброском save. */
+export function expectedSaveMult(save: number, dc: number = SAVE_DC): number {
+  return expectedMult(save, dc, BASIC_SAVE_MULT);
+}
 /*
  * Нерв (план nerve) — режим seeded-разброса весов решения. Все константы
  * работают только при включённом режиме: при `nerve = 0` ни одна из них не

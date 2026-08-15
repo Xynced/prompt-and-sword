@@ -10,6 +10,7 @@
  */
 
 import type { CombatUnit } from './types.js';
+import { situationHash } from './rng.js';
 import { dist } from './grid.js';
 import { NERVE_BLIND, NERVE_CROWD, NERVE_HURT } from './tuning.js';
 
@@ -19,17 +20,6 @@ export interface NerveSpec {
   amp: number;
   /** Сид боя — привязывает разброс к «тем же костям». */
   seed: number;
-}
-
-function mix(h: number, x: number): number {
-  const m = Math.imul(h ^ x, 0x9e3779b1) >>> 0;
-  return (m ^ (m >>> 15)) >>> 0;
-}
-
-function mixStr(h: number, s: string): number {
-  let acc = h;
-  for (let i = 0; i < s.length; i++) acc = mix(acc, s.charCodeAt(i));
-  return mix(acc, s.length);
 }
 
 /**
@@ -44,11 +34,7 @@ export function nerveRoll(
   ap: number,
   label: string,
 ): number {
-  let h = mix(seed >>> 0, 0x6d2b79f5);
-  h = mixStr(h, unitId);
-  h = mix(h, round);
-  h = mix(h, ap);
-  h = mixStr(h, label);
+  const h = situationHash(seed, unitId, round, ap, label);
   const u1 = (h >>> 16) / 65536;
   const u2 = (h & 0xffff) / 65536;
   return u1 + u2 - 1;

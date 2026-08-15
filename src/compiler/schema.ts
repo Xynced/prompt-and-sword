@@ -42,6 +42,8 @@ const SELECTORS: SelectorDraft[] = [
   'sel.tormentor',
   'sel.heckler',
   'sel.unengaged',
+  'sel.vulnerable',
+  'sel.armored',
   'sel.intruder',
 ];
 
@@ -73,6 +75,7 @@ const PARAMLESS_CONDITIONS = [
   'cond.alliesFocusing',
   'cond.spreadThin',
   'cond.lull',
+  'cond.weaponFails',
   'cond.onHighGround',
   'cond.cornered',
   'cond.inFormation',

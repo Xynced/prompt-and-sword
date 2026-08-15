@@ -1,7 +1,14 @@
 import type { Rule } from './ir.js';
 import type { Pos } from './types.js';
 import type { UnitSpec } from './battle.js';
-import { describeActive, describeAoe, describePassives, describeWeapons, ruleRu } from './cards.js';
+import {
+  describeActive,
+  describeAoe,
+  describeDefenses,
+  describePassives,
+  describeWeapons,
+  ruleRu,
+} from './cards.js';
 import { applyLens } from './lens.js';
 
 /** Фабрики врагов. Новый враг = новый набор правил, не новый арт. */
@@ -24,6 +31,7 @@ export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: str
     );
     if (s.weapons?.length) lines.push(`оружие: ${describeWeapons(s.weapons)}`);
     else if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
+    if (s.defenses) lines.push(`защита: ${describeDefenses(s.defenses)}`);
     if (s.active) lines.push(`актив: ${describeActive(s.active)}`);
     if (s.passives) lines.push(`пассив: ${describePassives(s.passives)}`);
     return { name: s.name, lines };
@@ -36,7 +44,8 @@ export function grunt(n: number): UnitSpec {
     name: `Рубака ${n}`,
     side: 'foe',
     maxHp: 36,
-    weapons: [{ name: 'ржавый тесак', dmg: 5, range: 1 }],
+    defenses: { ac: 15, fort: 8, ref: 7, will: 6 },
+    weapons: [{ name: 'ржавый тесак', dmg: 5, range: 1, dmgType: 'slashing', atkBonus: 9 }],
     speed: 4,
     move: 2,
     lenses: ['plain'],
@@ -52,7 +61,8 @@ export function packLeader(): UnitSpec {
     name: 'Вожак',
     side: 'foe',
     maxHp: 56,
-    weapons: [{ name: 'зазубренный топор', dmg: 7, range: 1 }],
+    defenses: { ac: 16, fort: 9, ref: 7, will: 7 },
+    weapons: [{ name: 'зазубренный топор', dmg: 7, range: 1, dmgType: 'slashing' }],
     speed: 5,
     move: 2,
     tags: ['leader'],
@@ -69,7 +79,8 @@ export function archer(n: number): UnitSpec {
     name: `Лучник ${n}`,
     side: 'foe',
     maxHp: 28,
-    weapons: [{ name: 'короткий лук', dmg: 5, range: 4 }],
+    defenses: { ac: 14, fort: 6, ref: 8, will: 6 },
+    weapons: [{ name: 'короткий лук', dmg: 5, range: 4, dmgType: 'piercing', atkBonus: 9 }],
     speed: 5,
     move: 1,
     lenses: ['plain'],
@@ -86,7 +97,8 @@ export function warChief(): UnitSpec {
     name: 'Вождь',
     side: 'foe',
     maxHp: 68,
-    weapons: [{ name: 'топор вождя', dmg: 7, range: 1 }],
+    defenses: { ac: 17, fort: 10, ref: 7, will: 8 },
+    weapons: [{ name: 'топор вождя', dmg: 7, range: 1, dmgType: 'slashing', atkBonus: 9 }],
     speed: 5,
     move: 2,
     tags: ['leader'],
@@ -106,13 +118,17 @@ export function shaman(behindId: string): UnitSpec {
     name: 'Шаман',
     side: 'foe',
     maxHp: 32,
+    defenses: { ac: 14, fort: 6, ref: 7, will: 11 },
     // носитель АОЕ: залп 3×3 — первая причина держать интервал; ритуал 5×5
     // с перезарядкой 3 — телеграфированный, из него выходят или прикрываются
     weapons: [{
       name: 'посох духов',
       dmg: 4,
       range: 4,
-      aoe: { blast: { range: 4, mult: 0.75 }, ritual: { range: 4, mult: 1.2, cooldown: 3 } },
+      aoe: {
+        blast: { range: 4, mult: 0.75, dmgType: 'void' },
+        ritual: { range: 4, mult: 1.2, cooldown: 3, dmgType: 'mental' },
+      },
     }],
     speed: 5,
     move: 1,
@@ -135,7 +151,8 @@ export function berserker(n: number): UnitSpec {
     name: `Берсерк ${n}`,
     side: 'foe',
     maxHp: 44,
-    weapons: [{ name: 'шипастый цеп', dmg: 8, range: 1 }],
+    defenses: { ac: 15, fort: 10, ref: 7, will: 4 },
+    weapons: [{ name: 'шипастый цеп', dmg: 8, range: 1, dmgType: 'bludgeoning', atkBonus: 9 }],
     speed: 6,
     move: 3,
     lenses: ['fanatic'],
@@ -152,7 +169,8 @@ export function hunter(n: number): UnitSpec {
     name: `Охотник ${n}`,
     side: 'foe',
     maxHp: 30,
-    weapons: [{ name: 'костяной лук', dmg: 6, range: 5 }],
+    defenses: { ac: 15, fort: 7, ref: 10, will: 7 },
+    weapons: [{ name: 'костяной лук', dmg: 6, range: 5, dmgType: 'piercing', atkBonus: 9 }],
     speed: 6,
     move: 2,
     lenses: ['plain'],
@@ -194,7 +212,8 @@ export function rat(n: number): UnitSpec {
     name: `Крыса ${n}`,
     side: 'foe',
     maxHp: 10,
-    weapons: [{ name: 'зубы', dmg: 4, range: 1 }],
+    defenses: { ac: 14, fort: 5, ref: 6, will: 3 },
+    weapons: [{ name: 'зубы', dmg: 4, range: 1, dmgType: 'piercing', atkBonus: 9 }],
     speed: 7,
     move: 3,
     // фанатик: голодная стая не знает страха — без линзы хилое тело под
@@ -222,9 +241,10 @@ export function slinger(n: number): UnitSpec {
     name: `Пращник ${n}`,
     side: 'foe',
     maxHp: 16,
+    defenses: { ac: 14, fort: 5, ref: 8, will: 5 },
     weapons: [
-      { name: 'праща', dmg: 5, range: 4 },
-      { name: 'кривой нож', dmg: 3, range: 1 },
+      { name: 'праща', dmg: 5, range: 4, dmgType: 'bludgeoning', atkBonus: 9 },
+      { name: 'кривой нож', dmg: 3, range: 1, dmgType: 'piercing', atkBonus: 9 },
     ],
     speed: 6,
     move: 2,
@@ -251,7 +271,8 @@ export function heckler(): UnitSpec {
     name: 'Задира',
     side: 'foe',
     maxHp: 34,
-    weapons: [{ name: 'ржавый тесак', dmg: 4, range: 1 }],
+    defenses: { ac: 15, fort: 8, ref: 7, will: 9 },
+    weapons: [{ name: 'ржавый тесак', dmg: 4, range: 1, dmgType: 'slashing' }],
     speed: 7,
     move: 3,
     lenses: ['plain'],
@@ -280,9 +301,10 @@ export function soldier(n: number, buddyId: string): UnitSpec {
     name: `Латник ${n}`,
     side: 'foe',
     maxHp: 42,
+    defenses: { ac: 17, fort: 9, ref: 5, will: 7, resist: { slashing: 2 } },
     weapons: [
-      { name: 'меч и щит', dmg: 5, range: 1, affinity: { attack: 1 } },
-      { name: 'метательное копьё', dmg: 4, range: 3 },
+      { name: 'меч и щит', dmg: 5, range: 1, dmgType: 'slashing', atkBonus: 9, affinity: { attack: 1 } },
+      { name: 'метательное копьё', dmg: 4, range: 3, dmgType: 'piercing', atkBonus: 9 },
     ],
     speed: 5,
     move: 2,
@@ -311,7 +333,8 @@ export function sergeant(): UnitSpec {
     name: 'Сержант',
     side: 'foe',
     maxHp: 52,
-    weapons: [{ name: 'палаш', dmg: 7, range: 1 }],
+    defenses: { ac: 17, fort: 10, ref: 5, will: 8, resist: { slashing: 2 } },
+    weapons: [{ name: 'палаш', dmg: 7, range: 1, dmgType: 'slashing', atkBonus: 9 }],
     speed: 5,
     move: 2,
     tags: ['leader'],
@@ -347,7 +370,8 @@ export function wolf(n: number): UnitSpec {
     name: `Волк ${n}`,
     side: 'foe',
     maxHp: 32,
-    weapons: [{ name: 'клыки', dmg: 5, range: 1 }],
+    defenses: { ac: 15, fort: 8, ref: 9, will: 5 },
+    weapons: [{ name: 'клыки', dmg: 5, range: 1, dmgType: 'piercing', atkBonus: 9 }],
     speed: 7,
     move: 3,
     lenses: ['plain'],
@@ -372,9 +396,10 @@ export function raider(n: number): UnitSpec {
     name: `Налётчик ${n}`,
     side: 'foe',
     maxHp: 30,
+    defenses: { ac: 16, fort: 9, ref: 7, will: 6 },
     weapons: [
-      { name: 'костяной лук', dmg: 5, range: 4 },
-      { name: 'щербатый топор', dmg: 6, range: 1 },
+      { name: 'костяной лук', dmg: 5, range: 4, dmgType: 'piercing', atkBonus: 9 },
+      { name: 'щербатый топор', dmg: 6, range: 1, dmgType: 'slashing', atkBonus: 9 },
     ],
     speed: 6,
     move: 3,
@@ -399,7 +424,8 @@ export function bonesetter(behindId: string): UnitSpec {
     name: 'Костоправ',
     side: 'foe',
     maxHp: 30,
-    weapons: [{ name: 'кривой посох', dmg: 4, range: 3 }],
+    defenses: { ac: 14, fort: 7, ref: 7, will: 10 },
+    weapons: [{ name: 'кривой посох', dmg: 4, range: 3, dmgType: 'bludgeoning' }],
     speed: 5,
     move: 2,
     lenses: ['plain'],
@@ -428,7 +454,8 @@ export function ogre(): UnitSpec {
     name: 'Огр',
     side: 'foe',
     maxHp: 90,
-    weapons: [{ name: 'дубина-бревно', dmg: 10, range: 1 }],
+    defenses: { ac: 15, fort: 12, ref: 4, will: 4 },
+    weapons: [{ name: 'дубина-бревно', dmg: 10, range: 1, dmgType: 'bludgeoning', atkBonus: 10 }],
     speed: 2,
     move: 1,
     lenses: ['plain'],
@@ -451,11 +478,12 @@ export function pyro(n: number): UnitSpec {
     name: `Поджигатель ${n}`,
     side: 'foe',
     maxHp: 18,
+    defenses: { ac: 14, fort: 6, ref: 9, will: 6, resist: { fire: 3 } },
     weapons: [{
       name: 'горшки с огнём',
       dmg: 4,
       range: 4,
-      aoe: { blast: { range: 4, mult: 0.7 } },
+      aoe: { blast: { range: 4, mult: 0.7, dmgType: 'fire' } },
     }],
     speed: 6,
     move: 2,
@@ -484,7 +512,8 @@ export function ritualist(behindId: string): UnitSpec {
     name: 'Ритуалист',
     side: 'foe',
     maxHp: 34,
-    weapons: [{ name: 'жертвенный серп', dmg: 4, range: 1 }],
+    defenses: { ac: 14, fort: 6, ref: 7, will: 11 },
+    weapons: [{ name: 'жертвенный серп', dmg: 4, range: 1, dmgType: 'slashing' }],
     speed: 6,
     move: 2,
     tags: ['leader'],
@@ -512,7 +541,8 @@ export function thug(): UnitSpec {
     name: 'Душегуб',
     side: 'foe',
     maxHp: 44,
-    weapons: [{ name: 'шипастая дубина', dmg: 7, range: 1 }],
+    defenses: { ac: 16, fort: 9, ref: 7, will: 6 },
+    weapons: [{ name: 'шипастая дубина', dmg: 7, range: 1, dmgType: 'bludgeoning', atkBonus: 9 }],
     speed: 6,
     move: 3,
     lenses: ['plain'],
@@ -536,7 +566,8 @@ export function troll(): UnitSpec {
     name: 'Тролль',
     side: 'foe',
     maxHp: 72,
-    weapons: [{ name: 'когтистые лапы', dmg: 8, range: 1 }],
+    defenses: { ac: 16, fort: 12, ref: 6, will: 5, weak: { fire: 3, acid: 3 } },
+    weapons: [{ name: 'когтистые лапы', dmg: 8, range: 1, dmgType: 'slashing', atkBonus: 10 }],
     speed: 4,
     move: 2,
     lenses: ['fanatic'],
@@ -560,9 +591,10 @@ export function duelist(): UnitSpec {
     name: 'Поединщик',
     side: 'foe',
     maxHp: 76,
+    defenses: { ac: 18, fort: 9, ref: 11, will: 8 },
     weapons: [
-      { name: 'клеймор', dmg: 9, range: 1, affinity: { attack: 1, weakAttack: -1 } },
-      { name: 'чекан', dmg: 7, range: 1, affinity: { weakAttack: 1 } },
+      { name: 'клеймор', dmg: 9, range: 1, dmgType: 'slashing', atkBonus: 10, affinity: { attack: 1, weakAttack: -1 } },
+      { name: 'чекан', dmg: 7, range: 1, dmgType: 'bludgeoning', atkBonus: 10, affinity: { weakAttack: 1 } },
     ],
     speed: 5,
     move: 2,
@@ -583,6 +615,7 @@ export function warlord(): UnitSpec {
     // 132 (было 120): ритуал съедает треть его ходов, а фанатик жжёт и свою
     // свиту — без компенсации узел босса мягчел с 43 до ~55% (план АОЕ, шаг 8)
     maxHp: 132,
+    defenses: { ac: 18, fort: 12, ref: 8, will: 10 },
     // dmg 9: с пулом героев и способностями (партия сильнее фиксированной
     // тройки фазы 5) наив на 52/8 добрался до ~46% — босс переставал быть
     // задачей на контр-формулировку; здесь наив ~35%.
@@ -594,7 +627,9 @@ export function warlord(): UnitSpec {
       name: 'обсидиановый топор',
       dmg: 9,
       range: 1,
-      aoe: { ritual: { range: 4, mult: 2.0, cooldown: 3 } },
+      dmgType: 'slashing',
+      atkBonus: 10,
+      aoe: { ritual: { range: 4, mult: 2.0, cooldown: 3, dmgType: 'void' } },
     }],
     speed: 6,
     move: 2,

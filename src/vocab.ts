@@ -115,11 +115,14 @@ export type ConceptId =
   // четвёртая партия слов (план words) — «чтение боя»: условия про землю и
   // момент, селекторы про чужое внимание и контакт
   | 'cond.lull'
+  | 'cond.weaponFails'
   | 'cond.onHighGround'
   | 'cond.cornered'
   | 'cond.inFormation'
   | 'sel.heckler'
   | 'sel.unengaged'
+  | 'sel.vulnerable'
+  | 'sel.armored'
   // план objectives, волна 2 — слова задач боя: зоны, подопечные, трофей
   | 'cond.inZone'
   | 'cond.enemyInZone'
@@ -235,11 +238,14 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'sel.allyHealer': { id: 'sel.allyHealer', label: 'наш лекарь', category: 'selector' },
   'cond.spreadThin': { id: 'cond.spreadThin', label: 'мы растянулись', category: 'condition' },
   'cond.lull': { id: 'cond.lull', label: 'затишье', category: 'condition' },
+  'cond.weaponFails': { id: 'cond.weaponFails', label: 'оружие не берёт', category: 'condition' },
   'cond.onHighGround': { id: 'cond.onHighGround', label: 'я на высоте', category: 'condition' },
   'cond.cornered': { id: 'cond.cornered', label: 'меня прижали', category: 'condition' },
   'cond.inFormation': { id: 'cond.inFormation', label: 'строй сомкнут', category: 'condition' },
   'sel.heckler': { id: 'sel.heckler', label: 'вражеский крикун', category: 'selector' },
   'sel.unengaged': { id: 'sel.unengaged', label: 'свободный враг', category: 'selector' },
+  'sel.vulnerable': { id: 'sel.vulnerable', label: 'уязвимый', category: 'selector' },
+  'sel.armored': { id: 'sel.armored', label: 'бронированный', category: 'selector' },
   'cond.inZone': { id: 'cond.inZone', label: 'я на рубеже', category: 'condition' },
   'cond.enemyInZone': { id: 'cond.enemyInZone', label: 'враг на рубеже', category: 'condition' },
   'cond.timeShort': { id: 'cond.timeShort', label: 'время на исходе', category: 'condition' },
@@ -420,6 +426,10 @@ export const COMMON_WORDS: ConceptId[] = [
   // распыления (−4/−4пп, пик +7 расстрел, худший −20 дуэль): воюет с
   // фокус-метой — слово для боёв, где врагов больше, чем наших
   'sel.unengaged',
+  // план damage-types: слова о защитах и типах урона. «Уязвимый» — обычное:
+  // работает в любом бою, где у врага есть слабость, и по смыслу это тот же
+  // «слабейший», только про броню, а не про hp. Ниша проверяется аудитом
+  'sel.vulnerable',
   // план objectives, волна 2 — слова задач боя. Вне сценарных узлов зона и
   // таймер отсутствуют, слова молчат (паттерн «держать высоту» на плоской
   // арене) — в пул кладём базовый пласт, аудитом не мерено:
@@ -532,6 +542,12 @@ export const RARE_WORDS: ConceptId[] = [
   // sel.caster — есть узел, где оно решает (задира + пращники слоя 3);
   // в составах аудита крикуна нет, там читается как «ближайший» (+3/+2пп)
   'sel.heckler',
+  // «бронированный» и «оружие не берёт» (план damage-types) — редкие: оба
+  // осмысленны там, где броня и сопротивления решают (латная элита, тролль),
+  // и молчат в боях со зверьём. «Оружие не берёт» — слово-событие того же
+  // рода, что «меня прижали»: срабатывает редко, но переворачивает ход
+  'sel.armored',
+  'cond.weaponFails',
   // «меня прижали» (четвёртая партия) — свободных смежных клеток не
   // осталось: бежать некуда, время отчаянных слов. По аудиту слово-событие:
   // «прижали → глухая оборона» пик +28пп на массе крыс (в среднем +2/+3) —

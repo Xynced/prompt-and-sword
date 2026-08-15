@@ -598,6 +598,19 @@ export const AUDIT_ENTRIES: AuditEntry[] = [
         ? [atk('sel.unengaged')]
         : [w2({ condition: always, preference: { id: 'act.pin' } })],
   },
+  // план damage-types: слова о защитах. «Уязвимый» и «бронированный» —
+  // про выбор цели, «оружие не берёт» — гейт смены цели
+  { word: 'sel.vulnerable', label: 'бить уязвимого (все)', drafts: everyone(() => [atk('sel.vulnerable')]) },
+  { word: 'sel.armored', label: 'бить бронированного (все)', drafts: everyone(() => [atk('sel.armored')]) },
+  {
+    word: 'cond.weaponFails',
+    label: 'комбо: оружие не берёт → бить уязвимого',
+    extra: ['sel.vulnerable'],
+    drafts: everyone(() => [
+      w2({ condition: { id: 'cond.weaponFails' }, preference: { id: 'act.attack', target: 'sel.vulnerable' } }),
+      { condition: always, preference: { id: 'act.attack', target: 'sel.nearest' } },
+    ]),
+  },
 ];
 
 // ---- Сборка спеков и прогон ----
@@ -643,6 +656,7 @@ function heroSpec(arch: HeroArchetype, slot: number, drafts: PhraseDraft[], ctx:
     weapons: arch.weapons,
     ...(arch.active ? { active: arch.active } : {}),
     ...(arch.passives ? { passives: arch.passives } : {}),
+    ...(arch.defenses ? { defenses: arch.defenses } : {}),
     spawn: { ...PARTY_SPAWNS[slot]! },
   };
 }

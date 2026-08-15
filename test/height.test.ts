@@ -51,6 +51,9 @@ const rule = (then: Rule['then'], weight = 2): Rule => ({
 
 const attacksIn = (events: readonly BattleEvent[]): Extract<BattleEvent, { t: 'attack' }>[] =>
   events.filter((e): e is Extract<BattleEvent, { t: 'attack' }> => e.t === 'attack');
+/** Дошедшие удары: у промаха (план damage-types) урона нет вовсе. */
+const landedIn = (events: readonly BattleEvent[]): Extract<BattleEvent, { t: 'attack' }>[] =>
+  attacksIn(events).filter((e) => e.outcome !== 'miss');
 
 describe('дальность с высоты', () => {
   it('rangeAt: стрелку +height, ближнику ничего', () => {
@@ -112,8 +115,8 @@ describe('урон с высоты 2', () => {
       { ...onHill[0]!, spawn: { x: 2, y: 14 } },
       { ...onHill[1]!, spawn: { x: 6, y: 14 } },
     ];
-    const a = attacksIn(runBattle(10, onHill).events)[0]!;
-    const b = attacksIn(runBattle(10, flat).events)[0]!;
+    const a = landedIn(runBattle(10, onHill).events)[0]!;
+    const b = landedIn(runBattle(10, flat).events)[0]!;
     expect(a.unit).toBe('a');
     expect(b.unit).toBe('a');
     expect(a.dmg).toBe(b.dmg + 1);

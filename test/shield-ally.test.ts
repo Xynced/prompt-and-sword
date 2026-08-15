@@ -138,7 +138,7 @@ describe('в бою: толчок уводит подопечного из-по�
     spec({ id: 'striker', side: 'foe', spawn: { x: 5, y: 4 }, atk: 40, speed: 7, rules: [atkNearest] }),
   ];
   const strikerHit = (events: readonly BattleEvent[]): Extract<BattleEvent, { t: 'attack' }> =>
-    attacksIn(events).find((e) => e.unit === 'striker' && e.target === 'ward')!;
+    attacksIn(events).find((e) => e.unit === 'striker' && e.target === 'ward' && e.outcome !== 'miss')!;
   const E = (action: Extract<BattleEvent, { t: 'attack' }>['action']): number =>
     expectedDamage(40 * attackMult(action));
 
@@ -147,7 +147,9 @@ describe('в бою: толчок уводит подопечного из-по�
     expect(res.terrain.name).toBe('поляна');
     expect(res.events.some((e) => e.t === 'cover' && e.unit === 'tank' && e.ally === 'ward' && e.level === 0.4)).toBe(true);
     const hit = strikerHit(res.events);
-    expect(hit.dmg).toBeLessThanOrEqual(Math.round(E(hit.action) * 1.15 * 0.6) + 1);
+    // потолок считаем по исходу броска: крит удваивает урон до митигации
+    const swing = hit.outcome === 'crit' ? 2 : 1;
+    expect(hit.dmg).toBeLessThanOrEqual(Math.round(E(hit.action) * swing * 0.6) + 1);
   });
 
   it('увели толчком — щит спал, удар проходит в полную силу', () => {
@@ -156,6 +158,7 @@ describe('в бою: толчок уводит подопечного из-по�
     expect(res.events.some((e) => e.t === 'cover' && e.unit === 'tank' && e.ally === 'ward' && e.level === 0.4)).toBe(true);
     expect(res.events.some((e) => e.t === 'shove' && e.target === 'ward')).toBe(true);
     const hit = strikerHit(res.events);
-    expect(hit.dmg).toBeGreaterThanOrEqual(Math.round(E(hit.action) * 0.85) - 1);
+    const swing = hit.outcome === 'crit' ? 2 : 1;
+    expect(hit.dmg).toBeGreaterThanOrEqual(Math.round(E(hit.action) * swing) - 1);
   });
 });

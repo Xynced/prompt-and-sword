@@ -1,6 +1,7 @@
 import { ALLY_ROLE_RU, type AllyRef, type Condition, type LensMark, type Preference, type Rule } from './ir.js';
 import { applyLens } from './lens.js';
-import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponMove, WeaponSpec } from './types.js';
+import { DAMAGE_TYPE_RU } from './types.js';
+import type { ActiveSpec, AoeSpec, DamageType, Defenses, LensId, PassiveSpec, WeaponMove, WeaponSpec } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -32,6 +33,8 @@ const SEL_RU: Record<string, string> = {
   unengaged: 'свободного врага',
   intruder: 'прорывающегося к рубежу',
   ward: 'подопечного задачи',
+  vulnerable: 'того, кого моё оружие берёт лучше всех',
+  armored: 'самого бронированного',
 };
 
 /** Ссылка на своего в нужном падеже: имя героя не склоняем, роль — по таблице. */
@@ -107,6 +110,8 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если мы растянулись — ';
     case 'lull':
       return 'пока затишье и до меня не дотягиваются — ';
+    case 'weaponFails':
+      return 'если моё оружие не берёт того, кто ближе всех, — ';
     case 'onHighGround':
       return 'пока я стою на высоте — ';
     case 'cornered':
@@ -262,6 +267,9 @@ export function describeAoe(aoe: AoeSpec): string {
 function describeMove(w: WeaponSpec, m: WeaponMove): string {
   const marks: string[] = [];
   const r = m.range ?? w.range;
+  // тип урона приёма пишем, только если он спорит с оружейным: «щитом в
+  // грудь — дробящий» у рубящего меча читается, а три «рубящих» подряд — нет
+  if (m.dmgType && m.dmgType !== w.dmgType) marks.push(DAMAGE_TYPE_RU[m.dmgType]);
   if (r > 1) marks.push(`даль ${r}`);
   if (m.pierce !== undefined) marks.push('пробивает укрытия');
   else if (m.sure) marks.push('без рипоста');
@@ -276,12 +284,44 @@ function describeMove(w: WeaponSpec, m: WeaponMove): string {
 
 export function describeWeapon(w: WeaponSpec): string {
   const aoe = w.aoe ? ` · ${describeAoe(w.aoe)}` : '';
+  // тип урона оружия (план damage-types) — рядом с именем: по нему игрок
+  // выбирает, чем бить эту броню
+  const type = w.dmgType ? `, ${DAMAGE_TYPE_RU[w.dmgType]}` : '';
   // кит приёмов (план weapon-moves): игрок видит виды атак оружия с числами
   if (w.moves && w.moves.length > 0) {
-    return `${w.name} (${w.moves.map((m) => describeMove(w, m)).join('; ')})${aoe}`;
+    return `${w.name}${type} (${w.moves.map((m) => describeMove(w, m)).join('; ')})${aoe}`;
   }
   const range = w.range > 1 ? `, даль ${w.range}` : '';
-  return `${w.name} (удар ${w.dmg}${range})${aoe}`;
+  return `${w.name} (удар ${w.dmg}${range}${type})${aoe}`;
+}
+
+/**
+ * Строка защит (план damage-types) — для разведки врага и карточки героя.
+ * Слово об уязвимости бессмысленно, если игрок не может её узнать: сюда идут
+ * и КБ со спасбросками, и слабости с сопротивлениями.
+ */
+export function describeDefenses(d: Defenses): string {
+  const parts: string[] = [];
+  if (d.ac !== undefined) parts.push(`КБ ${d.ac}`);
+  const saves = [
+    d.fort !== undefined ? `стойкость ${d.fort}` : '',
+    d.ref !== undefined ? `реакция ${d.ref}` : '',
+    d.will !== undefined ? `воля ${d.will}` : '',
+  ].filter(Boolean);
+  if (saves.length > 0) parts.push(saves.join('/'));
+  const names = (types: readonly DamageType[]): string => types.map((t) => DAMAGE_TYPE_RU[t]).join(', ');
+  if (d.weak && Object.keys(d.weak).length > 0) {
+    parts.push(
+      `слабости: ${Object.entries(d.weak).map(([t, n]) => `${DAMAGE_TYPE_RU[t as DamageType]} +${n}`).join(', ')}`,
+    );
+  }
+  if (d.resist && Object.keys(d.resist).length > 0) {
+    parts.push(
+      `сопротивления: ${Object.entries(d.resist).map(([t, n]) => `${DAMAGE_TYPE_RU[t as DamageType]} −${n}`).join(', ')}`,
+    );
+  }
+  if (d.immune && d.immune.length > 0) parts.push(`иммунитет: ${names(d.immune)}`);
+  return parts.join(' · ');
 }
 
 /** Строка оружейного набора: у мастера несколько — через «;». */

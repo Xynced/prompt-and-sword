@@ -39,6 +39,7 @@ export type SimpleConditionDraft =
   | { id: 'cond.alliesFocusing' }
   | { id: 'cond.spreadThin' }
   | { id: 'cond.lull' }
+  | { id: 'cond.weaponFails' }
   | { id: 'cond.onHighGround' }
   | { id: 'cond.cornered' }
   | { id: 'cond.inFormation' }
@@ -75,6 +76,8 @@ export type SelectorDraft =
   | 'sel.tormentor'
   | 'sel.heckler'
   | 'sel.unengaged'
+  | 'sel.vulnerable'
+  | 'sel.armored'
   | 'sel.intruder';
 
 export type PreferenceDraft =
@@ -157,6 +160,8 @@ const SELECTOR_MAP: Record<SelectorDraft, Selector> = {
   'sel.tormentor': 'tormentor',
   'sel.heckler': 'heckler',
   'sel.unengaged': 'unengaged',
+  'sel.vulnerable': 'vulnerable',
+  'sel.armored': 'armored',
   'sel.intruder': 'intruder',
 };
 
@@ -276,6 +281,8 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
       return 'если мы растянулись: ';
     case 'cond.lull':
       return 'пока затишье: ';
+    case 'cond.weaponFails':
+      return 'если оружие не берёт: ';
     case 'cond.onHighGround':
       return 'пока я на высоте: ';
     case 'cond.cornered':
@@ -465,6 +472,8 @@ function compileCondition(c: ConditionDraft): Condition {
       return { kind: 'spreadThin' };
     case 'cond.lull':
       return { kind: 'lull' };
+    case 'cond.weaponFails':
+      return { kind: 'weaponFails' };
     case 'cond.onHighGround':
       return { kind: 'onHighGround' };
     case 'cond.cornered':
