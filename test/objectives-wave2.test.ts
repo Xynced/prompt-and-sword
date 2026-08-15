@@ -475,10 +475,12 @@ describe('смоуки волны 2: наив vs контр', () => {
   });
 
   it('обоз: волки обгоняют наив и рвут телегу; «прикрывать подопечного» спасает', () => {
-    const naive = smokeSweep({ kind: 'fight', layer: 2, slot: 1 }, NAIVE);
-    const guard = smokeSweep({ kind: 'fight', layer: 2, slot: 1 }, [[protectWard, atkNearest], [atkNearest], [protectWard, atkNearest]]);
-    expect(naive.wins).toBeLessThanOrEqual(5);
-    expect(guard.wins).toBeGreaterThanOrEqual(17);
+    // выборка шире обычной: с MAP (план action-economy) разрыв держится, но
+    // на 20 сидах запас съедает шум — 60 сидов дают 10 побед наива против 52
+    const naive = smokeSweep({ kind: 'fight', layer: 2, slot: 1 }, NAIVE, 60);
+    const guard = smokeSweep({ kind: 'fight', layer: 2, slot: 1 }, [[protectWard, atkNearest], [atkNearest], [protectWard, atkNearest]], 60);
+    expect(naive.wins).toBeLessThanOrEqual(14);
+    expect(guard.wins).toBeGreaterThanOrEqual(42);
   });
 
   it('свой ритуал: наив 0 — охота идёт мимо дерущихся; охрана чтеца решает', () => {
@@ -564,8 +566,8 @@ describe('смоуки волны 2: наив vs контр', () => {
   it('погоня: наив рубит волков и упускает гонца; «прорывающийся» перехватывает', () => {
     // выборка расширена до 60 сидов (план armor): оборона переехала в бонусы
     // к КБ, гонец стал живучее в бросках, и на 20 сидах разрыв слова и наива
-    // (2 против 6 побед) уже неотличим от шума. На 60 сидах слово по-прежнему
-    // утраивает шансы перехвата
+    // уже неотличим от шума. Поверх MAP (план action-economy) премиса та же —
+    // замер 6 побед наива против 25 у перехвата
     const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 4 }, NAIVE, 60);
     const chaseP = smokeSweep({ kind: 'fight', layer: 4, slot: 4 }, [[atkIntruder], [atkIntruder], [atkIntruder]], 60);
     expect(naive.wins).toBeLessThanOrEqual(15);

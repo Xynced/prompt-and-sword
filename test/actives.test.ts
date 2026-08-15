@@ -216,7 +216,7 @@ describe('Мара: тень', () => {
 
 describe('Тесса: в спину', () => {
   it('её фланг застигает глубже общего (−3 к КБ против −2, тот же сид)', () => {
-    const withSneak = (offGuard: number): number => {
+    const withSneak = (offGuard: number, seed: number): number => {
       const tessa = spec({
         id: 'tessa', side: 'party', spawn: { x: 3, y: 4 }, atk: undefined,
         weapons: heroArchetype('tessa').weapons, passives: { sneak: { offGuard } }, speed: 9, move: 3,
@@ -224,15 +224,19 @@ describe('Тесса: в спину', () => {
       });
       const mate = spec({ id: 'mate', side: 'party', spawn: { x: 5, y: 4 }, speed: 8 });
       const tank = spec({ id: 'e', side: 'foe', spawn: { x: 4, y: 4 }, maxHp: 400, atk: 1, move: 0, rules: [] });
-      const r = runBattle(2, [tessa, mate, tank]);
+      const r = runBattle(seed, [tessa, mate, tank]);
       let sum = 0;
       for (const e of r.events) {
         if (e.t === 'attack' && e.unit === 'tessa' && e.flank) sum += e.dmg;
       }
       return sum;
     };
-    const sneak = withSneak(3);
-    const plain = withSneak(OFF_GUARD_AC);
+    // сумма по десяти сидам: −3 против −2 решают только те броски, что легли
+    // ровно в эту щель, и на одном сиде (после MAP, план action-economy) их
+    // может не случиться вовсе
+    const seeds = Array.from({ length: 10 }, (_, i) => i + 1);
+    const sneak = seeds.reduce((sum, seed) => sum + withSneak(3, seed), 0);
+    const plain = seeds.reduce((sum, seed) => sum + withSneak(OFF_GUARD_AC, seed), 0);
     expect(plain).toBeGreaterThan(0);
     expect(sneak).toBeGreaterThan(plain);
   });
