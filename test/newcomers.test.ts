@@ -5,6 +5,7 @@ import {
   attackMultFor,
   decide,
   generateCandidates,
+  movesOf,
   retributionMult,
 } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
@@ -150,10 +151,10 @@ describe('Веста: полымя (ритуал с пульсами)', () => {
 
 describe('Юна: кулаки бури', () => {
   it('слабый удар кулаками крепче общего: 0.55 против 0.45', () => {
+    // с китом приёмов (план weapon-moves) 0.55 живёт в «шквале»
     const fists = heroArchetype('yuna').weapons[0]!;
-    expect(attackMultFor('weakAttack', fists)).toBe(0.55);
+    expect(movesOf(fists).find((m) => m.slot === 'weakAttack')!.mult).toBe(0.55);
     expect(attackMultFor('weakAttack', { name: 'меч', dmg: 7, range: 1 })).toBe(0.45);
-    expect(attackMultFor('attack', fists)).toBe(1);
   });
 
   it('в бою слабые удары Юны тяжелее таких же без weakMult (тот же сид)', () => {

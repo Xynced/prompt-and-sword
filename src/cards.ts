@@ -1,6 +1,6 @@
 import { ALLY_ROLE_RU, type AllyRef, type Condition, type LensMark, type Preference, type Rule } from './ir.js';
 import { applyLens } from './lens.js';
-import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponSpec } from './types.js';
+import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponMove, WeaponSpec } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -258,9 +258,29 @@ export function describeAoe(aoe: AoeSpec): string {
  * имя, урон, дальность, площадные формы. Игрок видит оружие до того, как
  * возьмёт слова под него («накрыть скопление» берут, зная носителя).
  */
+/** Строка приёма кита: имя, урон (dmg × mult), дальность и райдеры в скобках. */
+function describeMove(w: WeaponSpec, m: WeaponMove): string {
+  const marks: string[] = [];
+  const r = m.range ?? w.range;
+  if (r > 1) marks.push(`даль ${r}`);
+  if (m.pierce !== undefined) marks.push('пробивает укрытия');
+  else if (m.sure) marks.push('без рипоста');
+  if (m.expose) marks.push('открывает');
+  if (m.push) marks.push('толкает');
+  if (m.gang !== undefined) marks.push('толпой больнее');
+  if (m.stepBack) marks.push('с отходом');
+  if (m.twin) marks.push('по двум');
+  if (m.ap !== undefined) marks.push('весь ход');
+  return `${m.name} ${Math.round(w.dmg * m.mult)}${marks.length > 0 ? ` (${marks.join(', ')})` : ''}`;
+}
+
 export function describeWeapon(w: WeaponSpec): string {
-  const range = w.range > 1 ? `, даль ${w.range}` : '';
   const aoe = w.aoe ? ` · ${describeAoe(w.aoe)}` : '';
+  // кит приёмов (план weapon-moves): игрок видит виды атак оружия с числами
+  if (w.moves && w.moves.length > 0) {
+    return `${w.name} (${w.moves.map((m) => describeMove(w, m)).join('; ')})${aoe}`;
+  }
+  const range = w.range > 1 ? `, даль ${w.range}` : '';
   return `${w.name} (удар ${w.dmg}${range})${aoe}`;
 }
 

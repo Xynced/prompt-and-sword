@@ -886,8 +886,10 @@ function buildFrames(
       case 'attack': {
         const t = units.get(e.target)!;
         t.hp = e.targetHp;
-        const verb =
-          e.action === 'weakAttack' ? 'бьёт слабо' : e.action === 'selflessAttack' ? 'бьёт отчаянно' : 'бьёт';
+        // приём кита (план weapon-moves) читается по имени; дефолт — по манере
+        const verb = e.move
+          ? `бьёт («${e.move}»)`
+          : e.action === 'weakAttack' ? 'бьёт слабо' : e.action === 'selflessAttack' ? 'бьёт отчаянно' : 'бьёт';
         pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
         pending?.fx.push({ kind: 'cells', cells: [{ x: t.x, y: t.y }], form: 'hit' });
         float(e.target, `−${e.dmg}${e.flank ? ' ⚑' : ''}`, 'dmg');

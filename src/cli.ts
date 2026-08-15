@@ -171,7 +171,7 @@ function printBattleLog(r: BattleResult, names: Map<string, string>): void {
       }
       case 'attack':
         console.log(
-          `  ${nm(e.unit)} бьёт ${nm(e.target)}: ${e.dmg} урона${e.flank ? ' (фланг!)' : ''}, hp=${e.targetHp}`,
+          `  ${nm(e.unit)} бьёт${e.move ? ` («${e.move}»)` : ''} ${nm(e.target)}: ${e.dmg} урона${e.flank ? ' (фланг!)' : ''}, hp=${e.targetHp}`,
         );
         break;
       case 'hazard':

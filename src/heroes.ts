@@ -41,13 +41,26 @@ const r = (rule: Omit<Rule, 'scope'>): Rule => ({ ...rule, scope: 'self' });
 
 export const HERO_POOL: readonly HeroArchetype[] = [
   {
-    // воин-щитоносец: щит любит бить наверняка и не любит открываться
+    // воин-щитоносец (кит приёмов, план weapon-moves): рискового темпа нет
+    // вовсе — щит не открывается (жёстче прежней мягкой аффинности); толчок
+    // щитом расталкивает строй, удар из-за щита расчётлив — не ловит рипост
     id: 'grom',
     name: 'Гром',
     class: 'воин',
     role: 'front',
     stats: { maxHp: 80, speed: 5, move: 2 },
-    weapons: [{ name: 'меч и щит', dmg: 8, range: 1, affinity: { attack: 1, selflessAttack: -1 } }],
+    weapons: [
+      {
+        name: 'меч и щит',
+        dmg: 8,
+        range: 1,
+        moves: [
+          { id: 'shieldJab', name: 'щитом в грудь', slot: 'weakAttack', mult: 0.4, push: true },
+          { id: 'guardCut', name: 'удар из-за щита', slot: 'attack', mult: 0.95, sure: true },
+          { id: 'trueCut', name: 'верный рубящий', slot: 'attack', mult: 1 },
+        ],
+      },
+    ],
     // щит держит союзника крепче общего прикрытия; «Стена» кроет весь строй —
     // гейт защитными правилами, своего слова не нужно
     active: { wall: { usesPerBattle: 1 } },
@@ -64,7 +77,23 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'следопыт',
     role: 'ranged',
     stats: { maxHp: 48, speed: 6, move: 2 },
-    weapons: [{ name: 'длинный лук', dmg: 6, range: 5 }],
+    // кит приёмов (план weapon-moves, волна 2): лук — темп и манёвр, без
+    // пирса (бронебойность — вкус арбалета Мары); сдвоенный рассеивает урон
+    // по двум, выстрел с отходом выводит из-под ответа
+    weapons: [
+      {
+        name: 'длинный лук',
+        dmg: 6,
+        range: 5,
+        moves: [
+          { id: 'quickShot', name: 'быстрый выстрел', slot: 'weakAttack', mult: 0.45 },
+          { id: 'aimedShot', name: 'прицельный выстрел', slot: 'attack', mult: 1 },
+          { id: 'splitShot', name: 'сдвоенный выстрел', slot: 'attack', mult: 0.45, twin: true },
+          { id: 'partingShot', name: 'выстрел с отходом', slot: 'attack', mult: 0.7, stepBack: true },
+          { id: 'pointBlank', name: 'выстрел в упор', slot: 'selflessAttack', mult: 1.4, expose: true },
+        ],
+      },
+    ],
     // метит добычу самим выстрелом: его цель — «помеченная» для всей партии.
     // Актив «кого метить» не нужен: ответ уже в его атаках (решение шага 3)
     passives: { markOnHit: true },
@@ -83,6 +112,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // скопление» оружие молчит. Дальность ритуала 6 (не 4): с move 1 Лия
     // кастует по бегущим издали, и центр должен дотягиваться до скопления,
     // а не цеплять его краем зоны
+    // кит приёмов (план weapon-moves, волна 3): у стекла нет рискового темпа —
+    // маг не открывается; прожигающий луч пробивает укрытия — противострелковый
     weapons: [
       {
         name: 'жезл',
@@ -92,6 +123,11 @@ export const HERO_POOL: readonly HeroArchetype[] = [
           blast: { range: 4, mult: 0.75, usesPerBattle: 1 },
           ritual: { range: 6, mult: 1.2, usesPerBattle: 1 },
         },
+        moves: [
+          { id: 'liaSpark', name: 'искра', slot: 'weakAttack', mult: 0.4 },
+          { id: 'liaRay', name: 'прицельный луч', slot: 'attack', mult: 1 },
+          { id: 'liaBurn', name: 'прожигающий луч', slot: 'attack', mult: 0.8, pierce: 0.5 },
+        ],
       },
     ],
     ability: { name: 'Чутьё', desc: 'отходит сама, когда дело пахнет жареным' },
@@ -111,7 +147,21 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'паладин',
     role: 'front',
     stats: { maxHp: 96, speed: 3, move: 1 },
-    weapons: [{ name: 'щит-башня', dmg: 5, range: 1 }],
+    // кит приёмов (план weapon-moves, волна 3): башня толкает и давит; удар
+    // кромкой расчётлив (не ловит рипост), рискового темпа у бастиона нет
+    weapons: [
+      {
+        name: 'щит-башня',
+        dmg: 5,
+        range: 1,
+        moves: [
+          { id: 'skalaShove', name: 'толчок щитом', slot: 'weakAttack', mult: 0.3, push: true },
+          { id: 'skalaEdge', name: 'удар кромкой', slot: 'attack', mult: 0.9, sure: true },
+          { id: 'skalaLean', name: 'навалиться', slot: 'attack', mult: 1.1 },
+          { id: 'skalaCrush', name: 'всем весом', slot: 'attack', mult: 1.9, ap: 3, push: true },
+        ],
+      },
+    ],
     passives: { steadfast: true },
     ability: { name: 'Глыба', desc: 'где поставили — там и стоит; глухая оборона даётся дёшево' },
     innate: [
@@ -125,7 +175,23 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'плутовка',
     role: 'melee',
     stats: { maxHp: 44, speed: 7, move: 3 },
-    weapons: [{ name: 'кинжалы', dmg: 7, range: 1, affinity: { weakAttack: 1 } }],
+    // кит приёмов (план weapon-moves, волна 2): кинжалы живут быстрым темпом —
+    // град в окружении (райдер gang) и метательный нож на три клетки; «серия»
+    // — весь ход в одну цель без риска
+    weapons: [
+      {
+        name: 'кинжалы',
+        dmg: 7,
+        range: 1,
+        moves: [
+          { id: 'flurryJab', name: 'град уколов', slot: 'weakAttack', mult: 0.5, gang: 0.15 },
+          { id: 'knifeThrow', name: 'метнуть нож', slot: 'weakAttack', mult: 0.4, range: 3 },
+          { id: 'liverStab', name: 'в печень', slot: 'attack', mult: 1 },
+          { id: 'daggerFlow', name: 'серия', slot: 'attack', mult: 1.6, ap: 3 },
+          { id: 'heartPierce', name: 'в самое сердце', slot: 'selflessAttack', mult: 1.5, expose: true },
+        ],
+      },
+    ],
     passives: { sneak: { flankMult: 1.75 } },
     ability: { name: 'Из-за спины', desc: 'заходит сбоку и бьёт вдвоём — в спину больнее прочих' },
     innate: [
@@ -140,7 +206,23 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'монах',
     role: 'melee',
     stats: { maxHp: 60, speed: 5, move: 2 },
-    weapons: [{ name: 'копьё ци', dmg: 6, range: 2, aoe: { line: { len: 4, mult: 0.75 } } }],
+    // кит приёмов (план weapon-moves, волна 2): длинное копьё колет с двух
+    // клеток, древко толкает в упор; пригвождающий — рисковый укол на всю
+    // длину; волна клинка остаётся пятым действием (гейт словом каста)
+    weapons: [
+      {
+        name: 'копьё ци',
+        dmg: 6,
+        range: 2,
+        aoe: { line: { len: 4, mult: 0.75 } },
+        moves: [
+          { id: 'chiJab', name: 'укол ци', slot: 'weakAttack', mult: 0.45 },
+          { id: 'lunge', name: 'выпад', slot: 'attack', mult: 1 },
+          { id: 'shaftPush', name: 'оттолкнуть древком', slot: 'weakAttack', mult: 0.3, push: true, range: 1 },
+          { id: 'pinThrust', name: 'пригвождающий', slot: 'selflessAttack', mult: 1.4, expose: true },
+        ],
+      },
+    ],
     ability: { name: 'Выпад', desc: 'колет в размен, когда укол того стоит' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 0.9, source: 'способность: Выпад' }),
@@ -155,7 +237,21 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'варвар',
     role: 'front',
     stats: { maxHp: 68, speed: 6, move: 2 },
-    weapons: [{ name: 'секира', dmg: 9, range: 1 }],
+    // кит приёмов (план weapon-moves, волна 3): секира рубит и рискует
+    // «сплеча»; обух добирает и отгоняет (пуш живёт у шипов)
+    weapons: [
+      {
+        name: 'секира',
+        dmg: 9,
+        range: 1,
+        moves: [
+          { id: 'ulvJab', name: 'тычок обухом', slot: 'weakAttack', mult: 0.45 },
+          { id: 'ulvShove', name: 'отогнать плашмя', slot: 'weakAttack', mult: 0.3, push: true },
+          { id: 'ulvCut', name: 'рубящий', slot: 'attack', mult: 1 },
+          { id: 'ulvAllOut', name: 'сплеча', slot: 'selflessAttack', mult: 1.6, expose: true },
+        ],
+      },
+    ],
     active: { rage: { dmgMult: 1.3, vulnMult: 1.2 } },
     ability: { name: 'Ярость', desc: 'если бой затянулся — впадает в ярость' },
     innate: [
@@ -174,7 +270,28 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'следопыт',
     role: 'ranged',
     stats: { maxHp: 36, speed: 6, move: 1 },
-    weapons: [{ name: 'тяжёлый арбалет', dmg: 7, range: 6, affinity: { attack: 1, weakAttack: -1 } }],
+    // кит приёмов (план weapon-moves, волна 2): арбалет не частит вовсе —
+    // быстрый темп живёт на засапожном ноже; болты бронебойные (пирс),
+    // «выцелить» — весь ход в один расчётливый выстрел
+    weapons: [
+      {
+        name: 'тяжёлый арбалет',
+        dmg: 7,
+        range: 6,
+        moves: [
+          { id: 'heavyBolt', name: 'тяжёлый болт', slot: 'attack', mult: 1.1, pierce: 0.3 },
+          { id: 'kneeBolt', name: 'болт в колено', slot: 'attack', mult: 0.7, push: true },
+          { id: 'deadEye', name: 'выцелить', slot: 'attack', mult: 1.8, ap: 3, sure: true },
+          { id: 'pointBolt', name: 'болт в упор', slot: 'selflessAttack', mult: 1.5, expose: true },
+        ],
+      },
+      {
+        name: 'засапожный нож',
+        dmg: 5,
+        range: 1,
+        moves: [{ id: 'bootKnife', name: 'укол ножом', slot: 'weakAttack', mult: 0.45 }],
+      },
+    ],
     passives: { shadow: { mult: 1.25 } },
     ability: { name: 'Скрадывание', desc: 'не выходит на линию вражеского выстрела — и бьёт из тени больнее' },
     innate: [
@@ -190,7 +307,21 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'жрица',
     role: 'ranged',
     stats: { maxHp: 44, speed: 5, move: 2 },
-    weapons: [{ name: 'ясеневый посох', dmg: 5, range: 3 }],
+    // кит приёмов (план weapon-moves, волна 3): посох в упор бьёт и
+    // отталкивает, «свет» достаёт на всю длину посоха; рискового темпа нет
+    weapons: [
+      {
+        name: 'ясеневый посох',
+        dmg: 5,
+        range: 3,
+        moves: [
+          { id: 'ivaJab', name: 'тычок', slot: 'weakAttack', mult: 0.45, range: 1 },
+          { id: 'ivaPush', name: 'оттолкнуть', slot: 'weakAttack', mult: 0.3, push: true, range: 1 },
+          { id: 'ivaStrike', name: 'удар посохом', slot: 'attack', mult: 1, range: 1 },
+          { id: 'ivaLight', name: 'свет', slot: 'attack', mult: 0.8 },
+        ],
+      },
+    ],
     active: { heal: { amount: 10, range: 4, usesPerBattle: 2 } },
     ability: { name: 'Милосердие', desc: 'не бросит раненого — лечит, кому хуже всех' },
     innate: [
@@ -206,7 +337,21 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'жрец',
     role: 'front',
     stats: { maxHp: 72, speed: 4, move: 2 },
-    weapons: [{ name: 'молот-благовест', dmg: 7, range: 1, affinity: { attack: 1 } }],
+    // кит приёмов (план weapon-moves, волна 3): молот не частит — быстрого
+    // темпа нет; оглушающий отталкивает, «с замахом» — весь ход в один удар
+    weapons: [
+      {
+        name: 'молот-благовест',
+        dmg: 7,
+        range: 1,
+        moves: [
+          { id: 'radimStrike', name: 'удар', slot: 'attack', mult: 1 },
+          { id: 'radimStun', name: 'оглушающий', slot: 'attack', mult: 0.8, push: true },
+          { id: 'radimHaul', name: 'с замахом', slot: 'attack', mult: 2, ap: 3 },
+          { id: 'radimSmite', name: 'карающий', slot: 'selflessAttack', mult: 1.45, expose: true },
+        ],
+      },
+    ],
     active: { bless: { dmgMult: 1.25, range: 3, usesPerBattle: 1 } },
     ability: { name: 'Благовест', desc: 'благословляет самого ударного из своих' },
     innate: [
@@ -222,13 +367,21 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'варвар',
     role: 'front',
     stats: { maxHp: 64, speed: 5, move: 2 },
+    // кит приёмов (план weapon-moves, волна 3): двуручник не частит вовсе —
+    // быстрого темпа нет; пролом ломает щиты, «замах с оттяжкой» — весь ход
+    // в один страшный удар; росчерк остаётся пятым действием (гейт словом)
     weapons: [
       {
         name: 'двуручная секира',
         dmg: 9,
         range: 1,
-        affinity: { attack: 1, selflessAttack: 1, weakAttack: -1 },
         aoe: { line: { len: 2, mult: 0.75 } },
+        moves: [
+          { id: 'rykCut', name: 'рубящий', slot: 'attack', mult: 1 },
+          { id: 'rykBreak', name: 'пролом щитов', slot: 'attack', mult: 0.9, pierce: 0.3 },
+          { id: 'rykHaul', name: 'замах с оттяжкой', slot: 'attack', mult: 2.1, ap: 3 },
+          { id: 'rykAllOut', name: 'сплеча', slot: 'selflessAttack', mult: 1.6, expose: true },
+        ],
       },
     ],
     ability: { name: 'Росчерк', desc: 'широкий взмах достаёт двоих, вставших в линию' },
@@ -245,7 +398,22 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'плутовка',
     role: 'melee',
     stats: { maxHp: 42, speed: 8, move: 3 },
-    weapons: [{ name: 'парные ножи', dmg: 6, range: 1, affinity: { weakAttack: 1 } }],
+    // кит приёмов (план weapon-moves, волна 2): полный темп — три разных
+    // ножа (чистый, подсечка-толчок, отскок), общий с Тессой профиль — росчерк
+    // в окружении и «в печень» (пересечение класса — ровно два)
+    weapons: [
+      {
+        name: 'парные ножи',
+        dmg: 6,
+        range: 1,
+        moves: [
+          { id: 'twinSlash', name: 'двойной росчерк', slot: 'weakAttack', mult: 0.5, gang: 0.15 },
+          { id: 'liverStab', name: 'в печень', slot: 'attack', mult: 1 },
+          { id: 'legSweep', name: 'подсечка', slot: 'attack', mult: 0.6, push: true },
+          { id: 'hopSting', name: 'отскок с уколом', slot: 'attack', mult: 0.7, stepBack: true },
+        ],
+      },
+    ],
     active: { feint: {} },
     ability: { name: 'Трюк', desc: 'обманным выпадом открывает врага под удары своих' },
     innate: [
@@ -261,12 +429,22 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'волшебница',
     role: 'ranged',
     stats: { maxHp: 38, speed: 5, move: 2 },
+    // кит приёмов (план weapon-moves, волна 3): контролёр ближней зоны —
+    // плеть бьёт на 2, жар отталкивает (дистанционный толчок, срезанный в
+    // плане классов, теперь бесплатен — райдер push готов); искра добирает
+    // издали, полымя держит пространство
     weapons: [
       {
         name: 'гримуар пламени',
         dmg: 6,
         range: 4,
         aoe: { ritual: { range: 5, mult: 0.8, cooldown: 4, pulses: 3 } },
+        moves: [
+          { id: 'vestaSpark', name: 'искра', slot: 'weakAttack', mult: 0.4 },
+          { id: 'vestaRepel', name: 'отпугнуть жаром', slot: 'weakAttack', mult: 0.3, push: true, range: 2 },
+          { id: 'vestaLash', name: 'жгучая плеть', slot: 'attack', mult: 0.9, range: 2 },
+          { id: 'vestaWildLash', name: 'плеть наотмашь', slot: 'selflessAttack', mult: 1.4, expose: true, range: 2 },
+        ],
       },
     ],
     ability: { name: 'Полымя', desc: 'выжигает зону, которая горит три хода подряд' },
@@ -287,7 +465,25 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'монахиня',
     role: 'melee',
     stats: { maxHp: 52, speed: 7, move: 3 },
-    weapons: [{ name: 'кулаки бури', dmg: 7, range: 1, weakMult: 0.55, affinity: { weakAttack: 1 } }],
+    // кит приёмов (план weapon-moves, волна 2): weakMult 0.55 переехал в
+    // «шквал»; ладонь бури толкает, «уход с ударом» — бей-беги, «серия
+    // дыхания» — весь ход в одну цель. Чистого полного удара нет намеренно:
+    // при шквале 0.55 он мёртв по экономике (2×0.55 > 1.0) — вместо него
+    // рисковый «глаз бури»
+    weapons: [
+      {
+        name: 'кулаки бури',
+        dmg: 7,
+        range: 1,
+        moves: [
+          { id: 'squall', name: 'шквал', slot: 'weakAttack', mult: 0.55 },
+          { id: 'stormEye', name: 'глаз бури', slot: 'selflessAttack', mult: 1.5, expose: true },
+          { id: 'stormPalm', name: 'ладонь бури', slot: 'attack', mult: 0.65, push: true },
+          { id: 'breathChain', name: 'серия дыхания', slot: 'attack', mult: 1.7, ap: 3 },
+          { id: 'driftStrike', name: 'уход с ударом', slot: 'attack', mult: 0.7, stepBack: true },
+        ],
+      },
+    ],
     ability: { name: 'Шквал', desc: 'град быстрых ударов вместо одного тяжёлого' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'strikeOften' }, weight: 1.2, source: 'способность: Шквал' }),
@@ -301,7 +497,23 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'паладин',
     role: 'front',
     stats: { maxHp: 68, speed: 5, move: 2 },
-    weapons: [{ name: 'клинок зари', dmg: 8, range: 1, affinity: { attack: 1 } }],
+    // кит приёмов (план weapon-moves, волна 3): «свет зари» достаёт на 2,
+    // «рассечь строй» крепче в толпе своих, «воздаяние» — рисковый удар
+    // мстительницы (пассив «Кара» умножает его по обидчику)
+    weapons: [
+      {
+        name: 'клинок зари',
+        dmg: 8,
+        range: 1,
+        moves: [
+          { id: 'zaryaJab', name: 'укол', slot: 'weakAttack', mult: 0.45 },
+          { id: 'zaryaTrue', name: 'верный удар', slot: 'attack', mult: 1 },
+          { id: 'zaryaLight', name: 'свет зари', slot: 'attack', mult: 0.7, range: 2 },
+          { id: 'zaryaCleave', name: 'рассечь строй', slot: 'attack', mult: 0.85, gang: 0.1 },
+          { id: 'zaryaSmite', name: 'воздаяние', slot: 'selflessAttack', mult: 1.5, expose: true },
+        ],
+      },
+    ],
     passives: { retribution: { mult: 1.25 } },
     ability: { name: 'Кара', desc: 'обидчик своих получает сполна' },
     innate: [
@@ -309,17 +521,40 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     ],
   },
   {
-    // воин-мастер оружия: три оружия, выбирает по ситуации — копьё держит
-    // строй на расстоянии, меч частит, молот ломает наверняка
+    // воин-мастер оружия (кит приёмов, план weapon-moves): у каждого оружия
+    // своя ниша, доминации нет — копьё единственное достаёт на 2, меч даёт
+    // лучший быстрый укол в упор, молот пробивает укрытия и щиты (пирс) и
+    // единственный умеет рискнуть «сплеча»
     id: 'yar',
     name: 'Яр',
     class: 'воин',
     role: 'front',
     stats: { maxHp: 56, speed: 5, move: 2 },
     weapons: [
-      { name: 'копьё', dmg: 6, range: 2 },
-      { name: 'меч', dmg: 7, range: 1, affinity: { weakAttack: 1 } },
-      { name: 'молот', dmg: 8, range: 1, affinity: { weakAttack: -1 } },
+      {
+        name: 'копьё',
+        dmg: 6,
+        range: 2,
+        moves: [
+          { id: 'spearJab', name: 'укол копьём', slot: 'weakAttack', mult: 0.45 },
+          { id: 'spearSweep', name: 'отмах древком', slot: 'attack', mult: 0.9 },
+        ],
+      },
+      {
+        name: 'меч',
+        dmg: 7,
+        range: 1,
+        moves: [{ id: 'swordFlurry', name: 'серия уколов', slot: 'weakAttack', mult: 0.5 }],
+      },
+      {
+        name: 'молот',
+        dmg: 8,
+        range: 1,
+        moves: [
+          { id: 'hammerBreak', name: 'пролом', slot: 'attack', mult: 1.05, pierce: 0.3 },
+          { id: 'hammerAllOut', name: 'сплеча', slot: 'selflessAttack', mult: 1.55, expose: true },
+        ],
+      },
     ],
     ability: { name: 'Вызов', desc: 'признаёт только самого опасного противника' },
     innate: [

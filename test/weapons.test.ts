@@ -88,44 +88,47 @@ describe('мастер оружия выбирает по ситуации', () 
     expect(attacks.map((c) => c.weapon)).toEqual([0]); // копьё
   });
 
-  it('в упор полный удар — молотом (тяжелее), слабый — мечом (аффинность)', () => {
+  it('в упор полный удар — молотом (тяжелее), слабый — мечом (кит приёмов)', () => {
     const yar = yarAt({ x: 4, y: 4 }, [rule({ kind: 'attack', target: 'nearest' })]);
     const foe = fighter('e', 'foe', { x: 5, y: 4 });
     const units = [yar, foe];
-    // полновесный удар (обычный или отчаянный — по обстановке) берёт молот
+    // полновесный удар (пролом или сплеча — по обстановке) берёт молот
     const strong = decide(yar, units, 1, () => false, 2);
     expect(['attack', 'selflessAttack']).toContain(strong.chosen.action);
     expect(YAR[strong.chosen.weapon!]!.name).toBe('молот');
-    // а среди слабых ударов лучший — мечом: аффинность перевешивает урон молота
+    // а среди быстрых приёмов лучший — серия уколов мечом (у молота быстрого
+    // темпа нет вовсе — план weapon-moves)
     const score = (c: { action: string }): number =>
       scoreCandidate(c as Parameters<typeof scoreCandidate>[0], yar, units, yar.compiled.rules)
         .reduce((s, f) => s + f.value, 0);
     const weak = generateCandidates(yar, units)
       .filter((c) => c.action === 'weakAttack')
       .sort((a, b) => score(b) - score(a));
-    expect(weak.length).toBe(3); // все три оружия достают в упор
+    expect(weak.length).toBe(2); // укол копьём и серия уколов; молот не частит
     expect(YAR[weak[0]!.weapon!]!.name).toBe('меч');
   });
 });
 
 describe('аффинность мягкая: слово перебивает', () => {
-  const MARA: WeaponSpec[] = heroArchetype('mara').weapons; // арбалет: weakAttack −1
+  // аффинность живёт у оружий без кита приёмов (враги, дуэлянт); герои
+  // переехали на киты (план weapon-moves) — тут синтетический арбалет
+  const XBOW: WeaponSpec[] = [{ name: 'арбалет', dmg: 7, range: 6, affinity: { attack: 1, weakAttack: -1 } }];
 
-  it('без слова Мара не частит арбалетом', () => {
-    const mara = fighter('mara', 'party', { x: 4, y: 4 },
-      { maxHp: 36, weapons: MARA, atk: 7, range: 6 },
+  it('без слова стрелок не частит арбалетом', () => {
+    const shooter = fighter('shooter', 'party', { x: 4, y: 4 },
+      { maxHp: 36, weapons: XBOW, atk: 7, range: 6 },
       [rule({ kind: 'attack', target: 'nearest' })]);
     const foe = fighter('e', 'foe', { x: 8, y: 4 });
-    const d = decide(mara, [mara, foe], 1, () => false, 3);
+    const d = decide(shooter, [shooter, foe], 1, () => false, 3);
     expect(d.chosen.action).toBe('attack');
   });
 
   it('со словом «бить часто» — частит, аффинность уступает приказу', () => {
-    const mara = fighter('mara', 'party', { x: 4, y: 4 },
-      { maxHp: 36, weapons: MARA, atk: 7, range: 6 },
+    const shooter = fighter('shooter', 'party', { x: 4, y: 4 },
+      { maxHp: 36, weapons: XBOW, atk: 7, range: 6 },
       [rule({ kind: 'attack', target: 'nearest' }), rule({ kind: 'strikeOften' })]);
     const foe = fighter('e', 'foe', { x: 8, y: 4 });
-    const d = decide(mara, [mara, foe], 1, () => false, 3);
+    const d = decide(shooter, [shooter, foe], 1, () => false, 3);
     expect(d.chosen.action).toBe('weakAttack');
   });
 });
@@ -136,7 +139,11 @@ describe('оружие видно игроку', () => {
     expect(intel.lines).toContain('оружие: ржавый тесак (удар 5)');
   });
 
-  it('карточка мастера: три оружия через «;»', () => {
-    expect(describeWeapons(YAR)).toBe('копьё (удар 6, даль 2); меч (удар 7); молот (удар 8)');
+  it('карточка мастера: три оружия с приёмами через «;»', () => {
+    expect(describeWeapons(YAR)).toBe(
+      'копьё (укол копьём 3 (даль 2); отмах древком 5 (даль 2)); ' +
+        'меч (серия уколов 4); ' +
+        'молот (пролом 8 (пробивает укрытия); сплеча 12 (открывает))',
+    );
   });
 });
