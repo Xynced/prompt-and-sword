@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 16;
+export const PROMPT_VERSION = 17;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -103,6 +103,8 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
   'act.focusFire': '{"id":"act.focusFire"} — бить туда же: наваливаться на врага, которого уже бил кто-то из своих',
   'act.bless': '{"id":"act.bless"} — благословить: усилить атаки самого ударного союзника до конца боя; работает только у жреца с активом',
   'act.feint': '{"id":"act.feint"} — финтить: обманным выпадом открыть смежного врага под удары своих; работает только у носителя финта',
+  'act.taunt': '{"id":"act.taunt"} — вызывать на себя: маячить у врагов на виду и злить их, чтобы шли ко мне, а не к остальным нашим',
+  'act.lure': '{"id":"act.lure","ally":"<id союзника>"} — уводить врагов от союзника: держаться у них на виду, но тянуть их в сторону от него',
 };
 
 export interface PromptContext {

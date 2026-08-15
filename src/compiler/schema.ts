@@ -88,6 +88,7 @@ const PARAMLESS_PREFERENCES = [
   'act.focusFire',
   'act.bless',
   'act.feint',
+  'act.taunt',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -131,8 +132,12 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
   if (has('act.attack') && selectors.length > 0) {
     preferences.push(obj({ id: { const: 'act.attack' }, target: { type: 'string', enum: selectors } }));
   }
-  if (has('act.protect') && allyIds.length > 0) {
-    preferences.push(obj({ id: { const: 'act.protect' }, ally: { type: 'string', enum: allyIds } }));
+  // «защищать X» и «уводить от X» — оба про напарника: без союзников в фразе
+  // им некого назвать, и в схему они не попадают вовсе
+  for (const pref of ['act.protect', 'act.lure'] as const) {
+    if (has(pref) && allyIds.length > 0) {
+      preferences.push(obj({ id: { const: pref }, ally: { type: 'string', enum: allyIds } }));
+    }
   }
   for (const pref of PARAMLESS_PREFERENCES) {
     if (has(pref)) preferences.push(obj({ id: { const: pref } }));
@@ -236,6 +241,8 @@ function validatePreference(
         : null;
     case 'act.protect':
       return vocab.includes('act.protect') && inAllies(v.ally) ? { id: 'act.protect', ally: v.ally } : null;
+    case 'act.lure':
+      return vocab.includes('act.lure') && inAllies(v.ally) ? { id: 'act.lure', ally: v.ally } : null;
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {

@@ -14,6 +14,20 @@ export interface Instincts {
   survival: number;
   /** Насколько жалко своих в зоне площадного каста; 0 — «в замес — так в замес». */
   ffCare: number;
+  /**
+   * Осторожность в выборе цели (план teamwork): множитель на видимую «цену
+   * дороги» — заслон телохранителя, глухая оборона цели, крюк пути. 1 — видит
+   * цену как она есть, 0 — не видит вовсе и прёт за целью приказа (фанатик,
+   * буквалист: у него написано «бей X»), больше 1 — преувеличивает (трус).
+   */
+  caution: number;
+  /**
+   * Восприимчивость к провокации (план teamwork): насколько чужой вызов
+   * дешевит для меня все прочие цели. 0 — на «эй, я здесь!» не оборачивается
+   * вовсе (буквалист: ему сказано, кого бить), 2 — ведётся вдвое охотнее
+   * (горячка).
+   */
+  provocable: number;
   /** Фанатик игнорирует угрозу зон контроля. */
   ignoreZoC: boolean;
   /** Буквалист не достраивает пропуски: нет сработавшего правила → защищается на месте. */
@@ -51,6 +65,8 @@ const BASE: Instincts = {
   aggression: 1,
   survival: 1,
   ffCare: 1,
+  caution: 1,
+  provocable: 1,
   ignoreZoC: false,
   gapFill: true,
   actionBias: {},
@@ -101,6 +117,8 @@ interface InstinctMods {
   aggression?: number;
   survival?: number;
   ffCare?: number;
+  caution?: number;
+  provocable?: number;
   ignoreZoC?: true;
   gapFill?: false;
   actionBias?: ActionBias;
@@ -126,6 +144,8 @@ export function applyLens(lenses: readonly LensId[], rules: Rule[]): CompiledBeh
     instincts.aggression *= step.mods.aggression ?? 1;
     instincts.survival *= step.mods.survival ?? 1;
     instincts.ffCare *= step.mods.ffCare ?? 1;
+    instincts.caution *= step.mods.caution ?? 1;
+    instincts.provocable *= step.mods.provocable ?? 1;
     if (step.mods.ignoreZoC) instincts.ignoreZoC = true;
     if (step.mods.gapFill === false) instincts.gapFill = false;
     for (const [action, mult] of Object.entries(step.mods.actionBias ?? {})) {
@@ -304,6 +324,8 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         mods: {
           aggression: 0.7,
           survival: 2.2,
+          // заслон и крюк дороги трус преувеличивает — любой повод не лезть
+          caution: 1.4,
           // за щитом отсидеться — первое, что приходит в голову; открыться —
           // последнее; на опасное поле — только осторожно, даже где не надо
           actionBias: { cover: 1.5, fullCover: 1.2, selflessAttack: 0.2, carefulStep: 1.5 },
@@ -349,6 +371,8 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
           survival: 0.4,
           // свои в зоне каста не жалко: в замес — так в замес (план АОЕ)
           ffCare: 0,
+          // цены дороги не существует: сказано убить — идёт убивать (план teamwork)
+          caution: 0,
           ignoreZoC: true,
           // щиты — для трусов: глухая защита исключена вовсе, размен ран — норма;
           // красться по шипам смешно, а толкать — недостаточно кроваво: бей!
@@ -359,7 +383,12 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
 
     case 'literalist':
       // правила точно как написаны; сила и слабость — нулевая отсебятина
-      return { rules: rules.slice(), mods: { aggression: 0.15, survival: 0.15, gapFill: false } };
+      // (в том числе про цену дороги: написано «бей X» — идёт бить X, и на
+      // «эй, я здесь!» не оборачивается: провокации в приказе не было)
+      return {
+        rules: rules.slice(),
+        mods: { aggression: 0.15, survival: 0.15, caution: 0, provocable: 0, gapFill: false },
+      };
 
     case 'avenger': {
       // обиды не прощает: последний обидчик становится целью
@@ -422,7 +451,14 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
       // бить по площади, не глядя противнику в лицо, — тем более (план АОЕ)
       return {
         rules: out,
-        mods: { aggression: 1.1, actionBias: { weakAttack: 0.85, shove: 0, aoeBlast: 0, aoeLine: 0, aoeRitual: 0 } },
+        mods: {
+          aggression: 1.1,
+          // вызванного не бросают: заслон и крюк — не повод отступиться от
+          // дуэли, а чужие выкрики — не повод сменить противника
+          caution: 0.3,
+          provocable: 0.3,
+          actionBias: { weakAttack: 0.85, shove: 0, aoeBlast: 0, aoeLine: 0, aoeRitual: 0 },
+        },
       };
     }
 
@@ -495,8 +531,9 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
       });
       return {
         rules: out,
-        // осторожный шаг — параноику родной: мало ли что там под ногами
-        mods: { aggression: 0.85, survival: 1.5, actionBias: { cover: 1.8, carefulStep: 1.5 } },
+        // осторожный шаг — параноику родной: мало ли что там под ногами;
+        // цену дороги видит всю и ещё немного сверху
+        mods: { aggression: 0.85, survival: 1.5, caution: 1.3, actionBias: { cover: 1.8, carefulStep: 1.5 } },
       };
     }
 
@@ -542,6 +579,10 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
         mods: {
           aggression: 1.35,
           survival: 0.75,
+          // взвешивать дорогу некогда — кровь уже кипит; а на дерзкий выкрик
+          // горячка оборачивается охотнее всех (план teamwork)
+          caution: 0.4,
+          provocable: 2,
           // бьёт сразу и часто, примеряться и прикрываться некогда; замах на
           // целый ход с ударом через ход — пытка: жги залпом сейчас (план АОЕ)
           actionBias: { weakAttack: 3, cover: 0.5, aoeRitual: 0.3 },

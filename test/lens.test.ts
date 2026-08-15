@@ -281,6 +281,8 @@ describe('композиция линз', () => {
       aggression: 1,
       survival: 1,
       ffCare: 1,
+      caution: 1,
+      provocable: 1,
       ignoreZoC: false,
       gapFill: true,
       actionBias: {},

@@ -184,7 +184,10 @@ describe('перехват телохранителя', () => {
     ];
     let hpNaive = 0;
     let hpPair = 0;
-    let intercepts = 0;
+    let bitesNaive = 0;
+    let bitesPair = 0;
+    let deathsNaive = 0;
+    let deathsPair = 0;
     for (let s = 1; s <= 20; s++) {
       const seed = s * 17 + 3;
       const n = runBattle(seed, [...naive(), ...ambush()], 'late');
@@ -195,9 +198,17 @@ describe('перехват телохранителя', () => {
       };
       hpNaive += frac(n);
       hpPair += frac(g);
-      intercepts += g.events.filter((e) => e.t === 'intercept').length;
+      bitesNaive += attacks(n.events).filter((e) => e.target === 'lia').length;
+      bitesPair += attacks(g.events).filter((e) => e.target === 'lia').length;
+      if (!n.units.find((u) => u.id === 'lia')!.alive) deathsNaive++;
+      if (!g.units.find((u) => u.id === 'lia')!.alive) deathsPair++;
     }
-    expect(intercepts).toBeGreaterThanOrEqual(8); // телохранитель реально ловит удары
+    // связка бережёт подопечную: до неё реже доходят и она реже гибнет.
+    // Перехват при этом стал редким событием — и это замысел плана teamwork:
+    // заслон дешевит прикрытую цель, поэтому охотники за тылом переключаются
+    // на доступных ЕЩЁ ДО удара, и ловить телохранителю почти нечего
+    expect(bitesPair).toBeLessThan(bitesNaive * 0.75);
+    expect(deathsPair).toBeLessThan(deathsNaive / 2);
     expect(hpPair).toBeGreaterThan(hpNaive); // связка бережёт против охоты на тыл
   });
 });

@@ -1,6 +1,7 @@
 import {
   type Preference,
   type Rule,
+  type Selector,
   alliesOf,
   describePreference,
   enemiesOf,
@@ -27,20 +28,26 @@ import type { HazardKind, Tile } from './terrain.js';
 import type { ActionKind, CombatUnit, Pos, WeaponSpec } from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
+  APPEAL_FLOOR,
   WEAPON_AFFINITY_BONUS,
   AP_PER_TURN,
   AP_VALUE,
   COVER,
+  DETOUR_APPEAL,
+  DETOUR_APPEAL_MIN,
+  DETOUR_FREE,
   FULL_COVER,
   BAIT_COVER,
   HARD_PIERCE,
   HAZARD_DMG,
   HIGH_GROUND_DMG,
+  INTERCEPT_APPEAL,
   OFTEN_STANCE_BONUS,
   QUARRY_BIAS,
   RIPOSTE_DMG,
   SELFLESS_ATK_MULT,
   SELFLESS_VULN_MULT,
+  TAUNT_PULL,
   TERRAIN_COVER,
   WEAK_ATK_MULT,
   expectedDamage,
@@ -320,12 +327,21 @@ export function effectiveCover(target: CombatUnit, units: readonly CombatUnit[])
   return Math.max(own, held ? g.level : 0);
 }
 
-/** Стойки манер юнита из сработавших правил решения (план words). */
-export function stanceOf(fired: readonly Rule[]): { often: boolean; hard: boolean; bait: boolean } {
+/** Стойки манер юнита из сработавших правил решения (план words + teamwork). */
+export function stanceOf(
+  fired: readonly Rule[],
+): { often: boolean; hard: boolean; bait: boolean; taunt: boolean } {
   return {
     often: fired.some((r) => r.then.kind === 'strikeOften'),
     hard: fired.some((r) => r.then.kind === 'strikeHard'),
     bait: fired.some((r) => r.then.kind === 'bait'),
+    // Стойка провокации (план teamwork): держится до следующего решения, как
+    // приманка, — внимание уведено и на чужих ходах. Ставит её ТОЛЬКО «вызывать
+    // на себя»: когда стойку ставил и «уводить от X», второе слово поглощало
+    // первое (аудит: комбо не сильнее слов по отдельности) и «вызывать»
+    // становилось лишним трофеем. Теперь слова ортогональны — вызов забирает
+    // внимание, увод двигает того, кто его забрал
+    taunt: fired.some((r) => r.then.kind === 'taunt'),
   };
 }
 
@@ -462,8 +478,8 @@ export interface Decision {
   condRules: number;
   /** Сколько правил сработало всего; 0 — решение целиком достроено инстинктами (план линз). */
   firedCount: number;
-  /** Стойки манер решения (план words) — бой вешает их на юнита до следующего решения. */
-  stance: { often: boolean; hard: boolean; bait: boolean };
+  /** Стойки манер решения (план words + teamwork) — бой вешает их на юнита до следующего решения. */
+  stance: { often: boolean; hard: boolean; bait: boolean; taunt: boolean };
 }
 
 const MAX_DIST = Math.max(GRID_W, GRID_H) - 1;
@@ -890,6 +906,14 @@ const FINISH_RULE_BONUS = 4;
  */
 const FOCUS_FIRE_BONUS = 2.5;
 
+/**
+ * Предел развода для «уводить от X» (план teamwork): дальше этой дистанции от
+ * подопечного премия не растёт. Кап обязателен по уроку слова «подальше от»:
+ * без него увод превращался бы в бегство к краю карты, а уводящий должен
+ * оставаться в бою — он тем и полезен, что враги идут за ним.
+ */
+const LURE_SPREAD = 5;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units));
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -936,6 +960,141 @@ function nearestEnemyDist(p: Pos, self: Fighter, units: readonly Fighter[]): num
   return Math.min(...es.map((e) => dist(e.pos, p)));
 }
 
+/**
+ * Доступность цели для правила «атаковать X» (план teamwork): множитель на
+ * тягу и премии правила. Складывается из двух независимых осей.
+ *
+ * **Цена дороги** — две скидки: заслон (смежный телохранитель с заряженным
+ * перехватом — удар съест он) и крюк пути (до цели заметно дальше, чем до
+ * ближайшей альтернативы — «синица в руке»). Сколько из этого юнит видит,
+ * решает `caution`: фанатик и буквалист (0) слепы и прут за целью приказа,
+ * трус (1.4) преувеличивает. Скидки за глухую оборону цели здесь нет — почему,
+ * сказано в `tuning.ts` рядом с `INTERCEPT_APPEAL`.
+ *
+ * **Внимание** — пока кто-то из своих у цели держит стойку «вызывать на себя»
+ * и досягаем для меня, все ОСТАЛЬНЫЕ цели дешевеют; сам провокатор скидки не
+ * платит, потому подмена и переезжает на него. Восприимчивость — `provocable`:
+ * горячка ведётся вдвое, буквалист и дуэлянт почти нет. Ось отдельная от цены
+ * дороги намеренно: фанатик не считает дорогу, но на дерзкий выкрик
+ * оборачивается — это разные черты, и слепота к одной не даёт слепоты к другой.
+ *
+ * Симметрично для обеих сторон, детерминированно, без rng.
+ */
+export function targetAppeal(
+  target: Fighter,
+  self: Fighter,
+  units: readonly Fighter[],
+  ctx: ScoreCtx,
+  round = 1,
+  // кэш на ОДНО решение: доступность зависит от клетки решающего, а не от
+  // кандидата, поэтому внутри decide она считается по разу на цель. Кэш живёт
+  // не дольше решения — за ход юнит двигается, и заново считать обязательно
+  memo?: AppealMemo,
+): number {
+  const cached = memo?.get(target.id);
+  if (cached !== undefined) return cached;
+  const value = computeAppeal(target, self, units, ctx, round);
+  memo?.set(target.id, value);
+  return value;
+}
+
+/** Ключ — id цели; действителен, пока решающий не сдвинулся (см. targetAppeal). */
+export type AppealMemo = Map<string, number>;
+
+function computeAppeal(
+  target: Fighter,
+  self: Fighter,
+  units: readonly Fighter[],
+  ctx: ScoreCtx,
+  round: number,
+): number {
+  const { caution, provocable } = self.compiled.instincts;
+  let road = 1;
+  if (caution > 0) {
+    const guarded = units.some(
+      (g) =>
+        g.alive &&
+        g !== target &&
+        g.side === target.side &&
+        !g.interceptUsed &&
+        dist(g.pos, target.pos) === 1 &&
+        g.compiled.rules.some(
+          (rl) =>
+            rl.then.kind === 'protect' &&
+            rl.then.ally === target.id &&
+            evalCondition(rl.when, g, units, round),
+        ),
+    );
+    if (guarded) road *= INTERCEPT_APPEAL;
+    // Крюк считается из текущей клетки (свойство выбора цели, не кандидата).
+    // Поле дистанций берём ОТ СЕБЯ и читаем в нём позиции врагов: одна цель —
+    // много клеток у тяги правила, здесь наоборот, и поле от себя обходится
+    // одним BFS вместо одного на каждого врага (без этого аудит слов шёл вдвое
+    // медленнее). На взвешенных клетках направление обхода меняет цену подъёма,
+    // но крюк — сравнение целей между собой, и мера у них общая
+    const others = (enemiesOf(self, units) as Fighter[]).filter((e) => e.id !== target.id);
+    if (others.length > 0) {
+      const gapTo = (e: Fighter): number => Math.max(ctx.distTo(self.pos, e.pos) - self.range, 0);
+      const detour = gapTo(target) - Math.min(...others.map(gapTo)) - DETOUR_FREE;
+      if (detour > 0) road *= Math.max(1 - DETOUR_APPEAL * detour, DETOUR_APPEAL_MIN);
+    }
+    road = 1 - (1 - road) * caution;
+  }
+
+  let attention = 1;
+  if (provocable > 0 && !target.stance?.taunt) {
+    const taunted = units.some(
+      (t) =>
+        t.alive &&
+        t.side === target.side &&
+        t.id !== target.id &&
+        t.stance?.taunt &&
+        dist(t.pos, self.pos) <= strikeReach(self),
+    );
+    if (taunted) attention = Math.max(1 - TAUNT_PULL * provocable, 0);
+  }
+
+  // пол — после обеих осей: даже преувеличивающий трус под градом выкриков не
+  // глушит приказ насмерть, иначе боец без приемлемых целей застывает без дела
+  return Math.max(road * attention, APPEAL_FLOOR);
+}
+
+/**
+ * Кого правило «атаковать X» на самом деле пойдёт бить (план teamwork) и
+ * насколько охотно. Приоритет цели приказа — 1, любой другой достижимой
+ * цели — ровно недоступность приказанной: пока цель приказа доступна
+ * (appeal 1), приоритет прочих нулевой и правило читается буквально, как до
+ * плана. Когда за приказанную цель приходится платить больше половины
+ * (заслон + крюк), доступная цель перевешивает — и весь градиент правила
+ * (тяга, премия удара, премия шага под выстрел) переезжает на неё: это и
+ * есть выбор «ударить сейчас или рискнуть и задавить того, кого велено».
+ * Тайбрейк по id — детерминизм.
+ */
+function ruleTarget(
+  sel: Selector,
+  self: Fighter,
+  units: readonly Fighter[],
+  ctx: ScoreCtx,
+  round: number,
+  memo?: AppealMemo,
+): { target: Fighter; appeal: number } | undefined {
+  const aimed = resolveSelector(sel, self, units) as Fighter | undefined;
+  if (!aimed) return undefined;
+  const aimedAppeal = targetAppeal(aimed, self, units, ctx, round, memo);
+  let best = { target: aimed, appeal: aimedAppeal, prio: aimedAppeal };
+  if (aimedAppeal < 1) {
+    for (const e of enemiesOf(self, units) as Fighter[]) {
+      if (e.id === aimed.id) continue;
+      const appeal = targetAppeal(e, self, units, ctx, round, memo);
+      const prio = (1 - aimedAppeal) * appeal;
+      if (prio > best.prio + 1e-9 || (Math.abs(prio - best.prio) <= 1e-9 && e.id < best.target.id)) {
+        best = { target: e, appeal, prio };
+      }
+    }
+  }
+  return { target: best.target, appeal: best.appeal };
+}
+
 /** Вклад одного сработавшего правила в оценку кандидата. */
 function scorePreference(
   pref: Preference,
@@ -944,32 +1103,40 @@ function scorePreference(
   self: Fighter,
   units: readonly Fighter[],
   ctx: ScoreCtx,
+  round = 1,
+  memo?: AppealMemo,
 ): number {
   switch (pref.kind) {
     case 'attack': {
-      const target = resolveSelector(pref.target, self, units);
-      if (!target) return 0;
+      // цена дороги (план teamwork): заслон и крюк дешевят цель приказа — и,
+      // если она стала дороже доступной, правило переезжает на ту, что под
+      // рукой. Фанатик скидок не видит и бьёт кого велено
+      const aim = ruleTarget(pref.target, self, units, ctx, round, memo);
+      if (!aim) return 0;
+      const { target, appeal } = aim;
       // тяга к цели — но только до своей дальности: стрелок не лезет в рукопашную.
       // Дистанция путевая (BFS): у стены не залипаем, а идём к проходу.
       // Линейная и достаточно крутая, чтобы правило рулило поверх инстинктов.
       const gap = Math.max(ctx.distTo(target.pos, cand.to) - self.range, 0);
-      let s = -0.6 * gap * w;
+      let s = -0.6 * gap * w * appeal;
       // выстрел в укрытую цель — полдела, и премия правила скалируется
       // качеством выстрела: клетка с чистым углом обыгрывает стрельбу в камень,
       // стрелок меняет позицию, а не стоит (ближнему боя укрытие не мешает)
       const quality = 1 - ctx.coverFrom(cand.to, target.pos);
       // правило говорит, КОГО бить, а не чем: премия за потраченный ход, а не
       // за факт удара, поэтому вид атаки выбирают урон и риск, а не правило
-      if (isAttack(cand.action) && cand.targetId === target.id) s += 3 * w * apShare(cand.action) * quality;
+      if (isAttack(cand.action) && cand.targetId === target.id) {
+        s += 3 * w * apShare(cand.action) * quality * appeal;
+      }
       // Шаг, из которого цель реально простреливается, — половина дела. Без
       // этого жадный цикл выбирает клетку по одной лишь тяге `-0.6 × gap`:
       // гладкий градиент почти не различает соседние цели, и разные правила
       // «бей X» / «бей Y» сходились бы к одному и тому же маршруту.
       if (
         isMovement(cand.action) &&
-        canAttackFrom(cand.to, self, target as Fighter, units, ctx.blocked, ctx.heightAt(cand.to))
+        canAttackFrom(cand.to, self, target, units, ctx.blocked, ctx.heightAt(cand.to))
       ) {
-        s += 1.5 * w * quality;
+        s += 1.5 * w * quality * appeal;
       }
       return s;
     }
@@ -1331,6 +1498,30 @@ function scorePreference(
       );
       return started ? FOCUS_FIRE_BONUS * w * apShare(cand.action) : 0;
     }
+    case 'taunt': {
+      // вызывать на себя: работает стойкой (её ставит решение), а позиционно —
+      // «будь у врагов на виду»: премия за каждого, кто до меня достаёт. Это не
+      // приманка: приманка ещё и уклоняется, а вызов — только зовёт, поэтому
+      // коэффициент вдвое меньше приманочного и штрафа «под ударом» нет.
+      // Кричать некому — премии нет: слово молчит, когда врагов рядом ноль
+      const reachable = (enemiesOf(self, units) as Fighter[]).filter(
+        (e) => dist(e.pos, cand.to) <= strikeReach(e),
+      ).length;
+      return 0.25 * Math.min(reachable, 3) * w;
+    }
+    case 'lure': {
+      // уводить от X: быть досягаемым для врагов (иначе уводить нечем) и при
+      // этом тянуть их прочь от подопечного — премия за каждую клетку между
+      // мной и X, до предела: увести можно в сторону, а не за карту
+      const ally = units.find((u) => u.id === pref.ally && u.alive);
+      if (!ally) return 0;
+      const reachable = (enemiesOf(self, units) as Fighter[]).filter(
+        (e) => dist(e.pos, cand.to) <= strikeReach(e),
+      ).length;
+      if (reachable === 0) return 0;
+      const away = Math.min(dist(cand.to, ally.pos), LURE_SPREAD);
+      return (0.25 * Math.min(reachable, 3) + 0.4 * away) * w;
+    }
   }
 }
 
@@ -1346,6 +1537,8 @@ export function scoreCandidate(
   units: readonly Fighter[],
   firedRules: readonly Rule[],
   ctx: ScoreCtx = makeCtx(),
+  round = 1,
+  memo?: AppealMemo,
 ): Factor[] {
   const { instincts } = self.compiled;
   const factors: Factor[] = [];
@@ -1486,8 +1679,17 @@ export function scoreCandidate(
   }
 
   for (const rule of firedRules) {
-    const v = scorePreference(rule.then, rule.weight, cand, self, units, ctx);
-    if (v !== 0) factors.push({ label: `правило:${rule.source}`, value: v });
+    const v = scorePreference(rule.then, rule.weight, cand, self, units, ctx, round, memo);
+    if (v === 0) continue;
+    // подмену цели видно в разборе боя: иначе игрок не поймёт, почему боец с
+    // приказом «бей слабейшего» бьёт кого-то другого (план teamwork)
+    let label = `правило:${rule.source}`;
+    if (rule.then.kind === 'attack') {
+      const aimed = resolveSelector(rule.then.target, self, units);
+      const aim = ruleTarget(rule.then.target, self, units, ctx, round, memo);
+      if (aimed && aim && aim.target.id !== aimed.id) label += ` → ${aim.target.name} (кто доступен)`;
+    }
+    factors.push({ label, value: v });
   }
   return factors;
 }
@@ -1532,9 +1734,11 @@ export function decide(
   }
 
   const candidates = generateCandidates(self, units, ctx, ap, round, fired);
+  // доступность целей одна на всё решение: юнит стоит на месте, пока выбирает
+  const appealMemo: AppealMemo = new Map();
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
-    const factors = scoreCandidate(cand, self, units, fired, ctx);
+    const factors = scoreCandidate(cand, self, units, fired, ctx, round, appealMemo);
     const spent = cand.action === 'wait' ? ap : apCostFor(cand.action, self);
     const score = factors.reduce((s, f) => s + f.value, 0) - spent * AP_VALUE;
     if (

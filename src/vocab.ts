@@ -81,7 +81,10 @@ export type ConceptId =
   | 'act.focusFire'
   // слова-гейты к уже существующим активам (прецедент rage/heal)
   | 'act.bless'
-  | 'act.feint';
+  | 'act.feint'
+  // внутрикомандное взаимодействие (план teamwork): внимание врага как ресурс
+  | 'act.taunt'
+  | 'act.lure';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -161,6 +164,8 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.focusFire': { id: 'act.focusFire', label: 'бить туда же', category: 'action' },
   'act.bless': { id: 'act.bless', label: 'благословить', category: 'action' },
   'act.feint': { id: 'act.feint', label: 'финтить', category: 'action' },
+  'act.taunt': { id: 'act.taunt', label: 'вызывать на себя', category: 'action' },
+  'act.lure': { id: 'act.lure', label: 'уводить от', category: 'action' },
 };
 
 /**
@@ -240,6 +245,12 @@ export const COMMON_WORDS: ConceptId[] = [
   'sel.tormentor',
   // фокус-огонь без метки: канал lastAttackerId, награда за навал
   'act.focusFire',
+  // план teamwork: «уводить от X» внимания не забирает — работает против «бей
+  // ближайшего» и в связке с вызовом. По аудиту (3 сида) слабое и обоюдоострое:
+  // само −4пп наиву / +1пп кайту (пик +8пп на огре с кастерами, худший −14пп на
+  // тролле), а в паре с вызовом добавляет к нему всего +1пп. Пока техника с
+  // узкой нишей; кандидат на переработку в следующей итерации плана words
+  'act.lure',
 ];
 
 /**
@@ -302,6 +313,10 @@ export const RARE_WORDS: ConceptId[] = [
   // слова-гейты активов (прецедент heal/rage): жрец и трюкачка
   'act.bless',
   'act.feint',
+  // план teamwork: стойка вызова уводит внимание врага с прочих целей —
+  // единственное слово, которое меняет ЧУЖОЙ выбор цели, а не свой.
+  // Аудит (3 сида): +6пп наиву, +8пп кайту, пик +25пп на уроке — редкое
+  'act.taunt',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */
