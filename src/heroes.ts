@@ -120,7 +120,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'волшебница',
     role: 'ranged',
     stats: { maxHp: 40, speed: 4, move: 1 },
-    defenses: { ac: 14, fort: 6, ref: 7, will: 10 },
+    defenses: { ac: 15, fort: 6, ref: 7, will: 10 },
     // волшебница-эвокер: залп и ритуал — оба раз в бой; без слова «накрыть
     // скопление» оружие молчит. Дальность ритуала 6 (не 4): с move 1 Лия
     // кастует по бегущим издали, и центр должен дотягиваться до скопления,
@@ -473,7 +473,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     class: 'волшебница',
     role: 'ranged',
     stats: { maxHp: 38, speed: 5, move: 2 },
-    defenses: { ac: 14, fort: 6, ref: 8, will: 9 },
+    defenses: { ac: 15, fort: 6, ref: 8, will: 9 },
     // кит приёмов (план weapon-moves, волна 3): контролёр ближней зоны —
     // плеть бьёт на 2, жар отталкивает (дистанционный толчок, срезанный в
     // плане классов, теперь бесплатен — райдер push готов); искра добирает

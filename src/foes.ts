@@ -1,7 +1,14 @@
 import type { Rule } from './ir.js';
 import type { Pos } from './types.js';
 import type { UnitSpec } from './battle.js';
-import { describeActive, describeAoe, describePassives, describeWeapons, ruleRu } from './cards.js';
+import {
+  describeActive,
+  describeAoe,
+  describeDefenses,
+  describePassives,
+  describeWeapons,
+  ruleRu,
+} from './cards.js';
 import { applyLens } from './lens.js';
 
 /** Фабрики врагов. Новый враг = новый набор правил, не новый арт. */
@@ -24,6 +31,7 @@ export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: str
     );
     if (s.weapons?.length) lines.push(`оружие: ${describeWeapons(s.weapons)}`);
     else if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
+    if (s.defenses) lines.push(`защита: ${describeDefenses(s.defenses)}`);
     if (s.active) lines.push(`актив: ${describeActive(s.active)}`);
     if (s.passives) lines.push(`пассив: ${describePassives(s.passives)}`);
     return { name: s.name, lines };
@@ -90,7 +98,7 @@ export function warChief(): UnitSpec {
     side: 'foe',
     maxHp: 68,
     defenses: { ac: 17, fort: 10, ref: 7, will: 8 },
-    weapons: [{ name: 'топор вождя', dmg: 7, range: 1, dmgType: 'slashing', atkBonus: 10 }],
+    weapons: [{ name: 'топор вождя', dmg: 7, range: 1, dmgType: 'slashing', atkBonus: 9 }],
     speed: 5,
     move: 2,
     tags: ['leader'],
@@ -144,7 +152,7 @@ export function berserker(n: number): UnitSpec {
     side: 'foe',
     maxHp: 44,
     defenses: { ac: 15, fort: 10, ref: 7, will: 4 },
-    weapons: [{ name: 'шипастый цеп', dmg: 8, range: 1, dmgType: 'bludgeoning', atkBonus: 10 }],
+    weapons: [{ name: 'шипастый цеп', dmg: 8, range: 1, dmgType: 'bludgeoning', atkBonus: 9 }],
     speed: 6,
     move: 3,
     lenses: ['fanatic'],
@@ -293,7 +301,7 @@ export function soldier(n: number, buddyId: string): UnitSpec {
     name: `Латник ${n}`,
     side: 'foe',
     maxHp: 42,
-    defenses: { ac: 18, fort: 9, ref: 5, will: 7, resist: { slashing: 2 } },
+    defenses: { ac: 17, fort: 9, ref: 5, will: 7, resist: { slashing: 2 } },
     weapons: [
       { name: 'меч и щит', dmg: 5, range: 1, dmgType: 'slashing', atkBonus: 9, affinity: { attack: 1 } },
       { name: 'метательное копьё', dmg: 4, range: 3, dmgType: 'piercing', atkBonus: 9 },
@@ -325,8 +333,8 @@ export function sergeant(): UnitSpec {
     name: 'Сержант',
     side: 'foe',
     maxHp: 52,
-    defenses: { ac: 18, fort: 10, ref: 5, will: 8, resist: { slashing: 2 } },
-    weapons: [{ name: 'палаш', dmg: 7, range: 1, dmgType: 'slashing', atkBonus: 10 }],
+    defenses: { ac: 17, fort: 10, ref: 5, will: 8, resist: { slashing: 2 } },
+    weapons: [{ name: 'палаш', dmg: 7, range: 1, dmgType: 'slashing', atkBonus: 9 }],
     speed: 5,
     move: 2,
     tags: ['leader'],
@@ -447,7 +455,7 @@ export function ogre(): UnitSpec {
     side: 'foe',
     maxHp: 90,
     defenses: { ac: 15, fort: 12, ref: 4, will: 4 },
-    weapons: [{ name: 'дубина-бревно', dmg: 10, range: 1, dmgType: 'bludgeoning', atkBonus: 11 }],
+    weapons: [{ name: 'дубина-бревно', dmg: 10, range: 1, dmgType: 'bludgeoning', atkBonus: 10 }],
     speed: 2,
     move: 1,
     lenses: ['plain'],
@@ -559,7 +567,7 @@ export function troll(): UnitSpec {
     side: 'foe',
     maxHp: 72,
     defenses: { ac: 16, fort: 12, ref: 6, will: 5, weak: { fire: 3, acid: 3 } },
-    weapons: [{ name: 'когтистые лапы', dmg: 8, range: 1, dmgType: 'slashing', atkBonus: 11 }],
+    weapons: [{ name: 'когтистые лапы', dmg: 8, range: 1, dmgType: 'slashing', atkBonus: 10 }],
     speed: 4,
     move: 2,
     lenses: ['fanatic'],
@@ -583,10 +591,10 @@ export function duelist(): UnitSpec {
     name: 'Поединщик',
     side: 'foe',
     maxHp: 76,
-    defenses: { ac: 19, fort: 9, ref: 11, will: 8 },
+    defenses: { ac: 18, fort: 9, ref: 11, will: 8 },
     weapons: [
-      { name: 'клеймор', dmg: 9, range: 1, dmgType: 'slashing', atkBonus: 12, affinity: { attack: 1, weakAttack: -1 } },
-      { name: 'чекан', dmg: 7, range: 1, dmgType: 'bludgeoning', atkBonus: 12, affinity: { weakAttack: 1 } },
+      { name: 'клеймор', dmg: 9, range: 1, dmgType: 'slashing', atkBonus: 10, affinity: { attack: 1, weakAttack: -1 } },
+      { name: 'чекан', dmg: 7, range: 1, dmgType: 'bludgeoning', atkBonus: 10, affinity: { weakAttack: 1 } },
     ],
     speed: 5,
     move: 2,
@@ -607,7 +615,7 @@ export function warlord(): UnitSpec {
     // 132 (было 120): ритуал съедает треть его ходов, а фанатик жжёт и свою
     // свиту — без компенсации узел босса мягчел с 43 до ~55% (план АОЕ, шаг 8)
     maxHp: 132,
-    defenses: { ac: 19, fort: 12, ref: 8, will: 10 },
+    defenses: { ac: 18, fort: 12, ref: 8, will: 10 },
     // dmg 9: с пулом героев и способностями (партия сильнее фиксированной
     // тройки фазы 5) наив на 52/8 добрался до ~46% — босс переставал быть
     // задачей на контр-формулировку; здесь наив ~35%.
@@ -620,7 +628,7 @@ export function warlord(): UnitSpec {
       dmg: 9,
       range: 1,
       dmgType: 'slashing',
-      atkBonus: 12,
+      atkBonus: 10,
       aoe: { ritual: { range: 4, mult: 2.0, cooldown: 3, dmgType: 'void' } },
     }],
     speed: 6,

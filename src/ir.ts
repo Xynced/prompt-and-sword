@@ -1,5 +1,6 @@
 import type { CombatUnit, LensId, Pos, Zone } from './types.js';
 import { GRID_H, GRID_W, dist, posInZone, zoneDist } from './grid.js';
+import { DEFAULT_AC } from './tuning.js';
 
 /**
  * IR — промежуточное представление принципов. 12 концептов MVP:
@@ -143,7 +144,9 @@ export type Selector =
   | 'heckler'
   | 'unengaged'
   | 'intruder'
-  | 'ward';
+  | 'ward'
+  | 'vulnerable'
+  | 'armored';
 
 /**
  * Роль своего вместо имени (план teamwork, вторая волна): принцип переживает
@@ -246,6 +249,12 @@ export type Condition =
   // четвёртая партия слов — «чтение боя»
   /** Затишье: ни один враг не дотянется до меня за свой ход (отрицание underCharge). */
   | { kind: 'lull' }
+  /**
+   * Оружие не берёт (план damage-types): ближайший враг держит или вовсе не
+   * чувствует ВСЕ типы урона моего арсенала. Гейт для «сменить цель» и
+   * «отойти»: слово о том, что драка бессмысленна именно этими руками.
+   */
+  | { kind: 'weaponFails' }
   /** Я на высоте: моя клетка выше уровня поля (нужен GroundView, без него — молчит). */
   | { kind: 'onHighGround' }
   /** Меня прижали: свободных смежных клеток ≤ 1 (границы, камень, тела). */
@@ -569,6 +578,26 @@ export function evalCondition(
       if (own.length < 2) return false;
       return own.some((u) => !own.some((o) => o.id !== u.id && dist(o.pos, u.pos) <= 1));
     }
+    case 'weaponFails': {
+      // считаем по ближайшему живому врагу: тип, которым я его беру без
+      // скидки, — есть? Значит, оружие берёт. Урон без типа берёт всегда
+      const foes = units.filter((u) => u.alive && u.side !== self.side && !u.inert);
+      if (foes.length === 0) return false;
+      const target = foes.reduce((best, u) =>
+        dist(u.pos, self.pos) < dist(best.pos, self.pos) ||
+        (dist(u.pos, self.pos) === dist(best.pos, self.pos) && u.id < best.id)
+          ? u
+          : best,
+      );
+      // тип приёма перебивает оружейный, приём без своего типа наследует его
+      const types = (self.weapons ?? []).flatMap((w) =>
+        w.moves && w.moves.length > 0 ? w.moves.map((m) => m.dmgType ?? w.dmgType) : [w.dmgType],
+      );
+      if (types.length === 0 || types.some((t) => !t)) return false;
+      return types.every(
+        (t) => t && (target.defenses?.immune?.includes(t) || (target.defenses?.resist?.[t] ?? 0) > 0),
+      );
+    }
     case 'lull': {
       // затишье — точное отрицание «накатывают»: никто не дотянется за свой
       // ход; без врагов боя нет, условие молчит
@@ -728,6 +757,45 @@ export function resolveSelector(
       const free = enemies.filter((e) => !mates.some((a) => dist(a.pos, e.pos) === 1));
       if (free.length === 0) return pick((u) => dist(u.pos, self.pos));
       return free.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
+    case 'vulnerable': {
+      // уязвимый (план damage-types): враг, которого мой урон берёт лучше
+      // прочих — по слабостям и сопротивлениям к типу моего оружия. Считаем
+      // по лучшему типу, какой у меня есть: у мастера трёх оружий это
+      // «чем-нибудь из арсенала», у однооружейного — «моим единственным».
+      // Все одинаковы (или типов нет вовсе) — ближайший
+      const edge = (u: CombatUnit): number => {
+        let best = 0;
+        for (const w of self.weapons ?? []) {
+          for (const t of [w.dmgType, ...(w.moves ?? []).map((m) => m.dmgType)]) {
+            if (!t) continue;
+            if (u.defenses?.immune?.includes(t)) continue;
+            best = Math.max(best, (u.defenses?.weak?.[t] ?? 0) - (u.defenses?.resist?.[t] ?? 0));
+          }
+        }
+        return best;
+      };
+      const bestEdge = Math.max(...enemies.map(edge));
+      if (bestEdge <= 0) return pick((u) => dist(u.pos, self.pos));
+      const soft = enemies.filter((u) => edge(u) === bestEdge);
+      return soft.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
+    case 'armored': {
+      // бронированный (план damage-types): враг с самым высоким КБ. Слово
+      // двустороннее — им и назначают цель («вали латника, пока строй цел»),
+      // и уводят от неё («держаться подальше от бронированного»)
+      const acOfUnit = (u: CombatUnit): number => u.defenses?.ac ?? DEFAULT_AC;
+      const topAc = Math.max(...enemies.map(acOfUnit));
+      const heavy = enemies.filter((u) => acOfUnit(u) === topAc);
+      return heavy.reduce((best, u) => {
         const s = dist(u.pos, self.pos);
         const bs = dist(best.pos, self.pos);
         return s < bs || (s === bs && u.id < best.id) ? u : best;

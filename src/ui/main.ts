@@ -899,9 +899,22 @@ function buildFrames(
         const verb = e.move
           ? `бьёт («${e.move}»)`
           : e.action === 'weakAttack' ? 'бьёт слабо' : e.action === 'selflessAttack' ? 'бьёт отчаянно' : 'бьёт';
-        pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
+        // исход броска и защиты цели (план damage-types): промах обязан
+        // читаться промахом, иначе игрок спишет его на свою формулировку
+        if (e.outcome === 'miss') {
+          pending?.parts.push(`${verb} ${nm(e.target)} — мимо`);
+          float(e.target, 'мимо', 'info');
+          break;
+        }
+        const soak =
+          e.soak === 'immune' ? ' (не берёт)'
+          : e.soak === 'resist' ? ' (броня)'
+          : e.soak === 'weak' ? ' (в слабое место)'
+          : '';
+        const crit = e.outcome === 'crit' ? ' ✸' : '';
+        pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}${soak}${crit}`);
         pending?.fx.push({ kind: 'cells', cells: [{ x: t.x, y: t.y }], form: 'hit' });
-        float(e.target, `−${e.dmg}${e.flank ? ' ⚑' : ''}`, 'dmg');
+        float(e.target, `−${e.dmg}${e.flank ? ' ⚑' : ''}${crit}`, 'dmg');
         break;
       }
       case 'hazard': {
@@ -960,8 +973,14 @@ function buildFrames(
       case 'aoeHit': {
         const u = units.get(e.unit)!;
         u.hp = e.hp;
-        pending?.parts.push(`${nm(e.unit)} накрыт: −${e.dmg}`);
-        float(e.unit, `−${e.dmg}`, 'dmg');
+        // спасбросок жертвы (план damage-types) — почему числа у накрытых разные
+        const save =
+          e.save === 'critSuccess' ? ' (увернулся)'
+          : e.save === 'success' ? ' (вполсилы)'
+          : e.save === 'critFail' ? ' (накрыло вдвое)'
+          : '';
+        pending?.parts.push(`${nm(e.unit)} накрыт: −${e.dmg}${save}`);
+        float(e.unit, e.dmg === 0 ? 'мимо' : `−${e.dmg}`, e.dmg === 0 ? 'info' : 'dmg');
         break;
       }
       case 'die': {

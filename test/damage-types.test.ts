@@ -5,7 +5,12 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { heroArchetype } from '../src/heroes.js';
 import { applyDefenses, d20, degreeOf } from '../src/tuning.js';
 import type { CombatUnit, Defenses, Pos, Side, WeaponSpec } from '../src/types.js';
+import { evalCondition, resolveSelector } from '../src/ir.js';
 import type { Rule } from '../src/ir.js';
+import { CONCEPTS, COMMON_WORDS, RARE_WORDS } from '../src/vocab.js';
+import { compilePhrase, describeDraft } from '../src/constructor.js';
+import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
+import { ruleRu } from '../src/cards.js';
 
 /**
  * Защиты и типы урона (план damage-types, шаг 1): тип живёт на оружии, точный
@@ -221,7 +226,7 @@ describe('бросок принадлежит моменту боя, а не п�
   it('d20 покрывает все двадцать граней примерно поровну', () => {
     const counts = new Array<number>(21).fill(0);
     for (let round = 1; round <= 400; round++) {
-      for (let ap = 1; ap <= 5; ap++) counts[d20(1, 'u', round, ap, 'atk')] += 1;
+      for (let ap = 1; ap <= 5; ap++) counts[d20(1, 'u', round, ap, 'atk')]! += 1;
     }
     expect(counts[0]).toBe(0);
     for (let face = 1; face <= 20; face++) {
@@ -243,5 +248,108 @@ describe('бросок принадлежит моменту боя, а не п�
     expect(first.outcome ?? (degree === 'success' ? undefined : 'что-то не так')).toBe(
       degree === 'critSuccess' ? 'crit' : degree === 'success' ? undefined : 'miss',
     );
+  });
+});
+
+describe('слова о защитах: «уязвимый», «бронированный», «оружие не берёт»', () => {
+  const foeAt = (id: string, x: number, defenses?: Defenses): Fighter =>
+    fighter(id, 'foe', { x, y: 8 }, { maxHp: 60, hp: 60, ...(defenses ? { defenses } : {}) });
+
+  it('«уязвимый» выбирает того, кого моё оружие берёт лучше прочих', () => {
+    const yar = heroArchetype('yar');
+    const self = fighter('yar', 'party', { x: 2, y: 8 }, { weapons: yar.weapons });
+    const near = foeAt('near', 3);
+    const soft = foeAt('soft', 9, { weak: { bludgeoning: 3 } });
+    expect(resolveSelector('vulnerable', self, [self, near, soft])?.id).toBe('soft');
+    // слабостей ни у кого — откат к ближайшему, как у прочих вражеских селекторов
+    expect(resolveSelector('vulnerable', self, [self, near, foeAt('far', 9)])?.id).toBe('near');
+    // иммунитет не делает цель уязвимой, даже если рядом есть слабость к другому типу
+    const immune = foeAt('immune', 9, { immune: ['bludgeoning', 'piercing', 'slashing'] });
+    expect(resolveSelector('vulnerable', self, [self, near, immune])?.id).toBe('near');
+  });
+
+  it('«бронированный» выбирает цель с высшим КБ, при равенстве — ближнюю', () => {
+    const self = fighter('me', 'party', { x: 2, y: 8 });
+    const light = foeAt('light', 3, { ac: 13 });
+    const heavy = foeAt('heavy', 9, { ac: 19 });
+    expect(resolveSelector('armored', self, [self, light, heavy])?.id).toBe('heavy');
+    const twin = foeAt('twin', 12, { ac: 19 });
+    expect(resolveSelector('armored', self, [self, light, heavy, twin])?.id).toBe('heavy');
+  });
+
+  it('«оружие не берёт» — когда весь арсенал упирается в броню ближайшего', () => {
+    const yar = heroArchetype('yar');
+    const self = fighter('yar', 'party', { x: 2, y: 8 }, { weapons: yar.weapons });
+    const all: Defenses = { resist: { bludgeoning: 2, piercing: 2, slashing: 2 } };
+    expect(evalCondition({ kind: 'weaponFails' }, self, [self, foeAt('wall', 3, all)], 1)).toBe(true);
+    // хоть один тип проходит — берёт
+    expect(
+      evalCondition(
+        { kind: 'weaponFails' },
+        self,
+        [self, foeAt('part', 3, { resist: { slashing: 2, piercing: 2 } })],
+        1,
+      ),
+    ).toBe(false);
+    // безликое оружие берёт всегда: защит по типу для него не существует
+    const bare = fighter('bare', 'party', { x: 2, y: 8 });
+    expect(evalCondition({ kind: 'weaponFails' }, bare, [bare, foeAt('wall', 3, all)], 1)).toBe(false);
+    // некого бить — условие молчит
+    expect(evalCondition({ kind: 'weaponFails' }, self, [self], 1)).toBe(false);
+  });
+
+  it('слова живут по слоям: словарь, конструктор, схема, карточка, пулы', () => {
+    expect(CONCEPTS['sel.vulnerable'].category).toBe('selector');
+    expect(CONCEPTS['sel.armored'].category).toBe('selector');
+    expect(CONCEPTS['cond.weaponFails'].category).toBe('condition');
+    expect(COMMON_WORDS).toContain('sel.vulnerable');
+    expect(RARE_WORDS).toContain('sel.armored');
+    expect(RARE_WORDS).toContain('cond.weaponFails');
+
+    const draft = {
+      condition: { id: 'cond.weaponFails' as const },
+      preference: { id: 'act.attack' as const, target: 'sel.vulnerable' as const },
+    };
+    const ok = compilePhrase(draft, ['cond.weaponFails', 'act.attack', 'sel.vulnerable']);
+    expect(ok.ok && ok.rule.when).toEqual({ kind: 'weaponFails' });
+    expect(ok.ok && ok.rule.then).toEqual({ kind: 'attack', target: 'vulnerable' });
+    expect(describeDraft(draft)).toBe('если оружие не берёт: атаковать: уязвимый');
+    expect(ok.ok && ruleRu(ok.rule)).toContain('того, кого моё оружие берёт лучше всех');
+    // закрытое слово компилятору недоступно
+    expect(compilePhrase(draft, ['act.attack', 'sel.vulnerable']).ok).toBe(false);
+
+    const schema = buildCompileSchema(['cond.weaponFails', 'act.attack', 'sel.armored'], []);
+    expect(JSON.stringify(schema)).toContain('sel.armored');
+    expect(
+      validateOutput(
+        {
+          phrases: [
+            { condition: { id: 'cond.weaponFails' }, preference: { id: 'act.attack', target: 'sel.armored' }, weight: 2 },
+          ],
+          uncertainty: [],
+        },
+        ['cond.weaponFails', 'act.attack', 'sel.armored'],
+        [],
+        4,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('в бою приказ «бей уязвимого» уводит удар с ближнего на слабого к моему типу', () => {
+    const ulv = heroArchetype('ulv'); // секира: рубящий, обух — дробящий
+    const res = runBattle(4, [
+      spec({
+        id: 'ulv',
+        side: 'party',
+        weapons: [ulv.weapons[0]!],
+        speed: 9,
+        spawn: { x: 7, y: 8 },
+        rules: [rule({ kind: 'attack', target: 'vulnerable' })],
+      }),
+      spec({ id: 'near', side: 'foe', maxHp: 90, spawn: { x: 8, y: 8 }, rules: [] }),
+      spec({ id: 'soft', side: 'foe', maxHp: 90, defenses: { weak: { slashing: 4 } }, spawn: { x: 9, y: 8 }, rules: [] }),
+    ]);
+    const first = attacks(res.events, 'ulv')[0];
+    expect(first?.target).toBe('soft');
   });
 });
