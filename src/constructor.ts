@@ -40,6 +40,7 @@ export type SimpleConditionDraft =
   | { id: 'cond.spreadThin' }
   | { id: 'cond.lull' }
   | { id: 'cond.weaponFails' }
+  | { id: 'cond.smoldering' }
   | { id: 'cond.onHighGround' }
   | { id: 'cond.cornered' }
   | { id: 'cond.inFormation' }
@@ -116,6 +117,7 @@ export type PreferenceDraft =
   | { id: 'act.focusFire' }
   | { id: 'act.bless' }
   | { id: 'act.feint' }
+  | { id: 'act.douse' }
   | { id: 'act.taunt' }
   | { id: 'act.lure'; ally: AllyRef }
   | { id: 'act.screen'; ally: AllyRef }
@@ -283,6 +285,8 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
       return 'пока затишье: ';
     case 'cond.weaponFails':
       return 'если оружие не берёт: ';
+    case 'cond.smoldering':
+      return 'пока на мне тлеет: ';
     case 'cond.onHighGround':
       return 'пока я на высоте: ';
     case 'cond.cornered':
@@ -345,6 +349,8 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       ? 'благословлять'
       : p.id === 'act.feint'
       ? 'финтить'
+      : p.id === 'act.douse'
+      ? 'сбивать пламя'
       : p.id === 'act.strikeOften'
       ? 'бить часто'
       : p.id === 'act.strikeHard'
@@ -474,6 +480,8 @@ function compileCondition(c: ConditionDraft): Condition {
       return { kind: 'lull' };
     case 'cond.weaponFails':
       return { kind: 'weaponFails' };
+    case 'cond.smoldering':
+      return { kind: 'smoldering' };
     case 'cond.onHighGround':
       return { kind: 'onHighGround' };
     case 'cond.cornered':
@@ -543,6 +551,8 @@ export function compilePhrase(
       ? { kind: 'bless' }
       : p.id === 'act.feint'
       ? { kind: 'feint' }
+      : p.id === 'act.douse'
+      ? { kind: 'douse' }
       : p.id === 'act.strikeOften'
       ? { kind: 'strikeOften' }
       : p.id === 'act.strikeHard'

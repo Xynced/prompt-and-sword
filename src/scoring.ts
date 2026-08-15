@@ -34,6 +34,7 @@ import type {
   ActionKind,
   CombatUnit,
   DamageType,
+  PersistSpec,
   Pos,
   SaveKind,
   WeaponMove,
@@ -69,9 +70,12 @@ import {
   DEFAULT_AC,
   DEFAULT_ATK_BONUS,
   DEFAULT_SAVE,
+  PERSIST_DISCOUNT,
   applyDefenses,
   expectedAttackMult,
   expectedDamage,
+  persistTicks,
+  persistTicksAssisted,
   expectedSaveMult,
 } from './tuning.js';
 
@@ -99,6 +103,10 @@ export const AP_COST: Record<ActionKind, number> = {
   // затевающий, ход подопечного не тратится. За 2 AP приём не окупался бы
   // никогда — вытащить своего стоило бы партии дороже, чем принять удар
   swap: 1,
+  // сбить пламя / зажать рану (план damage-types, волна 6): движение, а не
+  // лечение. За 2 AP помощь стоила бы дороже спасаемого урона и не бралась бы
+  // никогда — тление обходится в 3.3 hp ожидания, полный удар в 2 AP дороже
+  douse: 1,
   aoeBlast: 2,
   aoeLine: 2,
   attack: 2,
@@ -143,6 +151,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   bless: 0,
   feint: 0,
   swap: 0,
+  douse: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -170,6 +179,7 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   bless: 0,
   feint: 0,
   swap: 0,
+  douse: 0,
   wait: 0,
 };
 
@@ -228,6 +238,59 @@ export const saveKindFor = (t?: DamageType): SaveKind =>
  */
 export function dmgTypeOf(weapon: WeaponSpec, move: WeaponMove): DamageType | undefined {
   return move.dmgType ?? weapon.dmgType;
+}
+
+/**
+ * Тление удара (план damage-types, волна 6): приём перебивает оружие — тот же
+ * порядок, что у типа урона.
+ */
+export function persistOf(weapon: WeaponSpec, move: WeaponMove): PersistSpec | undefined {
+  return move.persist ?? weapon.persist;
+}
+
+/**
+ * Сколько урона тление оставит в цели сверх уже тлеющего (план damage-types,
+ * волна 6): урон тика после её защит × ожидаемое число тиков. Ноль по
+ * иммунному и по уже горящему тем же типом — правило pf2e «тот же тип не
+ * складывается» обязано быть видно скорингу, иначе поджигатель жжёт одного и
+ * того же вместо того, чтобы разносить огонь по строю.
+ */
+export function persistGain(
+  spec: PersistSpec | undefined,
+  hitType: DamageType | undefined,
+  target: CombatUnit,
+): number {
+  if (!spec) return 0;
+  const type = spec.type ?? hitType;
+  if (!type || target.defenses?.immune?.includes(type)) return 0;
+  const current = target.persist?.find((p) => p.type === type)?.dmg ?? 0;
+  if (current >= spec.dmg) return 0;
+  const perTick =
+    applyDefenses(spec.dmg, type, target.defenses).dmg -
+    applyDefenses(current, type, target.defenses).dmg;
+  return Math.max(0, perTick) * persistTicks();
+}
+
+/** Сколько урона юнит ещё потеряет от тлеющего на нём (после его защит). */
+export function persistThreat(u: CombatUnit): number {
+  let sum = 0;
+  for (const p of u.persist ?? []) sum += applyDefenses(p.dmg, p.type, u.defenses).dmg * persistTicks();
+  return sum;
+}
+
+/**
+ * Что покупает одно очко хода, потраченное на «сбить пламя»: разницу между
+ * ожиданием тления по обычному DC и по сниженному. Второй помощи подряд цены
+ * нет — проверка одна.
+ */
+export function douseGain(u: CombatUnit): number {
+  let saved = 0;
+  for (const p of u.persist ?? []) {
+    if (p.assisted) continue;
+    const perTick = applyDefenses(p.dmg, p.type, u.defenses).dmg;
+    saved += perTick * (persistTicks() - persistTicksAssisted());
+  }
+  return saved;
 }
 
 /** Клетка, куда толчок сдвигает цель: ровно на 1 строго от толкающего. */
@@ -963,6 +1026,17 @@ export function generateCandidates(
     }
   }
 
+  // сбить пламя / зажать рану (план damage-types, волна 6): себе или смежному
+  // своему. Слова не требует — прецедент прикрытия: гасить горящего инстинкт
+  // понимает сам, слово «сбивать пламя» лишь поднимает приоритет
+  if (ap >= AP_COST.douse && allowed('douse')) {
+    for (const a of alliesOf(self, units) as Fighter[]) {
+      if (dist(here, a.pos) <= 1 && a.persist?.some((p) => !p.assisted)) {
+        out.push({ to: here, action: 'douse', targetId: a.id });
+      }
+    }
+  }
+
   out.push({ to: here, action: 'wait' });
   return out;
 }
@@ -1051,6 +1125,15 @@ const BLESS_RULE_BONUS = 2.5;
  * его выгоду добирают следующие удары по открытой цели.
  */
 const FEINT_RULE_BONUS = 3.2;
+
+/**
+ * Премия правила «сбивать пламя» при полной нужде (план damage-types, волна 6)
+ * и порог этой нужды — доля maxHp, которую спасает помощь. Заметно ниже
+ * лечения (3.5): помощь не поднимает hp, а лишь укорачивает тление, и слово о
+ * ней не должно уводить бойца из боя всякий раз, как на ком-то тлеет искра.
+ */
+const DOUSE_RULE_BONUS = 2.2;
+const DOUSE_FULL_NEED = 0.08;
 
 /**
  * Премия правилу «добивать» атаке, снимающей цель. Поверх lethal-бонуса
@@ -1854,6 +1937,13 @@ function scorePreference(
       const need = Math.min((target.maxHp - target.hp) / target.maxHp / HEAL_FULL_NEED, 1);
       return HEAL_RULE_BONUS * w * need;
     }
+    case 'douse': {
+      // сбивать пламя: премия помощи по тому, сколько урона она спасает —
+      // царапину сбивать невыгодно, полымя на танке важнее удара
+      if (cand.action !== 'douse' || !cand.targetId) return 0;
+      const hurt = units.find((u) => u.id === cand.targetId)!;
+      return DOUSE_RULE_BONUS * w * Math.min(douseGain(hurt) / hurt.maxHp / DOUSE_FULL_NEED, 1);
+    }
     case 'feint': {
       // финтить: ценность — открытая цель под ударами; полная премия, когда
       // добрать могут хотя бы двое своих (включая самого финтёра — он бьёт
@@ -2176,6 +2266,19 @@ export function scoreCandidate(
         value: -(RIPOSTE_DMG / self.maxHp) * 6 * instincts.survival,
       });
     }
+    // тление приёма (план damage-types, волна 6): урон «потом» — та же валюта,
+    // что у агрессии, но со скидкой на отложенность. По уже горящей цели
+    // прибавки нет вовсе, поэтому поджигатель сам идёт к следующему
+    const gain = persistGain(persistOf(weapon, move), dmgTypeOf(weapon, move), target);
+    if (gain > 0) {
+      const value =
+        (Math.min(gain * expectedAttackMult(attackBonusOf(weapon), acOf(target)), target.hp) /
+          target.maxHp) *
+        6 *
+        PERSIST_DISCOUNT *
+        instincts.aggression;
+      if (value !== 0) factors.push({ label: 'длящийся урон', value });
+    }
     // аффинность оружия к манере: мягкий вкус, слово игрока (±2.5) перебивает
     const aff = weapon.affinity?.[cand.action as 'weakAttack' | 'attack' | 'selflessAttack'];
     if (aff) factors.push({ label: 'оружие:манера', value: aff * WEAPON_AFFINITY_BONUS });
@@ -2289,6 +2392,15 @@ export function scoreCandidate(
       const spared = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units)) * level;
       const v = (spared / ally.maxHp) * 6 * instincts.survival;
       if (v !== 0) factors.push({ label: 'инстинкт:прикрыть своего', value: v });
+    }
+  }
+  // сбить пламя: цена помощи — спасённый ожидаемый урон, та же валюта, что у
+  // прикрытия своего. Горящий сам себя тоже сбивает — цель выбирает скоринг
+  if (cand.action === 'douse' && cand.targetId) {
+    const hurt = units.find((u) => u.id === cand.targetId);
+    if (hurt?.alive) {
+      const v = (douseGain(hurt) / hurt.maxHp) * 6 * instincts.survival;
+      if (v !== 0) factors.push({ label: 'инстинкт:сбить пламя', value: v });
     }
   }
   if (cand.action === 'wall') {

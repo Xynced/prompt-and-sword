@@ -68,6 +68,33 @@ export interface Defenses {
   immune?: DamageType[];
 }
 
+/**
+ * Длящийся урон (план damage-types, волна 6) — райдер приёма или площадной
+ * формы: горение, кровотечение, яд. Вешается только дошедшим ударом, крит
+ * удваивает (правило pf2e), у площадных — только проваленным спасброском.
+ *
+ * `type` отдельно от типа самого удара намеренно: отравленный кинжал ранит
+ * колющим, а тлеет в жертве ядом — и сопротивление яду гасит именно тление,
+ * не удар.
+ */
+export interface PersistSpec {
+  /** Урон за тик; рабочий диапазон 1–2 (обоснование — `PERSIST_DC` в tuning.ts). */
+  dmg: number;
+  /** Тип тления, если отличается от типа удара. */
+  type?: DamageType;
+}
+
+/** Тлеющий на юните длящийся урон: по записи на тип (тот же тип не стакается). */
+export interface Persist {
+  type: DamageType;
+  dmg: number;
+  /**
+   * Помощь подоспела (assisted recovery pf2e): ближайшая проверка гасится
+   * по PERSIST_DC_ASSISTED вместо PERSIST_DC. Снимается самой проверкой.
+   */
+  assisted?: boolean;
+}
+
 /** Прямоугольная зона задачи боя (план objectives, волна 2): рубеж, выход, берег. */
 export interface Zone {
   x1: number;
@@ -97,6 +124,8 @@ export type ActionKind =
   | 'shieldAlly'
   /** Обмен клетками со смежным союзником (план teamwork): цену платит затевающий. */
   | 'swap'
+  /** Сбить пламя / зажать рану себе или смежному своему (план damage-types, волна 6). */
+  | 'douse'
   | 'wait';
 
 /**
@@ -194,6 +223,8 @@ export interface WeaponMove {
   stepBack?: true;
   /** Удар делится на две цели: вторая — ближайший к бьющему другой враг в дальности приёма. */
   twin?: true;
+  /** Оставляет в цели длящийся урон (план damage-types, волна 6): горение, кровь, яд. */
+  persist?: PersistSpec;
 }
 
 /**
@@ -219,6 +250,12 @@ export interface WeaponSpec {
    * «голые» юниты тестов остаются как были.
    */
   dmgType?: DamageType;
+  /**
+   * Длящийся урон всего оружия (волна 6) — умолчание для приёмов: грязные
+   * зубы травят любым укусом. Приём перебивает своим райдером; оружие без
+   * кита иначе не смогло бы тлеть вовсе — тление живёт на приёме.
+   */
+  persist?: PersistSpec;
   /** Родные (1) и чуждые (−1) манеры удара; отсутствие — нейтрально. */
   affinity?: Partial<Record<'weakAttack' | 'attack' | 'selflessAttack', 1 | -1>>;
   /** Множитель слабого удара этого оружия вместо общего WEAK_ATK_MULT (кулаки Юны). */
@@ -240,9 +277,15 @@ export interface WeaponSpec {
  */
 export interface AoeSpec {
   /** Залп: мгновенный взрыв 3×3 вокруг центра в дальности range; урон mult × ожидаемый удар, фиксированный. */
-  blast?: { range: number; mult: number; usesPerBattle?: number; dmgType?: DamageType };
+  blast?: {
+    range: number;
+    mult: number;
+    usesPerBattle?: number;
+    dmgType?: DamageType;
+    persist?: PersistSpec;
+  };
   /** Линия («волна клинка»): мгновенная полоса 1×len от себя в одном из 8 направлений; камень обрывает взмах. */
-  line?: { len: number; mult: number; dmgType?: DamageType };
+  line?: { len: number; mult: number; dmgType?: DamageType; persist?: PersistSpec };
   /**
    * Ритуал: телеграфированная зона 5×5 — замах весь ход (3 AP), бьёт всех,
    * кто в зоне в начале **следующего** хода кастера; смерть кастера отменяет.
@@ -257,6 +300,7 @@ export interface AoeSpec {
     usesPerBattle?: number;
     pulses?: number;
     dmgType?: DamageType;
+    persist?: PersistSpec;
   };
 }
 
@@ -330,6 +374,17 @@ export interface CombatUnit {
   tags: string[];
   /** Защиты по типам урона (план damage-types); у большинства отсутствуют. */
   defenses?: Defenses;
+  /**
+   * Тлеющий длящийся урон (план damage-types, волна 6): тикает в конце
+   * своего хода, гасится флэт-чеком. Одна запись на тип — повторное
+   * поджигание не складывается, остаётся большая (правило pf2e).
+   */
+  persist?: Persist[];
+  /**
+   * Регенерация погашена огнём или кислотой (pf2e): ближайший тик пропущен.
+   * Ставится любым уроном этих типов — ударом, зоной или тлением.
+   */
+  regenQuenched?: boolean;
   /** Линзы характера в порядке применения (1–3 у героев). */
   lenses: LensId[];
   /** Площадное оружие носителя АОЕ; у большинства юнитов отсутствует. */

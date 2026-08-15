@@ -8,9 +8,13 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 22;
+export const PROMPT_VERSION = 23;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
+  'cond.smoldering':
+    '{"id":"cond.smoldering"} — условие: на мне тлеет длящийся урон (горение, яд, кровь)',
+  'act.douse':
+    '{"id":"act.douse"} — сбивать пламя: гасить длящийся урон себе или тому из наших, кто рядом',
   'cond.hpBelow':
     '{"id":"cond.hpBelow","who":"self"|{"ally":"<id>"},"frac":0.1..0.9} — условие: hp (своё или союзника) ниже доли frac от максимума',
   'cond.outnumbered': '{"id":"cond.outnumbered"} — условие: врагов на поле больше, чем нас',

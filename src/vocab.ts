@@ -85,6 +85,7 @@ export type ConceptId =
   // слова-гейты к уже существующим активам (прецедент rage/heal)
   | 'act.bless'
   | 'act.feint'
+  | 'act.douse'
   // внутрикомандное взаимодействие (план teamwork): внимание врага как ресурс
   | 'act.taunt'
   | 'act.lure'
@@ -116,6 +117,7 @@ export type ConceptId =
   // момент, селекторы про чужое внимание и контакт
   | 'cond.lull'
   | 'cond.weaponFails'
+  | 'cond.smoldering'
   | 'cond.onHighGround'
   | 'cond.cornered'
   | 'cond.inFormation'
@@ -215,6 +217,7 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.focusFire': { id: 'act.focusFire', label: 'бить туда же', category: 'action' },
   'act.bless': { id: 'act.bless', label: 'благословить', category: 'action' },
   'act.feint': { id: 'act.feint', label: 'финтить', category: 'action' },
+  'act.douse': { id: 'act.douse', label: 'сбивать пламя', category: 'action' },
   'act.taunt': { id: 'act.taunt', label: 'вызывать на себя', category: 'action' },
   'act.lure': { id: 'act.lure', label: 'уводить от', category: 'action' },
   'sel.allyWounded': { id: 'sel.allyWounded', label: 'наш раненый', category: 'selector' },
@@ -239,6 +242,7 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'cond.spreadThin': { id: 'cond.spreadThin', label: 'мы растянулись', category: 'condition' },
   'cond.lull': { id: 'cond.lull', label: 'затишье', category: 'condition' },
   'cond.weaponFails': { id: 'cond.weaponFails', label: 'оружие не берёт', category: 'condition' },
+  'cond.smoldering': { id: 'cond.smoldering', label: 'на мне тлеет', category: 'condition' },
   'cond.onHighGround': { id: 'cond.onHighGround', label: 'я на высоте', category: 'condition' },
   'cond.cornered': { id: 'cond.cornered', label: 'меня прижали', category: 'condition' },
   'cond.inFormation': { id: 'cond.inFormation', label: 'строй сомкнут', category: 'condition' },
@@ -548,6 +552,13 @@ export const RARE_WORDS: ConceptId[] = [
   // рода, что «меня прижали»: срабатывает редко, но переворачивает ход
   'sel.armored',
   'cond.weaponFails',
+  // волна 6 того же плана — длящийся урон. «Сбивать пламя» — гейт нового
+  // вида действия (прецедент обмена местами и ярости): без слова боец тоже
+  // сбивает пламя инстинктом самосохранения, но приоритет помощи своим даёт
+  // только слово. «На мне тлеет» — условие-событие: горит редко, зато меняет
+  // ход целиком («тлеет → отходить», «тлеет → сбивать пламя»)
+  'act.douse',
+  'cond.smoldering',
   // «меня прижали» (четвёртая партия) — свободных смежных клеток не
   // осталось: бежать некуда, время отчаянных слов. По аудиту слово-событие:
   // «прижали → глухая оборона» пик +28пп на массе крыс (в среднем +2/+3) —

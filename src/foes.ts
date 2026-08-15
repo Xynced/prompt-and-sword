@@ -213,7 +213,11 @@ export function rat(n: number): UnitSpec {
     side: 'foe',
     maxHp: 10,
     defenses: { ac: 14, fort: 5, ref: 6, will: 3 },
-    weapons: [{ name: 'зубы', dmg: 4, range: 1, dmgType: 'piercing', atkBonus: 9 }],
+    // грязные зубы травят (план damage-types, волна 6): яд не складывается,
+    // поэтому стая вешает одну отраву на героя, а не пять
+    weapons: [
+      { name: 'зубы', dmg: 4, range: 1, dmgType: 'piercing', atkBonus: 9, persist: { dmg: 1, type: 'poison' } },
+    ],
     speed: 7,
     move: 3,
     // фанатик: голодная стая не знает страха — без линзы хилое тело под
@@ -483,7 +487,9 @@ export function pyro(n: number): UnitSpec {
       name: 'горшки с огнём',
       dmg: 4,
       range: 4,
-      aoe: { blast: { range: 4, mult: 0.7, dmgType: 'fire' } },
+      // залп поджигает не увернувшихся (волна 6): спасбросок решает не только
+      // урон, но и займётся ли на жертве огонь
+      aoe: { blast: { range: 4, mult: 0.7, dmgType: 'fire', persist: { dmg: 1 } } },
     }],
     speed: 6,
     move: 2,

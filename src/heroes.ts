@@ -102,6 +102,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
           { id: 'aimedShot', name: 'прицельный выстрел', slot: 'attack', mult: 1 },
           { id: 'splitShot', name: 'сдвоенный выстрел', slot: 'attack', mult: 0.45, twin: true },
           { id: 'partingShot', name: 'выстрел с отходом', slot: 'attack', mult: 0.7, stepBack: true },
+          // подранок в буквальном смысле (волна 6): кровь идёт, пока рану не зажмут
+          { id: 'ribShot', name: 'стрела под ребро', slot: 'attack', mult: 0.55, persist: { dmg: 1 } },
           { id: 'pointBlank', name: 'выстрел в упор', slot: 'selflessAttack', mult: 1.4, expose: true },
         ],
       },
@@ -208,6 +210,9 @@ export const HERO_POOL: readonly HeroArchetype[] = [
           { id: 'flurryJab', name: 'град уколов', slot: 'weakAttack', mult: 0.5, gang: 0.15 },
           { id: 'knifeThrow', name: 'метнуть нож', slot: 'weakAttack', mult: 0.4, range: 3 },
           { id: 'liverStab', name: 'в печень', slot: 'attack', mult: 1 },
+          // яд на клинке (волна 6): сам укол колющий, тлеет ядом — и
+          // сопротивление яду гасит именно тление, а не удар
+          { id: 'poisonBlade', name: 'яд на клинке', slot: 'attack', mult: 0.6, persist: { dmg: 1, type: 'poison' } },
           { id: 'daggerFlow', name: 'серия', slot: 'attack', mult: 1.6, ap: 3 },
           { id: 'heartPierce', name: 'в самое сердце', slot: 'selflessAttack', mult: 1.5, expose: true },
         ],
@@ -490,6 +495,10 @@ export const HERO_POOL: readonly HeroArchetype[] = [
           { id: 'vestaSpark', name: 'искра', slot: 'weakAttack', mult: 0.4 },
           { id: 'vestaRepel', name: 'отпугнуть жаром', slot: 'weakAttack', mult: 0.3, push: true, range: 2 },
           { id: 'vestaLash', name: 'жгучая плеть', slot: 'attack', mult: 0.9, range: 2 },
+          // носитель горения (план damage-types, волна 6): удар слабее плети,
+          // но оставляет огонь — и по уже горящему приём ничего не добавляет,
+          // поэтому Веста сама разносит пламя по строю, а не жжёт одного
+          { id: 'vestaIgnite', name: 'поджечь', slot: 'attack', mult: 0.5, range: 2, persist: { dmg: 1 } },
           { id: 'vestaWildLash', name: 'плеть наотмашь', slot: 'selflessAttack', mult: 1.4, expose: true, range: 2 },
         ],
       },
