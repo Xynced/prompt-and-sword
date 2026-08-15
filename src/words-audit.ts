@@ -383,6 +383,28 @@ export const AUDIT_ENTRIES: AuditEntry[] = [
       w2({ condition: { id: 'cond.hpBelow', who: 'self', frac: 0.35 }, preference: { id: 'act.strikeDesperate' } }),
     ]),
   },
+  // — внимание (план teamwork): слова меняют ЧУЖОЙ выбор цели —
+  {
+    word: 'act.taunt',
+    label: 'вызывать на себя (передовой)',
+    drafts: forRoles(['front'], () => [w2({ condition: always, preference: { id: 'act.taunt' } })]),
+  },
+  {
+    word: 'act.lure',
+    label: 'уводить врагов от хрупкого (передовой)',
+    drafts: forRoles(['front'], (_h, ctx) => [
+      w2({ condition: always, preference: { id: 'act.lure', ally: ctx.squishyId } }),
+    ]),
+  },
+  {
+    word: 'act.taunt',
+    label: 'комбо: вызывать на себя + уводить от хрупкого (передовой)',
+    extra: ['act.lure'],
+    drafts: forRoles(['front'], (_h, ctx) => [
+      w2({ condition: always, preference: { id: 'act.taunt' } }),
+      w2({ condition: always, preference: { id: 'act.lure', ally: ctx.squishyId } }),
+    ]),
+  },
 ];
 
 // ---- Сборка спеков и прогон ----

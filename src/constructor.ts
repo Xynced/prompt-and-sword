@@ -92,7 +92,9 @@ export type PreferenceDraft =
   | { id: 'act.finish' }
   | { id: 'act.focusFire' }
   | { id: 'act.bless' }
-  | { id: 'act.feint' };
+  | { id: 'act.feint' }
+  | { id: 'act.taunt' }
+  | { id: 'act.lure'; ally: string };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -210,7 +212,11 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
   const refText = (ref: { ally: string } | { enemy: SelectorDraft }): string =>
     'ally' in ref ? nm(ref.ally) : CONCEPTS[ref.enemy].label;
   const prefText =
-    p.id === 'act.finish'
+    p.id === 'act.taunt'
+      ? 'вызывать на себя'
+      : p.id === 'act.lure'
+      ? `уводить врагов от ${nm(p.ally)}`
+      : p.id === 'act.finish'
       ? 'добивать'
       : p.id === 'act.focusFire'
       ? 'бить туда же'
@@ -350,7 +356,11 @@ export function compilePhrase(
     'ally' in ref ? { type: 'ally', id: ref.ally } : { type: 'enemy', sel: SELECTOR_MAP[ref.enemy] };
 
   const then: Rule['then'] =
-    p.id === 'act.finish'
+    p.id === 'act.taunt'
+      ? { kind: 'taunt' }
+      : p.id === 'act.lure'
+      ? { kind: 'lure', ally: p.ally }
+      : p.id === 'act.finish'
       ? { kind: 'finish' }
       : p.id === 'act.focusFire'
       ? { kind: 'focusFire' }

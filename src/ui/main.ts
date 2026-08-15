@@ -542,6 +542,12 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
       out.push({ value: { id: 'act.protect', ally: h.id }, label: `защищать ${names[h.id]}` });
     }
   }
+  if (has('act.taunt')) out.push({ value: { id: 'act.taunt' }, label: 'вызывать на себя' });
+  if (has('act.lure')) {
+    for (const h of run.heroes.filter((h) => h.alive && h.id !== heroId)) {
+      out.push({ value: { id: 'act.lure', ally: h.id }, label: `уводить врагов от ${names[h.id]}` });
+    }
+  }
   if (has('act.holdPosition')) out.push({ value: { id: 'act.holdPosition' }, label: 'держать позицию' });
   if (has('act.wait')) out.push({ value: { id: 'act.wait' }, label: 'ждать' });
   if (has('act.retreat')) out.push({ value: { id: 'act.retreat' }, label: 'отступать' });

@@ -54,10 +54,10 @@ const WEAPON: WeaponSpec = { name: 'меч', dmg: 8, range: 1 };
 describe('стойки манер', () => {
   it('stanceOf собирает стойки из сработавших правил', () => {
     expect(stanceOf([rule({ kind: 'strikeOften' }), rule({ kind: 'bait' })])).toEqual({
-      often: true, hard: false, bait: true,
+      often: true, hard: false, bait: true, taunt: false,
     });
     expect(stanceOf([rule({ kind: 'attack', target: 'nearest' })])).toEqual({
-      often: false, hard: false, bait: false,
+      often: false, hard: false, bait: false, taunt: false,
     });
   });
 
