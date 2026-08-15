@@ -49,6 +49,8 @@ import { HERO_POOL, heroArchetype } from '../heroes.js';
 import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../playtest.js';
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU, applyLens } from '../lens.js';
+import { AOE_BLAST_RADIUS, AOE_RITUAL_RADIUS, lineCells } from '../scoring.js';
+import { AP_PER_TURN, FULL_COVER } from '../tuning.js';
 import type { LensId, Side, WeaponSpec } from '../types.js';
 
 /**
@@ -611,7 +613,15 @@ interface FrameUnit {
   x: number;
   y: number;
   alive: boolean;
+  /** Действующее прикрытие — значок на фишке до начала своего хода: прикрытие / глухая оборона / прикрыт союзником. */
+  cover?: 'half' | 'full' | 'ally';
 }
+
+/** Мгновенный эффект кадра: всплывающий текст над клеткой или вспышка задетых клеток. */
+type FxTone = 'dmg' | 'heal' | 'buff' | 'info';
+type Fx =
+  | { kind: 'float'; x: number; y: number; text: string; tone: FxTone }
+  | { kind: 'cells'; cells: { x: number; y: number }[]; form: 'blast' | 'line' | 'ritual' | 'hit' };
 
 interface Frame {
   round: number;
@@ -622,6 +632,8 @@ interface Frame {
   units: FrameUnit[];
   /** Центры висящих зон замаха (5×5) — от телеграфа до залпа или смерти кастера. */
   zones: { x: number; y: number }[];
+  /** Анимации кадра — проигрываются один раз при его показе. */
+  fx: Fx[];
   callout?: string;
 }
 
@@ -652,7 +664,31 @@ function buildFrames(
   const activeZones = new Map<string, { x: number; y: number }>();
   const out: Frame[] = [];
   let round = 0;
-  let pending: { actorId: string; factors: Frame['factors']; parts: string[]; callout?: string } | null = null;
+  let pending: { actorId: string; factors: Frame['factors']; parts: string[]; fx: Fx[]; callout?: string } | null = null;
+  // всплывающий текст над юнитом (его текущая клетка) — попадает в кадр pending
+  const float = (unitId: string, text: string, tone: FxTone): void => {
+    const u = units.get(unitId);
+    if (u) pending?.fx.push({ kind: 'float', x: u.x, y: u.y, text, tone });
+  };
+  // клетки зоны радиуса r вокруг центра (Чебышёв), в границах поля
+  const cellsAround = (c: { x: number; y: number }, r: number): { x: number; y: number }[] => {
+    const cells: { x: number; y: number }[] = [];
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const x = c.x + dx;
+        const y = c.y + dy;
+        if (x >= 0 && y >= 0 && x < GRID_W && y < GRID_H) cells.push({ x, y });
+      }
+    }
+    return cells;
+  };
+  const blocked = (p: { x: number; y: number }): boolean => result.terrain.tiles[p.y]?.[p.x]?.blocked === true;
+  // длина волны клинка по спекам — для подсветки клеток взмаха
+  const lineLenByUnit = new Map<string, number>();
+  for (const s of specs) {
+    const len = s.aoe?.line?.len ?? s.weapons?.find((w) => w.aoe?.line)?.aoe?.line?.len;
+    if (len) lineLenByUnit.set(s.id, len);
+  }
 
   // искажённые линзами правила по юнитам: source → правила с пометками
   // (расщепление даёт на фразу пару правил с разными условиями); реплика
@@ -711,6 +747,7 @@ function buildFrames(
       factors: pending.factors,
       units: snap(),
       zones: [...activeZones.values()].map((z) => ({ ...z })),
+      fx: pending.fx,
       ...(pending.callout !== undefined ? { callout: pending.callout } : {}),
     });
     pending = null;
@@ -737,7 +774,12 @@ function buildFrames(
         break;
       case 'decision': {
         flush();
-        pending = { actorId: e.unit, factors: e.factors, parts: [] };
+        pending = { actorId: e.unit, factors: e.factors, parts: [], fx: [] };
+        // начало своего хода: действие прикрытия и щит союзника истекают
+        if (e.ap === AP_PER_TURN) {
+          const u = units.get(e.unit);
+          if (u) u.cover = undefined;
+        }
         // раскрытие характера: искажённое правило впервые вошло в топ-факторы
         const twisted = twistedByUnit.get(e.unit);
         for (const f of e.factors) {
@@ -783,12 +825,15 @@ function buildFrames(
         const verb =
           e.action === 'weakAttack' ? 'бьёт слабо' : e.action === 'selflessAttack' ? 'бьёт отчаянно' : 'бьёт';
         pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}`);
+        pending?.fx.push({ kind: 'cells', cells: [{ x: t.x, y: t.y }], form: 'hit' });
+        float(e.target, `−${e.dmg}${e.flank ? ' ⚑' : ''}`, 'dmg');
         break;
       }
       case 'hazard': {
         const u = units.get(e.unit)!;
         u.hp = e.hp;
         pending?.parts.push(`${e.kind === 'spikes' ? 'напоролся на шипы' : 'обожжён'}: −${e.dmg}`);
+        float(e.unit, `−${e.dmg}`, 'dmg');
         break;
       }
       case 'shove': {
@@ -796,6 +841,7 @@ function buildFrames(
         t.x = e.to.x;
         t.y = e.to.y;
         pending?.parts.push(`толкает ${nm(e.target)} в ${cellName(e.to.x, e.to.y)}`);
+        float(e.target, 'толчок', 'info');
         break;
       }
       case 'telegraph':
@@ -807,43 +853,59 @@ function buildFrames(
           // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр;
           // «полымя» (holds) держит зону до последнего пульса
           flush();
-          pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`] };
+          pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`], fx: [] };
+          pending.fx.push({ kind: 'cells', cells: cellsAround(e.at, AOE_RITUAL_RADIUS), form: 'ritual' });
           if (!e.holds) activeZones.delete(e.unit);
         } else if (e.form === 'line') {
           pending?.parts.push(`рубит волной в сторону ${cellName(e.at.x, e.at.y)}`);
+          // клетки взмаха — та же геометрия, что у castVictims: от кастера в сторону at
+          const c = units.get(e.unit);
+          if (c) {
+            const dir = { x: Math.sign(e.at.x - c.x), y: Math.sign(e.at.y - c.y) };
+            const cells = lineCells({ x: c.x, y: c.y }, dir, lineLenByUnit.get(e.unit) ?? 0, blocked);
+            pending?.fx.push({ kind: 'cells', cells, form: 'line' });
+          }
         } else {
           pending?.parts.push(`накрывает залпом ${cellName(e.at.x, e.at.y)}`);
+          pending?.fx.push({ kind: 'cells', cells: cellsAround(e.at, AOE_BLAST_RADIUS), form: 'blast' });
         }
         break;
       case 'aoeHit': {
         const u = units.get(e.unit)!;
         u.hp = e.hp;
         pending?.parts.push(`${nm(e.unit)} накрыт: −${e.dmg}`);
+        float(e.unit, `−${e.dmg}`, 'dmg');
         break;
       }
       case 'die': {
         units.get(e.unit)!.alive = false;
+        units.get(e.unit)!.cover = undefined;
         activeZones.delete(e.unit); // зона умирает вместе с кастером
         pending?.parts.push(`${nm(e.unit)} падает`);
+        float(e.unit, '✝', 'info');
         break;
       }
       case 'rage':
         pending?.parts.push('впадает в ярость');
+        float(e.unit, 'ярость!', 'buff');
         break;
       case 'mark':
         pending?.parts.push(`метит ${nm(e.target)}`);
+        float(e.target, '◎ метка', 'info');
         break;
       case 'heal': {
         const u = units.get(e.target)!;
         u.hp = e.hp;
         pending?.parts.push(`исцеляет ${nm(e.target)}: +${e.amount}`);
+        float(e.target, `+${e.amount}`, 'heal');
         break;
       }
       case 'regen': {
         // зарастание случается до первого решения хода — свой кадр, как у ритуала
         flush();
         units.get(e.unit)!.hp = e.hp;
-        pending = { actorId: e.unit, factors: [], parts: [`зарастает: +${e.amount}`] };
+        pending = { actorId: e.unit, factors: [], parts: [`зарастает: +${e.amount}`], fx: [] };
+        float(e.unit, `+${e.amount}`, 'heal');
         break;
       }
       case 'moodShift': {
@@ -852,31 +914,47 @@ function buildFrames(
         const quip = driftQuip(e.lens);
         const u = units.get(e.unit)!;
         reveals.push({ unit: e.unit, name: u.name, side: u.side, lens: e.lens, quip });
-        pending = { actorId: e.unit, factors: [], parts: [`«${quip}»`], callout: `${u.name}: «${quip}»` };
+        pending = { actorId: e.unit, factors: [], parts: [`«${quip}»`], fx: [], callout: `${u.name}: «${quip}»` };
         break;
       }
       case 'bless':
         pending?.parts.push(`благословляет ${nm(e.target)} (урон ×${e.mult})`);
+        float(e.target, 'благословение', 'buff');
         break;
       case 'feint':
         pending?.parts.push(`финтит: ${nm(e.target)} открыт`);
+        float(e.target, 'открыт!', 'dmg');
         break;
       case 'intercept':
         pending?.parts.push(`${nm(e.unit)} принимает удар, предназначенный ${nm(e.target)}`);
+        float(e.unit, 'перехват!', 'buff');
         break;
       case 'riposte': {
         const u = units.get(e.unit)!;
         u.hp = e.hp;
         pending?.parts.push(`напарывается на рипост ${nm(e.by)}: −${e.dmg}`);
+        float(e.unit, `−${e.dmg} рипост`, 'dmg');
         break;
       }
-      case 'cover':
+      case 'cover': {
         pending?.parts.push(
           e.ally
             ? `прикрыл ${nm(e.ally)} (−${Math.round(e.level * 100)}% урона)`
             : `прикрылся (−${Math.round(e.level * 100)}% урона)`,
         );
+        if (e.ally) {
+          const a = units.get(e.ally);
+          // щит союзника не понижает уже взятую глухую оборону
+          if (a && a.cover !== 'full') a.cover = 'ally';
+          float(e.ally, '⛨ прикрыт', 'buff');
+        } else {
+          const u = units.get(e.unit);
+          const full = e.level >= FULL_COVER;
+          if (u) u.cover = full ? 'full' : 'half';
+          float(e.unit, full ? '⛨ глухая оборона' : '⛨ прикрытие', 'buff');
+        }
         break;
+      }
       case 'wait':
         pending?.parts.push('выжидает');
         break;
@@ -895,6 +973,7 @@ function buildFrames(
     factors: [],
     units: out.length ? out[0]!.units.map((u) => ({ ...u, hp: u.maxHp, alive: true })) : snap(),
     zones: [],
+    fx: [],
     callout: 'приказы скомпилированы — дальше арифметика',
   };
   // позиции стартового кадра — из событий spawn, а не первого решения
@@ -1402,6 +1481,17 @@ function marginLogHtml(): string {
   return rows.join('');
 }
 
+/** Подписи значков прикрытия: что даёт и почём. */
+const COVER_BADGE_TITLE: Record<NonNullable<FrameUnit['cover']>, string> = {
+  half: 'прикрытие: −25% входящего урона до своего хода',
+  full: 'глухая оборона: −66% входящего урона, ближний удар ловит рипост',
+  ally: 'прикрыт союзником, пока тот жив и рядом',
+};
+
+function coverBadgeHtml(cover: FrameUnit['cover']): string {
+  return cover ? `<span class="cov ${cover}" title="${COVER_BADGE_TITLE[cover]}">⛨</span>` : '';
+}
+
 function tokensHtml(): string {
   const f = frames[frameIdx];
   if (!f) return '';
@@ -1417,11 +1507,35 @@ function tokensHtml(): string {
       const hpw = Math.round((100 * Math.max(0, u.hp)) / u.maxHp);
       const mark = u.side === 'foe' && u.id === run.marked ? '<span class="mark-badge">◎</span>' : '';
       return `<div class="${cls}" data-unit="${u.id}" style="left:${u.x * CELL}%;top:${u.y * CELL}%">
-        ${mark}<span class="dm"><span>${esc(glyphOf(u.name))}</span></span>
+        ${mark}${coverBadgeHtml(u.cover)}<span class="dm"><span>${esc(glyphOf(u.name))}</span></span>
         <span class="hp-sliver"><span style="width:${hpw}%"></span></span>
       </div>`;
     })
     .join('');
+}
+
+/** Анимации текущего кадра: перезапись innerHTML слоя перезапускает их. */
+function fxHtml(): string {
+  const f = frames[frameIdx];
+  if (!f) return '';
+  const out: string[] = [];
+  const stacked = new Map<string, number>();
+  for (const e of f.fx) {
+    if (e.kind === 'cells') {
+      for (const c of e.cells) {
+        out.push(`<div class="fx-cell ${e.form}" style="left:${c.x * CELL}%;top:${c.y * CELL}%"></div>`);
+      }
+    } else {
+      // несколько всплытий над одной клеткой — очередью, чтобы не слипались
+      const key = `${e.x},${e.y}`;
+      const n = stacked.get(key) ?? 0;
+      stacked.set(key, n + 1);
+      out.push(
+        `<span class="fx-float ${e.tone}" style="left:${(e.x + 0.5) * CELL}%;top:${e.y * CELL}%;animation-delay:${(n * 0.22).toFixed(2)}s">${esc(e.text)}</span>`,
+      );
+    }
+  }
+  return out.join('');
 }
 
 /** Висящие зоны замаха текущего кадра: клетки 5×5 вокруг центров. */
@@ -1486,6 +1600,7 @@ function battleScreenHtml(): string {
         ${terrainHtml()}
         <div class="zones-layer" id="zoneslayer">${zonesHtml()}</div>
         ${tokensHtml()}
+        <div class="fx-layer" id="fxlayer">${fxHtml()}</div>
         <span class="callout" id="callout" style="left:24%;top:90%">${esc(f.callout ?? '')}</span>
       </div>
       <div class="controls-row">
@@ -1534,7 +1649,16 @@ function syncBattleFrame(): void {
     el.classList.toggle('active', u.alive && u.id === f.actorId);
     const hp = el.querySelector<HTMLElement>('.hp-sliver span');
     if (hp) hp.style.width = `${Math.round((100 * Math.max(0, u.hp)) / u.maxHp)}%`;
+    const cov = el.querySelector<HTMLElement>('.cov');
+    if (!u.cover) cov?.remove();
+    else if (!cov) el.insertAdjacentHTML('afterbegin', coverBadgeHtml(u.cover));
+    else if (!cov.classList.contains(u.cover)) {
+      cov.className = `cov ${u.cover}`;
+      cov.title = COVER_BADGE_TITLE[u.cover];
+    }
   }
+  const fxl = document.getElementById('fxlayer');
+  if (fxl) fxl.innerHTML = fxHtml();
   const set = (id: string, text: string): void => {
     const el = document.getElementById(id);
     if (el) el.textContent = text;

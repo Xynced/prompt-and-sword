@@ -443,6 +443,70 @@ button.primary:disabled:hover { background: var(--ink); }
   pointer-events: none;
 }
 
+/* ---- анимации действий: вспышки клеток и всплывающие подписи ---- */
+.fx-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.fx-cell {
+  position: absolute;
+  width: var(--cell, 12.5%);
+  height: var(--cell, 12.5%);
+  background: rgba(156, 59, 40, 0.42);
+  animation: fx-cell 0.65s ease-out forwards;
+}
+/* ритуал — охристый, в масть зоне замаха; точечный удар — короче и мягче */
+.fx-cell.ritual { background: rgba(179, 90, 35, 0.5); }
+.fx-cell.hit {
+  background: rgba(156, 59, 40, 0.32);
+  animation-duration: 0.45s;
+}
+@keyframes fx-cell {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.fx-float {
+  position: absolute;
+  font: 700 14px/1 var(--hand);
+  white-space: nowrap;
+  text-shadow: 0 0 3px var(--paper-l), 0 0 6px var(--paper-l);
+  animation: fx-float 1s ease-out both;
+}
+.fx-float.dmg { color: var(--red); }
+.fx-float.heal { color: #3d6b35; }
+.fx-float.buff { color: var(--ink); }
+.fx-float.info { color: var(--ink-55); }
+@keyframes fx-float {
+  0% { opacity: 0; transform: translate(-50%, -20%); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -150%); }
+}
+
+/* значки прикрытий на фишке: прикрытие — контур, глухая оборона — залито,
+   щит союзника — пунктир; истекают в начале хода носителя */
+.cov {
+  position: absolute;
+  top: -3px;
+  left: 2%;
+  z-index: 1;
+  width: 13px;
+  height: 13px;
+  display: grid;
+  place-items: center;
+  font: 700 9px/1 var(--serif);
+  border-radius: 50%;
+  background: var(--modal);
+  border: 1px solid var(--ink);
+  color: var(--ink);
+}
+.cov.full {
+  background: var(--ink);
+  color: #efe7d6;
+}
+.cov.ally { border-style: dashed; }
+
 /* ---- управление воспроизведением ---- */
 .controls-row {
   display: flex;
