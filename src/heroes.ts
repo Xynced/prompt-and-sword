@@ -1,6 +1,6 @@
 import type { Rule } from './ir.js';
 import type { PhraseDraft } from './constructor.js';
-import type { ActiveSpec, Defenses, PassiveSpec, Pos, WeaponSpec } from './types.js';
+import type { ActiveSpec, Defenses, PassiveSpec, Pos, ShieldSpec, WeaponSpec } from './types.js';
 import { type Rng, shuffle } from './rng.js';
 
 /**
@@ -38,6 +38,8 @@ export interface HeroArchetype {
    * маг наоборот; Воля высока у веры и низка у зверья и берсерков.
    */
   defenses?: Defenses;
+  /** Щит варианта класса (план armor): бонус к КБ на подъёме и блок по твёрдости. */
+  shield?: ShieldSpec;
   ability: { name: string; desc: string };
   /** Врождённые правила способности; в source — префикс «способность:». */
   innate: Rule[];
@@ -73,7 +75,10 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // щит держит союзника крепче общего прикрытия; «Стена» кроет весь строй —
     // гейт защитными правилами, своего слова не нужно
     active: { wall: { usesPerBattle: 1 } },
-    passives: { shieldwall: { cover: 0.4 } },
+    passives: { shieldwall: { ac: 3 } },
+    // щит (план armor): поднятый даёт +2 к КБ и гасит 3 урона раз в раунд;
+    // 10 вмятин — и щит разваливается, дальше Гром воюет одним мечом
+    shield: { ac: 2, hardness: 3, hp: 10 },
     ability: { name: 'Оплот', desc: 'сам встаёт между врагом и самым раненым из своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'coverRetreat' }, weight: 0.9, source: 'способность: Оплот' }),
@@ -183,6 +188,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     passives: { steadfast: true },
+    // щит-башня: гасит больше и держится дольше — на нём бастион и стоит
+    shield: { ac: 2, hardness: 4, hp: 14 },
     ability: { name: 'Глыба', desc: 'где поставили — там и стоит; глухая оборона даётся дёшево' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 0.8, source: 'способность: Глыба' }),
@@ -218,7 +225,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         ],
       },
     ],
-    passives: { sneak: { flankMult: 1.75 } },
+    passives: { sneak: { offGuard: 3 } },
     ability: { name: 'Из-за спины', desc: 'заходит сбоку и бьёт вдвоём — в спину больнее прочих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.2, source: 'способность: Из-за спины' }),

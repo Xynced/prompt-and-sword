@@ -389,7 +389,7 @@ describe('линзы и поле (план поля, шаг 9)', () => {
   function fielder(id: string, side: Side, pos: Pos, lenses: LensId[], rules: Rule[], over: Partial<CombatUnit> = {}): Fighter {
     return {
       id, name: id, side, maxHp: 20, hp: 20, atk: 5, range: 1, speed: 5, move: 2,
-      pos, startPos: { ...pos }, alive: true, coverLevel: 0, exposed: false, tags: [],
+      pos, startPos: { ...pos }, alive: true, guard: 0, exposed: false, tags: [],
       lenses, ...over, compiled: applyLens(lenses, rules),
     };
   }

@@ -10,12 +10,12 @@ import {
   makeCtx,
   movesOf,
   scoreCandidate,
-  stanceMitigation,
+  stanceGuard,
 } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { HERO_POOL, heroArchetype } from '../src/heroes.js';
 import { describeWeapons } from '../src/cards.js';
-import { FULL_COVER, SELFLESS_ATK_MULT, WEAK_ATK_MULT } from '../src/tuning.js';
+import { BRACE_AC, SELFLESS_ATK_MULT, WEAK_ATK_MULT } from '../src/tuning.js';
 import type { CombatUnit, Pos, Side, WeaponMove, WeaponSpec } from '../src/types.js';
 import type { Tile } from '../src/terrain.js';
 import type { Rule } from '../src/ir.js';
@@ -47,7 +47,7 @@ function fighter(
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],
@@ -111,15 +111,15 @@ describe('кандидаты по киту', () => {
 describe('райдеры: пирс, sure, рипост', () => {
   const breakMove = YAR.weapons[2]!.moves![0]!; // пролом молота
 
-  it('пирс пролома режет митигацию цели и делает удар расчётливым', () => {
-    expect(stanceMitigation(FULL_COVER, breakMove, undefined)).toBeCloseTo(FULL_COVER * breakMove.pierce!);
+  it('пирс пролома режет бонус обороны цели и делает удар расчётливым', () => {
+    expect(stanceGuard(BRACE_AC, breakMove, undefined)).toBe(Math.round(BRACE_AC * breakMove.pierce!));
     expect(isSureStrike(breakMove, undefined)).toBe(true);
     expect(isSureStrike(GROM.weapons[0]!.moves![1]!, undefined)).toBe(true); // из-за щита: sure
     expect(isSureStrike(GROM.weapons[0]!.moves![2]!, undefined)).toBe(false); // верный рубящий
   });
 
   it('Гром против глухой обороны выбирает удар из-за щита — рипост не грозит', () => {
-    const turtle = fighter('t', 'foe', { x: 5, y: 4 }, { maxHp: 600, hp: 600, coverLevel: FULL_COVER });
+    const turtle = fighter('t', 'foe', { x: 5, y: 4 }, { maxHp: 600, hp: 600, guard: BRACE_AC, guardFrom: 'fullCover' });
     const grom = fighter('grom', 'party', { x: 4, y: 4 }, { maxHp: 80, weapons: GROM.weapons, atk: 8, range: 1 },
       [rule({ kind: 'attack', target: 'nearest' })]);
     const d = decide(grom, [grom, turtle], 1, () => false, 2);

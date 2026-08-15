@@ -34,7 +34,7 @@ function fighter(
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],

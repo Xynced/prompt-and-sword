@@ -35,7 +35,7 @@ function fighter(id: string, side: Side, pos: Pos, over: Partial<CombatUnit> = {
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],

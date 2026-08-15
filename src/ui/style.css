@@ -484,8 +484,9 @@ button.primary:disabled:hover { background: var(--ink); }
   100% { opacity: 0; transform: translate(-50%, -150%); }
 }
 
-/* значки прикрытий на фишке: прикрытие — контур, глухая оборона — залито,
-   щит союзника — пунктир; истекают в начале хода носителя */
+/* значки обороны на фишке: прикрытие — контур, глухая оборона — залито,
+   щит союзника — пунктир, поднятый щит — двойной контур; истекают в начале
+   хода носителя */
 .cov {
   position: absolute;
   top: -3px;
@@ -506,6 +507,7 @@ button.primary:disabled:hover { background: var(--ink); }
   color: #efe7d6;
 }
 .cov.ally { border-style: dashed; }
+.cov.shield { border-width: 2px; }
 
 /* тлеющая рана (план damage-types, волна 6): значок держится, пока горит */
 .smold {

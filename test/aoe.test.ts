@@ -16,7 +16,7 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { dist, posKey } from '../src/grid.js';
 import { shaman } from '../src/foes.js';
 import { heroArchetype } from '../src/heroes.js';
-import { BASIC_SAVE_MULT, DEFAULT_SAVE, expectedDamage, expectedSaveMult } from '../src/tuning.js';
+import { BASIC_SAVE_MULT, COVER_AC, DEFAULT_SAVE, expectedDamage, expectedSaveMult } from '../src/tuning.js';
 import { compilePhrase } from '../src/constructor.js';
 import { CONCEPTS, COMMON_WORDS, RARE_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { describeAoe, understandingCard } from '../src/cards.js';
@@ -48,7 +48,7 @@ function fighter(id: string, side: Side, pos: Pos, over: Partial<CombatUnit> = {
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],
@@ -148,8 +148,12 @@ describe('урон залпа', () => {
     const base = expectedDamage(6) * 0.75 * expectedSaveMult(DEFAULT_SAVE);
     const clean = fighter('t', 'party', { x: 1, y: 1 });
     expect(aoeDamage(caster, 0.75, clean)).toBe(Math.round(base));
-    const covered = fighter('t2', 'party', { x: 1, y: 1 }, { coverLevel: 0.25 });
-    expect(aoeDamage(caster, 0.75, covered)).toBe(Math.round(base * 0.75));
+    // прикрытие (план armor) идёт бонусом в спасбросок — как в pf2e бонус
+    // обстоятельств идёт в Реакцию против площадных
+    const covered = fighter('t2', 'party', { x: 1, y: 1 }, { guard: COVER_AC });
+    expect(aoeDamage(caster, 0.75, covered)).toBe(
+      Math.round(expectedDamage(6) * 0.75 * expectedSaveMult(DEFAULT_SAVE + COVER_AC)),
+    );
     const exposed = fighter('t3', 'party', { x: 1, y: 1 }, { exposed: true });
     expect(aoeDamage(caster, 0.75, exposed)).toBe(Math.round(base * 1.35));
     const weak = fighter('c2', 'foe', { x: 0, y: 0 }, { atk: 1 });

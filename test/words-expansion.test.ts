@@ -26,7 +26,7 @@ const FULL_VOCAB = Object.keys(CONCEPTS) as ConceptId[];
 function unit(id: string, side: 'party' | 'foe', pos: Pos, over: Partial<CombatUnit> = {}): CombatUnit {
   return {
     id, name: id, side, maxHp: 40, hp: 40, atk: 6, range: 1, speed: 5, move: 2,
-    pos: { ...pos }, startPos: { ...pos }, alive: true, coverLevel: 0, exposed: false,
+    pos: { ...pos }, startPos: { ...pos }, alive: true, guard: 0, exposed: false,
     tags: [], lenses: ['plain'], ...over,
   };
 }

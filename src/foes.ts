@@ -5,6 +5,7 @@ import {
   describeActive,
   describeAoe,
   describeDefenses,
+  describeShield,
   describePassives,
   describeWeapons,
   ruleRu,
@@ -32,6 +33,7 @@ export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: str
     if (s.weapons?.length) lines.push(`оружие: ${describeWeapons(s.weapons)}`);
     else if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
     if (s.defenses) lines.push(`защита: ${describeDefenses(s.defenses)}`);
+    if (s.shield) lines.push(describeShield(s.shield));
     if (s.active) lines.push(`актив: ${describeActive(s.active)}`);
     if (s.passives) lines.push(`пассив: ${describePassives(s.passives)}`);
     return { name: s.name, lines };
@@ -306,6 +308,9 @@ export function soldier(n: number, buddyId: string): UnitSpec {
     side: 'foe',
     maxHp: 42,
     defenses: { ac: 17, fort: 9, ref: 5, will: 7, resist: { slashing: 2 } },
+    // щит (план armor): у латника уже было правило «из-за щита» — теперь у
+    // него есть и сам щит, а «пролом щитов» Рыка получает предмет спора
+    shield: { ac: 2, hardness: 2, hp: 8 },
     weapons: [
       { name: 'меч и щит', dmg: 5, range: 1, dmgType: 'slashing', atkBonus: 9, affinity: { attack: 1 } },
       { name: 'метательное копьё', dmg: 4, range: 3, dmgType: 'piercing', atkBonus: 9 },
@@ -338,6 +343,7 @@ export function sergeant(): UnitSpec {
     side: 'foe',
     maxHp: 52,
     defenses: { ac: 17, fort: 10, ref: 5, will: 8, resist: { slashing: 2 } },
+    shield: { ac: 2, hardness: 2, hp: 8 },
     weapons: [{ name: 'палаш', dmg: 7, range: 1, dmgType: 'slashing', atkBonus: 9 }],
     speed: 5,
     move: 2,
@@ -379,7 +385,7 @@ export function wolf(n: number): UnitSpec {
     speed: 7,
     move: 3,
     lenses: ['plain'],
-    passives: { sneak: { flankMult: 2.0 } },
+    passives: { sneak: { offGuard: 4 } },
     spawn: { ...WOLF_SPAWNS[(n - 1) % WOLF_SPAWNS.length]! },
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.3, source: 'волк: обойти со стороны' }),
@@ -552,7 +558,7 @@ export function thug(): UnitSpec {
     speed: 6,
     move: 3,
     lenses: ['plain'],
-    passives: { sneak: { flankMult: 1.75 } },
+    passives: { sneak: { offGuard: 3 } },
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 1.8, source: 'душегуб: резать хрупких' }),
       rule({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.3, source: 'душегуб: из-за угла' }),

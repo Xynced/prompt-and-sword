@@ -26,7 +26,7 @@ function unit(id: string, side: 'party' | 'foe', pos: Pos, over: Partial<CombatU
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],

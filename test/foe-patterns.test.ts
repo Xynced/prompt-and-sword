@@ -97,9 +97,9 @@ describe('масса: крысиная стая', () => {
 });
 
 describe('стая: волчья охота', () => {
-  it('спеки: фланговый укус вдвое больнее (sneak), «сбить с ног» в правилах', () => {
+  it('спеки: фланг застигает глубже общего (sneak), «сбить с ног» в правилах', () => {
     for (const w of wolves()) {
-      expect(w.passives?.sneak?.flankMult).toBe(2.0);
+      expect(w.passives?.sneak?.offGuard).toBe(4);
       expect(w.rules.some((rl) => rl.then.kind === 'shove')).toBe(true);
       expect(w.rules.some((rl) => rl.then.kind === 'attack' && rl.then.target === 'weakest')).toBe(true);
     }
@@ -129,7 +129,7 @@ describe('стая: волчья охота', () => {
     const intel = foeIntel([rat(1), wolf(1)]);
     expect(intel[0]!.lines).toContain('крыса: вцепиться в ближайшего');
     expect(intel[0]!.lines.some((l) => l.startsWith('оружие: зубы'))).toBe(true);
-    expect(intel[1]!.lines.some((l) => l.includes('фланг ×2'))).toBe(true);
+    expect(intel[1]!.lines.some((l) => l.includes('фланг: −4 к КБ'))).toBe(true);
   });
 });
 
@@ -273,7 +273,7 @@ describe('засада: душегуб с волками', () => {
   it('спеки: быстрый охотник на тыл с фланговым пассивом', () => {
     const t = thug();
     expect(t.move).toBe(3);
-    expect(t.passives?.sneak?.flankMult).toBe(1.75);
+    expect(t.passives?.sneak?.offGuard).toBe(3);
     expect(t.rules.some((rl) => rl.then.kind === 'attack' && rl.then.target === 'weakest')).toBe(true);
   });
 

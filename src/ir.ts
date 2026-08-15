@@ -563,7 +563,7 @@ export function evalCondition(
     }
     case 'guarded': {
       // чужое прикрытие живо, только пока щитоносец жив и рядом (та же
-      // проверка, что у effectiveCover) — своя оборона условием не считается
+      // проверка, что у effectiveGuard) — своя оборона условием не считается
       const g = self.guardedBy;
       if (!g) return false;
       const protector = byId(units, g.id);

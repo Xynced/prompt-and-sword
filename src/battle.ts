@@ -3,8 +3,8 @@ import {
   AP_PER_TURN,
   ATTACK_MULT,
   BASIC_SAVE_MULT,
-  COVER,
-  FULL_COVER,
+  COVER_AC,
+  OFF_GUARD_AC,
   HAZARD_DMG,
   PERSIST_DC,
   PERSIST_DC_ASSISTED,
@@ -31,6 +31,7 @@ import type {
   Persist,
   PersistSpec,
   Pos,
+  ShieldSpec,
   Side,
   WeaponSpec,
   Zone,
@@ -57,16 +58,19 @@ import {
   twinVictim,
   ritualReady,
   attackMult,
-  coverLevelOf,
+  guardAgainst,
+  guardFor,
+  guardOf,
+  shieldRaised,
   isSureStrike,
   decide,
-  effectiveCover,
+  effectiveGuard,
   heightDmgBonus,
   isAttack,
   isMovement,
   makeCtx,
   stanceAttackMult,
-  stanceMitigation,
+  stanceGuard,
   blessMult,
   blessReady,
   healReady,
@@ -110,6 +114,8 @@ export interface UnitSpec {
   passives?: PassiveSpec;
   /** Защиты по типам урона (план damage-types): сопротивления, слабости, иммунитеты. */
   defenses?: Defenses;
+  /** Щит (план armor): «поднять щит» и блок по твёрдости — снаряжение танков. */
+  shield?: ShieldSpec;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
   /** Неодушевлённый объект задачи (обоз, тотем): хода не получает, телом блокирует клетку. */
@@ -214,6 +220,10 @@ export type BattleEvent =
   | { t: 'feint'; unit: string; target: string }
   /** Перехват: телохранитель принимает удар, предназначенный подопечному. */
   | { t: 'intercept'; unit: string; target: string }
+  /** Щит выдержал (план armor): поднятый щит `unit` погасил `absorbed` урона удара `by`. */
+  | { t: 'shieldBlock'; unit: string; by: string; absorbed: number }
+  /** Щит развалился: вмятин набралось больше запаса — до конца боя ни бонуса, ни блока. */
+  | { t: 'shieldBreak'; unit: string }
   /** Рипост: ближний удар по глухой обороне ранит бьющего (`unit`); by — оборонявшийся. */
   | { t: 'riposte'; unit: string; by: string; dmg: number; hp: number }
   | {
@@ -246,7 +256,8 @@ export type BattleEvent =
       /** Бросок против КБ решил иначе: мимо или вдвое (план damage-types). */
       outcome?: AttackOutcome;
     }
-  | { t: 'cover'; unit: string; level: number; ally?: string }
+  /** Оборона: бонус обстоятельств к КБ (план armor) себе или союзнику (`ally`); `from` — чем поставлен. */
+  | { t: 'cover'; unit: string; bonus: number; ally?: string; from?: ActionKind }
   | { t: 'wait'; unit: string }
   /** Ушёл с поля через зону выхода (задача reachZone): жив, но боя для него больше нет. */
   | { t: 'flee'; unit: string }
@@ -290,7 +301,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     pos: { ...pos },
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: spec.tags ?? [],
     lenses: spec.lenses,
@@ -298,6 +309,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     active: spec.active,
     passives: spec.passives,
     ...(spec.defenses ? { defenses: spec.defenses } : {}),
+    ...(spec.shield ? { shield: spec.shield } : {}),
     ...(spec.inert ? { inert: true as const } : {}),
     compiled: applyLens(spec.lenses, spec.rules),
   };
@@ -361,6 +373,28 @@ function freeSpawnNear(want: Pos, units: readonly Fighter[], blocked: (p: Pos) =
 }
 
 /** Детерминированный бой: тот же seed + те же принципы = тот же лог событий. */
+/**
+ * Щит-блок (план armor): пока щит поднят и цел, прошедший удар гасится на его
+ * твёрдость — раз в раунд (в pf2e это реакция, у нас — тот же флаг, что у
+ * перехвата). Погашенное копится вмятинами: набрав запас, щит разваливается,
+ * и танк доигрывает бой без бонуса и без блока. Возвращает урон после блока.
+ */
+function shieldBlock(target: Fighter, attackerId: string, dmg: number, events: BattleEvent[]): number {
+  if (dmg <= 0 || target.blockUsed || !shieldRaised(target)) return dmg;
+  const shield = target.shield!;
+  const absorbed = Math.min(shield.hardness, dmg);
+  target.blockUsed = true;
+  target.shieldDents = (target.shieldDents ?? 0) + absorbed;
+  events.push({ t: 'shieldBlock', unit: target.id, by: attackerId, absorbed });
+  if (target.shieldDents >= shield.hp) {
+    target.shieldBroken = true;
+    target.guard = target.guardFrom === 'raiseShield' ? 0 : target.guard;
+    if (target.guardFrom === 'raiseShield') target.guardFrom = undefined;
+    events.push({ t: 'shieldBreak', unit: target.id });
+  }
+  return dmg - absorbed;
+}
+
 export function runBattle(
   seed: number,
   specs: readonly UnitSpec[],
@@ -690,10 +724,12 @@ export function runBattle(
         events.push({ t: 'moodShift', unit: unit.id, lens: drift.lens });
       }
 
-      // прикрытие (своё и выданное), открытость и перехват держатся до
+      // оборона (своя и выданная), открытость и перехват держатся до
       // своего следующего хода
-      unit.coverLevel = 0;
+      unit.guard = 0;
+      unit.guardFrom = undefined;
       unit.guardedBy = undefined;
+      unit.blockUsed = false;
       unit.exposed = false;
       unit.interceptUsed = false;
 
@@ -808,15 +844,28 @@ export function runBattle(
               .map((u) => u.pos);
             const flank =
               mRange === 1 && isFlanking(unit.pos, target.pos, allyPositions, targetAllyPositions);
-            // фланговый множитель: у плута «в спину» — свой, острее общего
-            const flankMult = flank ? unit.passives?.sneak?.flankMult ?? 1.5 : 1;
+            // застигнут врасплох (план armor): фланг не множит урон, а снимает
+            // КБ; у плута «в спину» — глубже общего
+            const offGuard = flank ? unit.passives?.sneak?.offGuard ?? OFF_GUARD_AC : 0;
             // бросок атаки (план damage-types): d20 + бонус оружия против КБ
             // цели, четыре степени успеха pf2e. Крит удваивает урон ДО защит
             // (порядок pf2e: удвоение → иммунитет → слабость → сопротивление),
             // провал — промах: ни урона, ни райдеров, ни метки
             const dmgType = dmgTypeOf(weapon, move);
+            // оборона цели (план armor) — бонус обстоятельств к её КБ: прикрытие,
+            // глухая оборона, щит союзника и каменное укрытие в одной валюте
+            // (высший, не сумма), пирс приёма его режет
+            const guard = stanceGuard(
+              guardAgainst(target, units, ctx.coverAcFrom(unit.pos, target.pos)),
+              move,
+              unit.stance,
+            );
             const natural = d20(seed, unit.id, round, apAt, `atk:${target.id}:${move.id}`);
-            const degree = degreeOf(natural, natural + attackBonusOf(weapon), acOf(target));
+            const degree = degreeOf(
+              natural,
+              natural + attackBonusOf(weapon),
+              acOf(target) + guard - offGuard,
+            );
             const swing = ATTACK_MULT[degree];
             if (swing === 0) {
               events.push({
@@ -839,15 +888,7 @@ export function runBattle(
                   shadowMult(unit, unit.pos, units, blocked) *
                   retributionMult(unit, target, units) *
                   (stanceAttackMult(move, unit.stance) + gangBonus(move, unit, target, units)) *
-                  flankMult *
                   swing,
-              );
-              // каменное укрытие цели не складывается с прикрытием — берётся максимум;
-              // пирс приёма или стойки «наверняка» режет митигацию (сильнейший)
-              const mitigation = stanceMitigation(
-                Math.max(effectiveCover(target, units), ctx.coverFrom(unit.pos, target.pos)),
-                move,
-                unit.stance,
               );
               // защиты цели по типу урона: иммунный получает ноль, поэтому
               // общий пол «минимум 1» стоит ДО защит, а не после
@@ -855,16 +896,13 @@ export function runBattle(
                 Math.max(
                   1,
                   Math.round(
-                    raw *
-                      (1 - mitigation) *
-                      (target.exposed ? SELFLESS_VULN_MULT : 1) *
-                      rageVulnMult(target),
+                    raw * (target.exposed ? SELFLESS_VULN_MULT : 1) * rageVulnMult(target),
                   ) + heightDmgBonus(unit, heightAt(unit.pos), mRange),
                 ),
                 dmgType,
                 target.defenses,
               );
-              const dmg = bite.dmg;
+              const dmg = shieldBlock(target, unit.id, bite.dmg, events);
               target.hp = Math.max(0, target.hp - dmg);
               target.lastAttackerId = unit.id;
               events.push({
@@ -909,9 +947,16 @@ export function runBattle(
               const second = twinVictim(unit, unit.pos, target, units, blocked, heightAt(unit.pos), mRange);
               // у второй стрелы свой бросок против своей цели: промах по
               // одному не отменяет попадания по другому (правило pf2e)
+              const guard2 = second
+                ? stanceGuard(
+                    guardAgainst(second, units, ctx.coverAcFrom(unit.pos, second.pos)),
+                    move,
+                    unit.stance,
+                  )
+                : 0;
               const natural2 = second ? d20(seed, unit.id, round, apAt, `atk:${second.id}:${move.id}`) : 0;
               const degree2 = second
-                ? degreeOf(natural2, natural2 + attackBonusOf(weapon), acOf(second))
+                ? degreeOf(natural2, natural2 + attackBonusOf(weapon), acOf(second) + guard2)
                 : 'fail';
               if (second && ATTACK_MULT[degree2] === 0) {
                 events.push({
@@ -936,22 +981,17 @@ export function runBattle(
                     stanceAttackMult(move, unit.stance) *
                     ATTACK_MULT[degree2],
                 );
-                const mit2 = stanceMitigation(
-                  Math.max(effectiveCover(second, units), ctx.coverFrom(unit.pos, second.pos)),
-                  move,
-                  unit.stance,
-                );
                 const bite2 = applyDefenses(
                   Math.max(
                     1,
                     Math.round(
-                      raw2 * (1 - mit2) * (second.exposed ? SELFLESS_VULN_MULT : 1) * rageVulnMult(second),
+                      raw2 * (second.exposed ? SELFLESS_VULN_MULT : 1) * rageVulnMult(second),
                     ) + heightDmgBonus(unit, heightAt(unit.pos), mRange),
                   ),
                   dmgType,
                   second.defenses,
                 );
-                const dmg2 = bite2.dmg;
+                const dmg2 = shieldBlock(second, unit.id, bite2.dmg, events);
                 second.hp = Math.max(0, second.hp - dmg2);
                 second.lastAttackerId = unit.id;
                 events.push({
@@ -984,7 +1024,7 @@ export function runBattle(
             if (
               mRange === 1 &&
               target.alive &&
-              target.coverLevel >= FULL_COVER &&
+              target.guardFrom === 'fullCover' &&
               !isSureStrike(move, unit.stance)
             ) {
               unit.hp = Math.max(0, unit.hp - RIPOSTE_DMG);
@@ -1123,12 +1163,12 @@ export function runBattle(
           // каждого в начале ЕГО хода — та же жизнь, что у щита одному
           if (wallReady(unit)) {
             unit.wallUses = (unit.wallUses ?? 0) + 1;
-            unit.coverLevel = Math.max(unit.coverLevel, COVER);
-            events.push({ t: 'cover', unit: unit.id, level: unit.coverLevel });
+            unit.guard = Math.max(unit.guard, COVER_AC);
+            events.push({ t: 'cover', unit: unit.id, bonus: unit.guard });
             for (const a of units) {
               if (a.alive && a !== unit && a.side === unit.side && dist(a.pos, unit.pos) <= 1) {
-                if (COVER > (a.guardedBy?.level ?? 0)) a.guardedBy = { id: unit.id, level: COVER };
-                events.push({ t: 'cover', unit: unit.id, level: a.guardedBy!.level, ally: a.id });
+                if (COVER_AC > (a.guardedBy?.bonus ?? 0)) a.guardedBy = { id: unit.id, bonus: COVER_AC };
+                events.push({ t: 'cover', unit: unit.id, bonus: a.guardedBy!.bonus, ally: a.id });
               }
             }
           }
@@ -1161,9 +1201,9 @@ export function runBattle(
           // щит кроет только смежного; прикрытие живёт, пока щитоносец рядом
           if (ally.alive && dist(unit.pos, ally.pos) === 1) {
             // щитоносец («стена щита») кроет союзника сильнее общего уровня
-            const level = unit.passives?.shieldwall?.cover ?? coverLevelOf(action);
-            if (level > (ally.guardedBy?.level ?? 0)) ally.guardedBy = { id: unit.id, level };
-            events.push({ t: 'cover', unit: unit.id, level: ally.guardedBy!.level, ally: ally.id });
+            const bonus = unit.passives?.shieldwall?.ac ?? guardOf(action);
+            if (bonus > (ally.guardedBy?.bonus ?? 0)) ally.guardedBy = { id: unit.id, bonus };
+            events.push({ t: 'cover', unit: unit.id, bonus: ally.guardedBy!.bonus, ally: ally.id });
           }
         } else if (action === 'swap' && targetId) {
           // обмен местами: договорённость, а не толчок — ход подопечного не
@@ -1212,9 +1252,13 @@ export function runBattle(
             for (const pd of hurt.persist) pd.assisted = true;
             events.push({ t: 'douse', unit: unit.id, target: hurt.id });
           }
-        } else if (coverLevelOf(action) > 0) {
-          unit.coverLevel = Math.max(unit.coverLevel, coverLevelOf(action));
-          events.push({ t: 'cover', unit: unit.id, level: unit.coverLevel });
+        } else if (guardFor(action, unit) > 0) {
+          // чем поставлен бонус — помним: рипост положен только глухой обороне,
+          // повышение укрытия (Take Cover) — только ей и «прикрыться», а блок —
+          // только поднятому щиту. Величина у них общая
+          unit.guard = Math.max(unit.guard, guardFor(action, unit));
+          unit.guardFrom = action;
+          events.push({ t: 'cover', unit: unit.id, bonus: unit.guard, from: action });
         } else {
           events.push({ t: 'wait', unit: unit.id });
           over = true; // пас завершает ход: тратить остаток очков не на что

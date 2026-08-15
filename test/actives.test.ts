@@ -5,6 +5,7 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { heroArchetype } from '../src/heroes.js';
 import { describePassives } from '../src/cards.js';
 import { foeIntel } from '../src/foes.js';
+import { COVER_AC, OFF_GUARD_AC } from '../src/tuning.js';
 import type { CombatUnit, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
 
@@ -33,7 +34,7 @@ function fighter(
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],
@@ -104,10 +105,10 @@ describe('Гром: стена и щит', () => {
       wallCovers.push(r.events[i] as BattleEvent & { t: 'cover' });
     }
     expect(wallCovers.map((c) => c.ally ?? 'self')).toEqual(['self', 'lia', 'dart']);
-    expect(wallCovers.every((c) => c.level === 0.25)).toBe(true);
-    // щит Грома держит −40% (пассив «стена щита»)
+    expect(wallCovers.every((c) => c.bonus === COVER_AC)).toBe(true);
+    // щит Грома держит +3 к КБ (пассив «стена щита»)
     const covers = r.events.filter((e): e is BattleEvent & { t: 'cover' } => e.t === 'cover' && e.unit === 'grom');
-    expect(covers.some((c) => c.ally === 'lia' && c.level === 0.4)).toBe(true);
+    expect(covers.some((c) => c.ally === 'lia' && c.bonus === 3)).toBe(true);
     // стена одна на бой
     const walls = r.events.filter((e) => e.t === 'decision' && e.unit === 'grom' && e.action === 'wall');
     expect(walls.length).toBe(1);
@@ -214,11 +215,11 @@ describe('Мара: тень', () => {
 });
 
 describe('Тесса: в спину', () => {
-  it('фланговые удары острее общего множителя (тот же сид, ×1.75 против ×1.5)', () => {
-    const withSneak = (flankMult: number): number => {
+  it('её фланг застигает глубже общего (−3 к КБ против −2, тот же сид)', () => {
+    const withSneak = (offGuard: number): number => {
       const tessa = spec({
         id: 'tessa', side: 'party', spawn: { x: 3, y: 4 }, atk: undefined,
-        weapons: heroArchetype('tessa').weapons, passives: { sneak: { flankMult } }, speed: 9, move: 3,
+        weapons: heroArchetype('tessa').weapons, passives: { sneak: { offGuard } }, speed: 9, move: 3,
         rules: [rule({ kind: 'flank' }), rule({ kind: 'attack', target: 'nearest' }), rule({ kind: 'strikeHard' })],
       });
       const mate = spec({ id: 'mate', side: 'party', spawn: { x: 5, y: 4 }, speed: 8 });
@@ -230,8 +231,8 @@ describe('Тесса: в спину', () => {
       }
       return sum;
     };
-    const sneak = withSneak(1.75);
-    const plain = withSneak(1.5);
+    const sneak = withSneak(3);
+    const plain = withSneak(OFF_GUARD_AC);
     expect(plain).toBeGreaterThan(0);
     expect(sneak).toBeGreaterThan(plain);
   });
@@ -239,11 +240,11 @@ describe('Тесса: в спину', () => {
 
 describe('пассивы видны игроку', () => {
   it('describePassives: строки всех пяти', () => {
-    expect(describePassives({ shieldwall: { cover: 0.4 } })).toBe('щит союзнику −40%');
+    expect(describePassives({ shieldwall: { ac: 3 } })).toBe('щит союзнику +3 к КБ');
     expect(describePassives({ markOnHit: true })).toBe('метит цель ударом');
     expect(describePassives({ steadfast: true })).toBe('глухая оборона за 2 очка');
     expect(describePassives({ shadow: { mult: 1.25 } })).toBe('из тени урон ×1.25');
-    expect(describePassives({ sneak: { flankMult: 1.75 } })).toBe('фланг ×1.75');
+    expect(describePassives({ sneak: { offGuard: 3 } })).toBe('фланг: −3 к КБ цели');
   });
 
   it('разведка показывает актив и пассив носителя', () => {

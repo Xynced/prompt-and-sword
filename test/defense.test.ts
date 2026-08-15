@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { isFlanking } from '../src/grid.js';
 import { duelist, soldier, thug, wolf } from '../src/foes.js';
-import { COVER, RIPOSTE_DMG } from '../src/tuning.js';
+import { COVER_AC, RIPOSTE_DMG } from '../src/tuning.js';
 import { type Fighter, generateCandidates } from '../src/scoring.js';
 import { applyLens } from '../src/lens.js';
 import { PARTY_SPAWNS, heroArchetype } from '../src/heroes.js';
@@ -253,12 +253,12 @@ describe('рипост глухой обороны', () => {
     const unit = (over: Partial<Fighter>): Fighter => ({
       id: 'def', name: 'def', side: 'party', maxHp: 96, hp: 96, atk: 5, range: 1,
       speed: 3, move: 1, pos: { x: 5, y: 8 }, startPos: { x: 5, y: 8 }, alive: true,
-      coverLevel: 0, exposed: false, tags: [], lenses: ['plain'],
+      guard: 0, exposed: false, tags: [], lenses: ['plain'],
       compiled: applyLens(['plain'], [brace]), ...over,
     });
     const foe = unit({ id: 'foe', name: 'foe', side: 'foe', pos: { x: 6, y: 8 }, startPos: { x: 6, y: 8 } });
-    const covers = (ap: number, coverLevel = 0): string[] => {
-      const self = unit({ coverLevel, passives: skala.passives });
+    const covers = (ap: number, guard = 0): string[] => {
+      const self = unit({ guard, passives: skala.passives });
       return generateCandidates(self, [self, foe], undefined, ap)
         .map((c) => c.action)
         .filter((a) => a === 'cover' || a === 'fullCover');
@@ -266,7 +266,7 @@ describe('рипост глухой обороны', () => {
 
     expect(covers(3)).toEqual(['fullCover']); // хватает на глухую (2 очка) — дешёвой не предлагаем
     expect(covers(1)).toEqual(['cover']); // на глухую не хватает — остаётся прикрытие
-    expect(covers(3, COVER)).toEqual([]); // оборона уже стоит: второй за ход нет
+    expect(covers(3, COVER_AC)).toEqual([]); // оборона уже стоит: второй за ход нет
   });
 
   it('смоук: Гром в глухой обороне делает дуэлянта дороже для него самого', () => {

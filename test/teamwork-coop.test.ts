@@ -6,6 +6,7 @@ import { compilePhrase, describeDraft } from '../src/constructor.js';
 import { buildCompileSchema, validateOutput } from '../src/compiler/schema.js';
 import { ruleRu } from '../src/cards.js';
 import { dist, hasLoS } from '../src/grid.js';
+import { BRACE_AC } from '../src/tuning.js';
 import { type UnitSpec, runBattle } from '../src/battle.js';
 import { evalCondition, resolveAlly } from '../src/ir.js';
 import type { AllyRef, Condition, Rule } from '../src/ir.js';
@@ -42,7 +43,7 @@ function fighter(
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses,
@@ -201,14 +202,14 @@ describe('условия про своих', () => {
 
   it('«меня прикрывают» — только живое чужое прикрытие рядом', () => {
     const shield = fighter('shield', 'party', { x: 5, y: 6 });
-    const me = fighter('me', 'party', { x: 5, y: 5 }, { guardedBy: { id: 'shield', level: 0.4 } });
+    const me = fighter('me', 'party', { x: 5, y: 5 }, { guardedBy: { id: 'shield', bonus: 3 } });
     expect(check({ kind: 'guarded' }, me, [me, shield])).toBe(true);
     const gone = fighter('shield', 'party', { x: 12, y: 6 });
     expect(check({ kind: 'guarded' }, me, [me, gone])).toBe(false);
     const dead = fighter('shield', 'party', { x: 5, y: 6 }, { alive: false });
     expect(check({ kind: 'guarded' }, me, [me, dead])).toBe(false);
     // своя оборона прикрытием товарища не считается
-    const braced = fighter('me', 'party', { x: 5, y: 5 }, { coverLevel: 0.6 });
+    const braced = fighter('me', 'party', { x: 5, y: 5 }, { guard: BRACE_AC });
     expect(check({ kind: 'guarded' }, braced, [braced, shield])).toBe(false);
   });
 

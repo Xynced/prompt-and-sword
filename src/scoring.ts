@@ -48,12 +48,12 @@ import {
   WEAPON_AFFINITY_BONUS,
   AP_PER_TURN,
   AP_VALUE,
-  COVER,
+  COVER_AC,
   DETOUR_APPEAL,
   DETOUR_APPEAL_MIN,
   DETOUR_FREE,
-  FULL_COVER,
-  BAIT_COVER,
+  BRACE_AC,
+  BAIT_AC,
   HARD_PIERCE,
   HAZARD_DMG,
   HIGH_GROUND_DMG,
@@ -64,7 +64,7 @@ import {
   SELFLESS_ATK_MULT,
   SELFLESS_VULN_MULT,
   TAUNT_PULL,
-  TERRAIN_COVER,
+  TERRAIN_COVER_AC,
   WEAK_ATK_MULT,
   ZONE_BIAS,
   DEFAULT_AC,
@@ -73,6 +73,8 @@ import {
   PERSIST_DISCOUNT,
   applyDefenses,
   expectedAttackMult,
+  guardGain,
+  guardMitigation,
   expectedDamage,
   persistTicks,
   persistTicksAssisted,
@@ -94,6 +96,9 @@ export const AP_COST: Record<ActionKind, number> = {
   // за 1 AP «сдвинуть и добить» — нормальный ход
   shove: 1,
   cover: 1,
+  // поднять щит — короткое движение локтя: та же цена, что у «прикрыться»,
+  // но танк получает сверх бонуса ещё и блок (план armor)
+  raiseShield: 1,
   // войти в ярость — короткий рык, а не замах: дорогая часть — размен
   // «получаю больнее до конца боя», а не очки хода
   rage: 1,
@@ -154,15 +159,19 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   douse: 0,
   cover: 0,
   fullCover: 0,
+  raiseShield: 0,
   shieldAlly: 0,
   wait: 0,
 };
 
-/** Доля снятого входящего урона по виду действия; 0 — действие не прикрывает. */
-const COVER_LEVEL: Record<ActionKind, number> = {
-  cover: COVER,
-  fullCover: FULL_COVER,
-  shieldAlly: COVER,
+/** Бонус к КБ по виду действия (план armor); 0 — действие не прикрывает. */
+const GUARD_BONUS: Record<ActionKind, number> = {
+  cover: COVER_AC,
+  fullCover: BRACE_AC,
+  // у поднятого щита бонус свой (ShieldSpec.ac); COVER_AC — умолчание, когда
+  // спрашивают про вид действия, а не про конкретного носителя
+  raiseShield: COVER_AC,
+  shieldAlly: COVER_AC,
   move: 0,
   carefulStep: 0,
   weakAttack: 0,
@@ -448,19 +457,20 @@ export function aoeVictims<T extends CombatUnit>(
 }
 
 /**
- * Действующее прикрытие цели: своё действие плюс выданное союзником — второе
- * живо, только пока защитник жив и смежен с прикрытым. Проверка в момент
- * чтения (как у перехвата): уведённый толчком подопечный или ушедший/павший
- * щитоносец гасят чужое прикрытие сами собой, своё остаётся.
+ * Действующий бонус обстоятельств цели к КБ: своё действие плюс выданное
+ * союзником — второе живо, только пока защитник жив и смежен с прикрытым.
+ * Проверка в момент чтения (как у перехвата): уведённый толчком подопечный или
+ * ушедший/павший щитоносец гасят чужое прикрытие сами собой, своё остаётся.
+ * Бонусы обстоятельств не складываются (pf2e) — берётся высший.
  */
-export function effectiveCover(target: CombatUnit, units: readonly CombatUnit[]): number {
-  // стойка приманки (план words): готов нырнуть — плавающее прикрытие
-  const own = Math.max(target.coverLevel, target.stance?.bait ? BAIT_COVER : 0);
+export function effectiveGuard(target: CombatUnit, units: readonly CombatUnit[]): number {
+  // стойка приманки (план words): готов нырнуть — плавающий бонус к КБ
+  const own = Math.max(target.guard, target.stance?.bait ? BAIT_AC : 0);
   const g = target.guardedBy;
   if (!g) return own;
   const protector = units.find((u) => u.id === g.id);
   const held = protector !== undefined && protector.alive && dist(protector.pos, target.pos) <= 1;
-  return Math.max(own, held ? g.level : 0);
+  return Math.max(own, held ? g.bonus : 0);
 }
 
 /** Стойки манер юнита из сработавших правил решения (план words + teamwork). */
@@ -494,12 +504,14 @@ export function stanceAttackMult(move: WeaponMove, stance?: Stance | CombatUnit[
 }
 
 /**
- * Митигация цели с учётом приёма и стойки бьющего: пирс стойки «наверняка»
+ * Бонус обороны цели, каким его видит этот приём: пирс стойки «наверняка»
  * (полный темп) и врождённый пирс приёма не складываются — берётся сильнейший.
+ * Режется именно бонус к КБ (план armor): «пролом» (kept 0.3) против глухой
+ * обороны +4 оставляет +1, и слово по-прежнему про то, что оборону пробивают.
  */
-export function stanceMitigation(mitigation: number, move: WeaponMove, stance?: Stance | CombatUnit['stance']): number {
+export function stanceGuard(bonus: number, move: WeaponMove, stance?: Stance | CombatUnit['stance']): number {
   const kept = Math.min(stance?.hard && move.slot === 'attack' ? HARD_PIERCE : 1, move.pierce ?? 1);
-  return mitigation * kept;
+  return Math.round(bonus * kept);
 }
 
 /**
@@ -514,8 +526,9 @@ export function isSureStrike(move: WeaponMove, stance?: Stance | CombatUnit['sta
  * Урон площадного каста по цели: фиксированный, строго без rng (прецедент
  * шипов — новый вызов rng() сдвинул бы последовательность боя и переписал
  * фикстуры; и одно число в логе у всех накрытых читается лучше). Каменное
- * укрытие от взрыва не спасает (это не выстрел), прикрытие от действий и
- * открытость — работают.
+ * укрытие от взрыва не спасает (это не выстрел), а вот прикрытие от действий
+ * прибавляется к спасброску (правило pf2e: бонус обстоятельств идёт и в
+ * Реакцию против площадных); открытость работает как прежде.
  */
 export function aoeDamage(
   caster: CombatUnit,
@@ -527,12 +540,11 @@ export function aoeDamage(
    * Доля урона по спасброску цели (план damage-types): бой передаёт брошенную
    * (0 / ½ / 1 / 2), скоринг молчит и получает ожидание по всем 20 граням.
    */
-  saveMult: number = expectedSaveMult(saveOf(target, saveKindFor(dmgType))),
+  saveMult: number = expectedSaveMult(saveOf(target, saveKindFor(dmgType)) + effectiveGuard(target, units)),
 ): number {
   const base =
     expectedDamage(caster.atk) *
     mult *
-    (1 - effectiveCover(target, units)) *
     (target.exposed ? SELFLESS_VULN_MULT : 1) *
     rageVulnMult(target) *
     saveMult;
@@ -596,7 +608,32 @@ export const attackMult = (a: ActionKind): number => ATTACK_MULT[a];
 export const attackMultFor = (a: ActionKind, w: WeaponSpec): number =>
   a === 'weakAttack' ? w.weakMult ?? WEAK_ATK_MULT : ATTACK_MULT[a];
 export const isAttack = (a: ActionKind): boolean => ATTACK_MULT[a] > 0;
-export const coverLevelOf = (a: ActionKind): number => COVER_LEVEL[a];
+export const guardOf = (a: ActionKind): number => GUARD_BONUS[a];
+
+/** Бонус действия для конкретного юнита: у поднятого щита — бонус его щита. */
+export const guardFor = (a: ActionKind, u: CombatUnit): number =>
+  a === 'raiseShield' ? u.shield?.ac ?? GUARD_BONUS[a] : GUARD_BONUS[a];
+
+/** Щит поднят и цел: даёт бонус к КБ и право на блок. */
+export const shieldRaised = (u: CombatUnit): boolean =>
+  u.guardFrom === 'raiseShield' && !!u.shield && !u.shieldBroken;
+
+/** Щит есть, цел и его можно поднять. */
+export const shieldReady = (u: CombatUnit): boolean => !!u.shield && !u.shieldBroken;
+
+/**
+ * Оборона цели против удара из клетки `from`: своё действие, чужой щит и
+ * каменное укрытие — всё в одной валюте (бонус обстоятельств), высший, не
+ * сумма. Плюс Take Cover из pf2e: укрытие, за которым цель ещё и потратила
+ * ход на оборону, поднимается ступенью выше — камень плюс решение сильнее
+ * всего, что есть в игре поодиночке.
+ */
+export function guardAgainst(target: CombatUnit, units: readonly CombatUnit[], coverAc: number): number {
+  const own = effectiveGuard(target, units);
+  const tookCover = target.guardFrom === 'cover' || target.guardFrom === 'fullCover';
+  const promoted = coverAc > 0 && tookCover ? BRACE_AC : 0;
+  return Math.max(own, coverAc, promoted);
+}
 
 /**
  * Доля хода, которую съедает действие, в единицах обычного удара.
@@ -679,10 +716,10 @@ export interface ScoreCtx {
   /** Клетки бурелома — тяга «стеречь кромку» ведёт к ближайшей. */
   roughTiles: readonly Pos[];
   /**
-   * Доля урона, снятая каменным укрытием цели при выстреле from → target
-   * (0 — укрытия нет). Стрелок с высоты 2 бьёт поверх укрытия.
+   * Бонус к КБ, который каменное укрытие цели даёт против выстрела from →
+   * target (0 — укрытия нет). Стрелок с высоты 2 бьёт поверх укрытия.
    */
-  coverFrom: (from: Pos, target: Pos) => number;
+  coverAcFrom: (from: Pos, target: Pos) => number;
   /** Цена входа в клетку: бурелом и подъём — 2 очка движения, спуск обычный. */
   entryCost: EntryCost;
   /** Опасность клетки (шипы/огонь); undefined — клетка безопасна. */
@@ -736,8 +773,8 @@ export function makeCtx(
     highTiles,
     roughAt: tiles ? (p): boolean => tiles[p.y]?.[p.x]?.rough === true : NO_TERRAIN,
     roughTiles,
-    coverFrom: (from, target) =>
-      heightAt(from) === 2 ? 0 : hasTerrainCover(from, target, blocked) ? TERRAIN_COVER : 0,
+    coverAcFrom: (from, target) =>
+      heightAt(from) === 2 ? 0 : hasTerrainCover(from, target, blocked) ? TERRAIN_COVER_AC : 0,
     entryCost,
     hazardAt: tiles ? (p): HazardKind | undefined => tiles[p.y]?.[p.x]?.hazard : () => undefined,
     distTo(target, p) {
@@ -998,16 +1035,19 @@ export function generateCandidates(
   // ест: бастион уходил в прикрытие за 1 очко, следом в глухую защиту — и
   // весь ход стоил ему ровно одной обороны. Дешёвую предлагаем, только когда
   // на глухую не хватает очков (её цена — apCostFor: бастиону 2, незыблемость)
-  if (self.coverLevel === 0) {
-    const best = (['fullCover', 'cover'] as const).find((a) => ap >= apCostFor(a, self) && allowed(a));
+  if (self.guard === 0) {
+    // щитоносцу дешёвая оборона — это поднятый щит: тот же бонус за то же
+    // очко, но сверх него блок (план armor). Сломанный щит поднимать нечем
+    const cheap: ActionKind = shieldReady(self) ? 'raiseShield' : 'cover';
+    const best = (['fullCover', cheap] as const).find((a) => ap >= apCostFor(a, self) && allowed(a));
     if (best) out.push({ to: here, action: best });
   }
   // щит кроет только смежного: прикрытие живёт, пока щитоносец рядом,
   // поэтому и выдать его дальнему нельзя — сначала подойди
   if (ap >= AP_COST.shieldAlly && allowed('shieldAlly')) {
-    const level = self.passives?.shieldwall?.cover ?? coverLevelOf('shieldAlly');
+    const bonus = self.passives?.shieldwall?.ac ?? guardOf('shieldAlly');
     for (const a of alliesOf(self, units) as Fighter[]) {
-      if (a.id !== self.id && dist(here, a.pos) === 1 && level > effectiveCover(a, units)) {
+      if (a.id !== self.id && dist(here, a.pos) === 1 && bonus > effectiveGuard(a, units)) {
         out.push({ to: here, action: 'shieldAlly', targetId: a.id });
       }
     }
@@ -1259,14 +1299,16 @@ function zonePathDist(z: Zone, self: Fighter, p: Pos, ctx: ScoreCtx): number {
 }
 
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
-  const risk = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units));
+  const risk =
+    threatAt(ally.pos, ally, units) * (1 - guardMitigation(effectiveGuard(ally, units), acOf(ally)));
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
 }
 
 /**
- * Ожидаемый урон конкретного вида атаки по цели с учётом её прикрытия,
- * каменного укрытия (максимум, не сумма) и открытости; из клетки from.
- * Урон и «стрелковость» (бонус высоты) — по оружию атаки.
+ * Ожидаемый урон конкретного вида атаки по цели с учётом её обороны (план
+ * armor: прикрытие и каменное укрытие — бонус к КБ, максимум, не сумма) и
+ * открытости; из клетки from. Урон и «стрелковость» (бонус высоты) — по
+ * оружию атаки.
  */
 function expectedAttackDamage(
   self: Fighter,
@@ -1278,21 +1320,18 @@ function expectedAttackDamage(
   weapon: WeaponSpec = weaponsOf(self)[0]!,
   stance?: Stance,
 ): number {
-  const mitigation = stanceMitigation(
-    Math.max(effectiveCover(target, units), ctx.coverFrom(from, target.pos)),
-    move,
-    stance,
-  );
+  // оборона цели — бонус к её КБ (план armor), а не доля снятого урона: и
+  // укрытие, и прикрытие входят в DC броска, а пирс приёма их режет
+  const guard = stanceGuard(guardAgainst(target, units, ctx.coverAcFrom(from, target.pos)), move, stance);
   // бросок атаки (план damage-types): оценка обязана считать так же, как бой
   // исполнит, — промахи и криты сидят в множителе ожидания
-  const odds = expectedAttackMult(attackBonusOf(weapon), acOf(target));
+  const odds = expectedAttackMult(attackBonusOf(weapon), acOf(target) + guard);
   const raw =
     expectedDamage(weapon.dmg) *
       odds *
       rageDmgMult(self) *
       blessMult(self) *
       (stanceAttackMult(move, stance) + gangBonus(move, self, target, units)) *
-      (1 - mitigation) *
       (target.exposed ? SELFLESS_VULN_MULT : 1) *
       rageVulnMult(target) +
     heightDmgBonus(self, ctx.heightAt(from), move.range ?? weapon.range);
@@ -1542,7 +1581,7 @@ function scorePreference(
       // выстрел в укрытую цель — полдела, и премия правила скалируется
       // качеством выстрела: клетка с чистым углом обыгрывает стрельбу в камень,
       // стрелок меняет позицию, а не стоит (ближнему боя укрытие не мешает)
-      const quality = 1 - ctx.coverFrom(cand.to, target.pos);
+      const quality = 1 - guardMitigation(ctx.coverAcFrom(cand.to, target.pos), acOf(target));
       // правило говорит, КОГО бить, а не чем: премия за потраченный ход, а не
       // за факт удара, поэтому вид атаки выбирают урон и риск, а не правило
       if (isAttack(cand.action) && cand.targetId === target.id) {
@@ -1719,12 +1758,12 @@ function scorePreference(
     }
     case 'brace': {
       // глухая оборона: ценна, когда враги реально достают до клетки
-      const mit = coverLevelOf(cand.action);
-      if (mit === 0) return 0;
+      const bonus = guardOf(cand.action);
+      if (bonus === 0) return 0;
       const reachable = (enemiesOf(self, units) as Fighter[]).filter(
         (e) => dist(e.pos, cand.to) <= strikeReach(e),
       ).length;
-      return (0.8 + 0.6 * Math.min(reachable, 2)) * (mit / COVER) * w;
+      return (0.8 + 0.6 * Math.min(reachable, 2)) * (bonus / COVER_AC) * w;
     }
     case 'awayFrom': {
       const anchor = resolvePosRef(pref.ref, self, units);
@@ -1766,7 +1805,7 @@ function scorePreference(
       // стрелка на высоте 2 камень не спасает — coverFrom это уже знает.
       const shooters = (enemiesOf(self, units) as Fighter[]).filter((e) => e.range > 1);
       if (shooters.length === 0) return 0;
-      const covered = shooters.filter((e) => ctx.coverFrom(e.pos, cand.to) > 0).length;
+      const covered = shooters.filter((e) => ctx.coverAcFrom(e.pos, cand.to) > 0).length;
       return 1.2 * (covered / shooters.length) * w;
     }
     case 'avoidHazard': {
@@ -2258,7 +2297,7 @@ export function scoreCandidate(
     if (
       (move.range ?? weapon.range) === 1 &&
       !lethal &&
-      target.coverLevel >= FULL_COVER &&
+      target.guardFrom === 'fullCover' &&
       !isSureStrike(move, stance)
     ) {
       factors.push({
@@ -2374,9 +2413,16 @@ export function scoreCandidate(
   // Защитные действия и отчаянный удар оцениваются в той же валюте, что и
   // агрессия: доля maxHp × 6. Иначе выбор между «ударить сильнее» и «не
   // подставиться» решался бы не обстановкой, а случайными коэффициентами.
-  const mit = coverLevelOf(cand.action);
-  if (mit > 0 && cand.action !== 'shieldAlly' && threat > 0) {
-    const v = ((threat * mit) / self.maxHp) * 6 * instincts.survival;
+  const bonus = guardFor(cand.action, self);
+  if (bonus > 0 && cand.action !== 'shieldAlly' && threat > 0) {
+    // бонус к КБ переводится в долю снятого урона (guardMitigation): решение
+    // «прикрыться или ударить» обязано считаться в одной валюте с агрессией
+    let spared = threat * guardGain(effectiveGuard(self, units), bonus, acOf(self));
+    // щит гасит сверх бонуса — раз в раунд и не больше того, что до него дошло
+    if (cand.action === 'raiseShield' && self.shield) {
+      spared += Math.min(self.shield.hardness, threat);
+    }
+    const v = (spared / self.maxHp) * 6 * instincts.survival;
     if (v !== 0) factors.push({ label: 'инстинкт:прикрытие', value: v });
   }
   // открывающий приём (дефолт-размен, «сплеча») — плата уязвимостью
@@ -2387,9 +2433,10 @@ export function scoreCandidate(
   if (cand.action === 'shieldAlly' && cand.targetId) {
     const ally = units.find((u) => u.id === cand.targetId);
     if (ally?.alive) {
-      // щитоносец («стена щита» Грома) кроет союзника сильнее общего COVER
-      const level = self.passives?.shieldwall?.cover ?? COVER;
-      const spared = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units)) * level;
+      // щитоносец («стена щита» Грома) кроет союзника сильнее общего COVER_AC
+      const bonus = self.passives?.shieldwall?.ac ?? COVER_AC;
+      const spared =
+        threatAt(ally.pos, ally, units) * guardGain(effectiveGuard(ally, units), bonus, acOf(ally));
       const v = (spared / ally.maxHp) * 6 * instincts.survival;
       if (v !== 0) factors.push({ label: 'инстинкт:прикрыть своего', value: v });
     }
@@ -2409,7 +2456,10 @@ export function scoreCandidate(
     let v = 0;
     for (const a of alliesOf(self, units)) {
       if (a.id !== self.id && dist(a.pos, self.pos) > 1) continue;
-      v += (threatAt(a.pos, a as Fighter, units) * (1 - effectiveCover(a, units)) * COVER) / a.maxHp;
+      v +=
+        (threatAt(a.pos, a as Fighter, units) *
+          guardGain(effectiveGuard(a, units), COVER_AC, acOf(a))) /
+        a.maxHp;
     }
     v *= 6 * instincts.survival;
     if (v !== 0) factors.push({ label: 'инстинкт:стена', value: v });
