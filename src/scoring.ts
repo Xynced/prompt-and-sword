@@ -6,6 +6,7 @@ import {
   describePreference,
   enemiesOf,
   evalCondition,
+  resolveAlly,
   resolvePosRef,
   resolveSelector,
 } from './ir.js';
@@ -73,6 +74,10 @@ export const AP_COST: Record<ActionKind, number> = {
   rage: 1,
   // финт — короткий обман, а не удар: дешёвый сетап под удары своих
   feint: 1,
+  // обмен местами — договорённость, а не перенос: цену платит только
+  // затевающий, ход подопечного не тратится. За 2 AP приём не окупался бы
+  // никогда — вытащить своего стоило бы партии дороже, чем принять удар
+  swap: 1,
   aoeBlast: 2,
   aoeLine: 2,
   attack: 2,
@@ -116,6 +121,7 @@ const ATTACK_MULT: Record<ActionKind, number> = {
   heal: 0,
   bless: 0,
   feint: 0,
+  swap: 0,
   cover: 0,
   fullCover: 0,
   shieldAlly: 0,
@@ -142,6 +148,7 @@ const COVER_LEVEL: Record<ActionKind, number> = {
   heal: 0,
   bless: 0,
   feint: 0,
+  swap: 0,
   wait: 0,
 };
 
@@ -801,6 +808,19 @@ export function generateCandidates(
     }
   }
 
+  // меняться местами (план teamwork): договорённый обмен клетками со смежным
+  // своим. Гейт словом — прецедент толчка и кастов: без правила «меняться
+  // местами» кандидата нет вовсе, иначе партия начала бы тасоваться сама.
+  // `to` — клетка подопечного: именно на ней я закончу, и все оценки поля
+  // (угроза, опасность, зона замаха) должны считаться по ней
+  if (ap >= AP_COST.swap && allowed('swap') && fired.some((r) => r.then.kind === 'swap')) {
+    for (const a of alliesOf(self, units) as Fighter[]) {
+      if (a.id !== self.id && dist(here, a.pos) === 1) {
+        out.push({ to: { ...a.pos }, action: 'swap', targetId: a.id });
+      }
+    }
+  }
+
   out.push({ to: here, action: 'wait' });
   return out;
 }
@@ -914,6 +934,32 @@ const FOCUS_FIRE_BONUS = 2.5;
  */
 const LURE_SPREAD = 5;
 
+/**
+ * Премия правилу «заслонить от стрелков» за каждого стрелка, который из-за
+ * моей клетки теряет подопечного из виду (считается до двух — третий стрелок
+ * заслоном уже не лечится). Уровень щита союзнику ×2: заслон дешевле щита
+ * (не тратит 2 AP отдельным действием, а достаётся вместе с шагом), но и
+ * снимает не долю урона, а весь выстрел.
+ */
+const SCREEN_BLOCK_BONUS = 1.6;
+
+/** Премия «сомкнуть строй» за смежного своего и за своего через клетку. */
+const REGROUP_ADJ_BONUS = 0.9;
+const REGROUP_NEAR_BONUS = 0.3;
+
+/**
+ * Премия правилу «меняться местами» при полном облегчении. Уровень лечения
+ * (3.5 при полной нужде): обмен — то же спасение, только без траты заряда.
+ */
+const SWAP_RULE_BONUS = 3;
+
+/**
+ * Насколько снятая с подопечного угроза (в долях его ТЕКУЩЕГО hp) даёт полную
+ * премию. Мера от текущего hp, а не от максимума: вытащить почти павшего —
+ * главное, ради чего слово берут.
+ */
+const SWAP_FULL_RELIEF = 0.4;
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units));
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -1021,7 +1067,7 @@ function computeAppeal(
         g.compiled.rules.some(
           (rl) =>
             rl.then.kind === 'protect' &&
-            rl.then.ally === target.id &&
+            resolveAlly(rl.then.ally, g, units)?.id === target.id &&
             evalCondition(rl.when, g, units, round),
         ),
     );
@@ -1141,7 +1187,7 @@ function scorePreference(
       return s;
     }
     case 'protect': {
-      const ally = units.find((u) => u.id === pref.ally && u.alive);
+      const ally = resolveAlly(pref.ally, self, units) as Fighter | undefined;
       if (!ally) return 0;
       if (cand.action === 'shieldAlly' && cand.targetId === ally.id) {
         return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units);
@@ -1513,7 +1559,7 @@ function scorePreference(
       // уводить от X: быть досягаемым для врагов (иначе уводить нечем) и при
       // этом тянуть их прочь от подопечного — премия за каждую клетку между
       // мной и X, до предела: увести можно в сторону, а не за карту
-      const ally = units.find((u) => u.id === pref.ally && u.alive);
+      const ally = resolveAlly(pref.ally, self, units) as Fighter | undefined;
       if (!ally) return 0;
       const reachable = (enemiesOf(self, units) as Fighter[]).filter(
         (e) => dist(e.pos, cand.to) <= strikeReach(e),
@@ -1522,7 +1568,78 @@ function scorePreference(
       const away = Math.min(dist(cand.to, ally.pos), LURE_SPREAD);
       return (0.25 * Math.min(reachable, 3) + 0.4 * away) * w;
     }
+    case 'screen': {
+      // заслонить от стрелков: премия клетке, из-за которой стрелок теряет
+      // подопечного из виду. Тела рвут линию выстрела целиком (canAttackFrom),
+      // поэтому заслон — не доля урона, а отменённый выстрел. Стрелков нет —
+      // слово молчит вовсе: это контр-приём, а не позиционная привычка
+      const ward = resolveAlly(pref.ally, self, units) as Fighter | undefined;
+      if (!ward) return 0;
+      const shooters = (enemiesOf(self, units) as Fighter[]).filter((e) => e.range > 1);
+      if (shooters.length === 0) return 0;
+      // чужие тела и камни (кроме смежного цели — он лишь укрытие) заслоняют
+      // и без меня; моё тело добавляется клеткой-кандидатом
+      const solid = (p: Pos, e: Fighter): boolean =>
+        (ctx.blocked(p) && dist(p, ward.pos) > 1) ||
+        units.some((u) => u.alive && u !== self && u !== e && u !== ward && posEq(u.pos, p));
+      const blocking = shooters.filter(
+        (e) =>
+          dist(e.pos, ward.pos) <= rangeAt(e, ctx.heightAt(e.pos)) &&
+          hasLoS(e.pos, ward.pos, (p) => solid(p, e)) &&
+          !hasLoS(e.pos, ward.pos, (p) => posEq(p, cand.to) || solid(p, e)),
+      ).length;
+      // тяга к подопечному: без неё слово умеет только наградить уже
+      // сложившийся заслон, но не встать в него (урок «фланг-манёвра»)
+      return (SCREEN_BLOCK_BONUS * Math.min(blocking, 2) - 0.25 * dist(cand.to, ward.pos)) * w;
+    }
+    case 'regroup': {
+      // сомкнуть строй: зеркало «держать интервал». Гейта у слова нет (в
+      // отличие от интервала, который молчит без вражеского АОЕ): строй
+      // полезен всегда — он ломает фланги и держит рипост
+      const mates = (alliesOf(self, units) as Fighter[]).filter((a) => a.id !== self.id);
+      if (mates.length === 0) return 0;
+      let s = 0;
+      for (const a of mates) {
+        const d = dist(cand.to, a.pos);
+        if (d <= 1) s += REGROUP_ADJ_BONUS;
+        else if (d === 2) s += REGROUP_NEAR_BONUS;
+      }
+      // издалека — тяга к ближайшему своему: слово должно уметь собирать
+      // строй, а не только награждать сложившийся
+      const nearest = Math.min(...mates.map((a) => dist(cand.to, a.pos)));
+      s -= 0.25 * Math.max(Math.min(nearest, MAX_DIST) - 2, 0);
+      return s * w;
+    }
+    case 'swap': {
+      // меняться местами: премия — снятая с подопечного угроза, нормированная
+      // на его текущее hp. Из огня в огонь не тащим: опасная клетка под мной
+      // обнуляет приём (подопечный въедет в неё сам)
+      const ward = resolveAlly(pref.ally, self, units) as Fighter | undefined;
+      if (!ward) return 0;
+      // подойти вплотную — половина дела: обмен возможен только со смежным
+      let s = -0.3 * Math.max(dist(cand.to, ward.pos) - 1, 0) * w;
+      if (cand.action === 'swap' && cand.targetId === ward.id && !ctx.hazardAt(self.pos)) {
+        const relief = pressureAt(ward.pos, self, units) - pressureAt(self.pos, self, units);
+        if (relief > 0) {
+          s += SWAP_RULE_BONUS * w * Math.min(relief / Math.max(ward.hp, 1) / SWAP_FULL_RELIEF, 1);
+        }
+      }
+      return s;
+    }
   }
+}
+
+/**
+ * Урон, который клетка получает **прямо сейчас** — от врагов, достающих до
+ * неё без шага. Мера обмена местами: `threatAt` считает досягаемость за целый
+ * ход (strikeReach), а она у соседних клеток почти одинакова — по ней вытащить
+ * зажатого было бы нечем. Обмен и ценен тем, что снимает удары, которые уже
+ * занесены.
+ */
+function pressureAt(p: Pos, self: Fighter, units: readonly Fighter[]): number {
+  return (enemiesOf(self, units) as Fighter[])
+    .filter((e) => dist(e.pos, p) <= e.range)
+    .reduce((sum, e) => sum + expectedDamage(e.atk), 0);
 }
 
 function threatAt(p: Pos, self: Fighter, units: readonly Fighter[]): number {
@@ -1626,7 +1743,7 @@ export function scoreCandidate(
   }
   // шаг, оконченный на опасной клетке, — гарантированный урон; та же валюта,
   // что и у агрессии (доля maxHp × 6). Осторожный шаг опасность не будит
-  if (cand.action === 'move' && ctx.hazardAt(cand.to)) {
+  if ((cand.action === 'move' || cand.action === 'swap') && ctx.hazardAt(cand.to)) {
     factors.push({
       label: 'инстинкт:опасная клетка',
       value: -(HAZARD_DMG / self.maxHp) * 6 * instincts.survival,

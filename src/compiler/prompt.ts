@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 17;
+export const PROMPT_VERSION = 18;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -105,6 +105,23 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
   'act.feint': '{"id":"act.feint"} — финтить: обманным выпадом открыть смежного врага под удары своих; работает только у носителя финта',
   'act.taunt': '{"id":"act.taunt"} — вызывать на себя: маячить у врагов на виду и злить их, чтобы шли ко мне, а не к остальным нашим',
   'act.lure': '{"id":"act.lure","ally":"<id союзника>"} — уводить врагов от союзника: держаться у них на виду, но тянуть их в сторону от него',
+  'sel.allyWounded':
+    '{"role":"wounded"} — ссылка на своего вместо id: тот из наших, кому сейчас хуже всех (по доле hp); годится везде, где ждут "<id союзника>"',
+  'sel.allyFrontman':
+    '{"role":"frontman"} — ссылка на своего: передовой, стоящий ближе всех к врагу',
+  'sel.allyShooter': '{"role":"shooter"} — ссылка на своего: наш стрелок (дальнее оружие)',
+  'sel.allyTaunter': '{"role":"taunter"} — ссылка на своего: тот, кто сейчас вызывает врагов на себя',
+  'sel.allyNearest': '{"role":"nearest"} — ссылка на своего: ближайший ко мне товарищ',
+  'cond.allyTaunting': '{"id":"cond.allyTaunting"} — условие: кто-то из наших вызывает врагов на себя',
+  'cond.allyEngaged': '{"id":"cond.allyEngaged"} — условие: кто-то из наших уже схватился с врагом вплотную',
+  'cond.guarded': '{"id":"cond.guarded"} — условие: меня прикрывает кто-то из своих (щит или стена)',
+  'cond.allySurrounded': '{"id":"cond.allySurrounded"} — условие: кого-то из наших обступили (двое и больше врагов вплотную)',
+  'cond.alliesFocusing': '{"id":"cond.alliesFocusing"} — условие: наши уже навалились на кого-то из врагов',
+  'act.screen':
+    '{"id":"act.screen","ally":"<id союзника>"} — заслонить от стрелков: встать телом на линию выстрела к союзнику (без вражеских стрелков молчит)',
+  'act.regroup': '{"id":"act.regroup"} — сомкнуть строй: держаться плечом к плечу со своими',
+  'act.swap':
+    '{"id":"act.swap","ally":"<id союзника>"} — меняться местами со смежным союзником: вытащить его из-под удара, встав на его клетку',
 };
 
 export interface PromptContext {

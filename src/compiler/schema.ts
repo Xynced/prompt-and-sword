@@ -1,11 +1,16 @@
-import type {
-  ConditionDraft,
-  PhraseDraft,
-  PreferenceDraft,
-  SelectorDraft,
-  SimpleConditionDraft,
+import {
+  ROLE_CONCEPT,
+  type ConditionDraft,
+  type PhraseDraft,
+  type PreferenceDraft,
+  type SelectorDraft,
+  type SimpleConditionDraft,
 } from '../constructor.js';
+import type { AllyRef, AllyRole } from '../ir.js';
 import type { ConceptId } from '../vocab.js';
+
+/** Роль своего ↔ слово, которое её открывает (план teamwork, вторая волна). */
+const ROLE_WORDS = Object.entries(ROLE_CONCEPT) as [AllyRole, ConceptId][];
 
 /**
  * Строгая JSON-схема выхода LLM-компилятора, строится из ОТКРЫТОГО словаря:
@@ -58,6 +63,11 @@ const PARAMLESS_CONDITIONS = [
   'cond.lastEnemy',
   'cond.allyHurt',
   'cond.enemiesClustered',
+  'cond.allyTaunting',
+  'cond.allyEngaged',
+  'cond.guarded',
+  'cond.allySurrounded',
+  'cond.alliesFocusing',
 ] as const;
 const PARAMLESS_PREFERENCES = [
   'act.holdPosition',
@@ -89,6 +99,7 @@ const PARAMLESS_PREFERENCES = [
   'act.bless',
   'act.feint',
   'act.taunt',
+  'act.regroup',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
@@ -103,17 +114,26 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
   });
 
   // простые условия — отдельно: из них же собирается ветка конъюнкции «и»
+  // ссылка на своего: имя героя или открытая роль — одна форма на все слова,
+  // где раньше ждали «<id союзника>»
+  const roles = ROLE_WORDS.filter(([, word]) => has(word)).map(([role]) => role);
+  const allyRef: object[] = [];
+  if (allyIds.length > 0) allyRef.push({ type: 'string', enum: allyIds });
+  if (roles.length > 0) allyRef.push(obj({ role: { type: 'string', enum: roles } }));
+  const hasAlly = allyRef.length > 0;
+  const allySchema = { anyOf: allyRef };
+
   const simple: object[] = [];
   const who: object[] = [{ const: 'self' }];
-  if (allyIds.length > 0) who.push(obj({ ally: { type: 'string', enum: allyIds } }));
+  if (hasAlly) who.push(obj({ ally: allySchema }));
   for (const cond of ['cond.hpBelow', 'cond.hpAbove'] as const) {
     if (has(cond)) simple.push(obj({ id: { const: cond }, who: { anyOf: who }, frac: { type: 'number' } }));
   }
   for (const cond of PARAMLESS_CONDITIONS) {
     if (has(cond)) simple.push(obj({ id: { const: cond } }));
   }
-  if (has('cond.allyInDanger') && allyIds.length > 0) {
-    simple.push(obj({ id: { const: 'cond.allyInDanger' }, ally: { type: 'string', enum: allyIds } }));
+  if (has('cond.allyInDanger') && hasAlly) {
+    simple.push(obj({ id: { const: 'cond.allyInDanger' }, ally: allySchema }));
   }
   const conditions: object[] = [obj({ id: { const: 'always' } }), ...simple];
   // глубокие чипсы: «и»/«или» — грамматика, не слова; доступны при любом открытом условии
@@ -132,12 +152,10 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
   if (has('act.attack') && selectors.length > 0) {
     preferences.push(obj({ id: { const: 'act.attack' }, target: { type: 'string', enum: selectors } }));
   }
-  // «защищать X» и «уводить от X» — оба про напарника: без союзников в фразе
-  // им некого назвать, и в схему они не попадают вовсе
-  for (const pref of ['act.protect', 'act.lure'] as const) {
-    if (has(pref) && allyIds.length > 0) {
-      preferences.push(obj({ id: { const: pref }, ally: { type: 'string', enum: allyIds } }));
-    }
+  // слова про напарника: без союзников (и без открытых ролей) им некого
+  // назвать, и в схему они не попадают вовсе
+  for (const pref of ['act.protect', 'act.lure', 'act.screen', 'act.swap'] as const) {
+    if (has(pref) && hasAlly) preferences.push(obj({ id: { const: pref }, ally: allySchema }));
   }
   for (const pref of PARAMLESS_PREFERENCES) {
     if (has(pref)) preferences.push(obj({ id: { const: pref } }));
@@ -145,7 +163,7 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
   for (const space of ['space.nearTo', 'space.behind', 'space.awayFrom'] as const) {
     if (!has(space)) continue;
     const refs: object[] = [];
-    if (allyIds.length > 0) refs.push(obj({ ally: { type: 'string', enum: allyIds } }));
+    if (hasAlly) refs.push(obj({ ally: allySchema }));
     if (selectors.length > 0) refs.push(obj({ enemy: { type: 'string', enum: selectors } }));
     if (refs.length > 0) preferences.push(obj({ id: { const: space }, ref: { anyOf: refs } }));
   }
@@ -170,13 +188,29 @@ export type ValidationResult = { ok: true; output: CompilerOutput } | { ok: fals
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/**
+ * Ссылка на своего из сырого выхода модели: имя живого союзника (как было)
+ * или роль, слово которой открыто. Всё прочее — null, то есть ошибка
+ * компиляции фразы целиком.
+ */
+function toAllyRef(
+  v: unknown,
+  vocab: readonly ConceptId[],
+  allyIds: readonly string[],
+): AllyRef | null {
+  if (typeof v === 'string') return allyIds.includes(v) ? v : null;
+  if (!isRecord(v) || typeof v.role !== 'string') return null;
+  const known = ROLE_WORDS.find(([role, word]) => role === v.role && vocab.includes(word));
+  return known ? { role: known[0] } : null;
+}
+
 function validateCondition(
   v: unknown,
   vocab: readonly ConceptId[],
   allyIds: readonly string[],
 ): ConditionDraft | null {
   if (!isRecord(v)) return null;
-  const inAllies = (a: unknown): a is string => typeof a === 'string' && allyIds.includes(a);
+  const inAllies = (a: unknown): AllyRef | null => toAllyRef(a, vocab, allyIds);
   if (
     typeof v.id === 'string' &&
     (PARAMLESS_CONDITIONS as readonly string[]).includes(v.id)
@@ -193,13 +227,15 @@ function validateCondition(
       if (!vocab.includes(v.id) || typeof v.frac !== 'number' || !Number.isFinite(v.frac)) return null;
       const frac = Math.min(0.9, Math.max(0.1, v.frac));
       if (v.who === 'self') return { id: v.id, who: 'self', frac };
-      if (isRecord(v.who) && inAllies(v.who.ally)) return { id: v.id, who: { ally: v.who.ally }, frac };
-      return null;
+      const who = isRecord(v.who) ? inAllies(v.who.ally) : null;
+      return who !== null ? { id: v.id, who: { ally: who }, frac } : null;
     }
-    case 'cond.allyInDanger':
-      return vocab.includes('cond.allyInDanger') && inAllies(v.ally)
-        ? { id: 'cond.allyInDanger', ally: v.ally }
+    case 'cond.allyInDanger': {
+      const ally = inAllies(v.ally);
+      return vocab.includes('cond.allyInDanger') && ally !== null
+        ? { id: 'cond.allyInDanger', ally }
         : null;
+    }
     case 'and':
     case 'or': {
       // комбинатор: 2–3 ПРОСТЫХ условия (без always и вложенных комбинаторов)
@@ -223,7 +259,7 @@ function validatePreference(
   allyIds: readonly string[],
 ): PreferenceDraft | null {
   if (!isRecord(v)) return null;
-  const inAllies = (a: unknown): a is string => typeof a === 'string' && allyIds.includes(a);
+  const inAllies = (a: unknown): AllyRef | null => toAllyRef(a, vocab, allyIds);
   const isSelector = (s: unknown): s is SelectorDraft =>
     SELECTORS.includes(s as SelectorDraft) && vocab.includes(s as SelectorDraft);
   if (
@@ -240,18 +276,19 @@ function validatePreference(
         ? { id: 'act.attack', target: v.target }
         : null;
     case 'act.protect':
-      return vocab.includes('act.protect') && inAllies(v.ally) ? { id: 'act.protect', ally: v.ally } : null;
     case 'act.lure':
-      return vocab.includes('act.lure') && inAllies(v.ally) ? { id: 'act.lure', ally: v.ally } : null;
+    case 'act.screen':
+    case 'act.swap': {
+      const ally = inAllies(v.ally);
+      return vocab.includes(v.id) && ally !== null ? { id: v.id, ally } : null;
+    }
     case 'space.nearTo':
     case 'space.behind':
     case 'space.awayFrom': {
       if (!vocab.includes(v.id) || !isRecord(v.ref)) return null;
-      const ref = inAllies(v.ref.ally)
-        ? { ally: v.ref.ally }
-        : isSelector(v.ref.enemy)
-          ? { enemy: v.ref.enemy }
-          : null;
+      const ally = inAllies(v.ref.ally);
+      const ref =
+        ally !== null ? { ally } : isSelector(v.ref.enemy) ? { enemy: v.ref.enemy } : null;
       return ref ? { id: v.id, ref } : null;
     }
     default:

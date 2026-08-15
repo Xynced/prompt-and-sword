@@ -84,7 +84,22 @@ export type ConceptId =
   | 'act.feint'
   // внутрикомандное взаимодействие (план teamwork): внимание врага как ресурс
   | 'act.taunt'
-  | 'act.lure';
+  | 'act.lure'
+  // вторая волна teamwork: роли своих вместо имён, условия про своих и
+  // действия, у которых смысл есть только рядом с товарищем
+  | 'sel.allyWounded'
+  | 'sel.allyFrontman'
+  | 'sel.allyShooter'
+  | 'sel.allyTaunter'
+  | 'sel.allyNearest'
+  | 'cond.allyTaunting'
+  | 'cond.allyEngaged'
+  | 'cond.guarded'
+  | 'cond.allySurrounded'
+  | 'cond.alliesFocusing'
+  | 'act.screen'
+  | 'act.regroup'
+  | 'act.swap';
 
 export type ConceptCategory = 'condition' | 'selector' | 'action' | 'space';
 
@@ -166,6 +181,19 @@ export const CONCEPTS: Record<ConceptId, ConceptMeta> = {
   'act.feint': { id: 'act.feint', label: 'финтить', category: 'action' },
   'act.taunt': { id: 'act.taunt', label: 'вызывать на себя', category: 'action' },
   'act.lure': { id: 'act.lure', label: 'уводить от', category: 'action' },
+  'sel.allyWounded': { id: 'sel.allyWounded', label: 'наш раненый', category: 'selector' },
+  'sel.allyFrontman': { id: 'sel.allyFrontman', label: 'передовой', category: 'selector' },
+  'sel.allyShooter': { id: 'sel.allyShooter', label: 'наш стрелок', category: 'selector' },
+  'sel.allyTaunter': { id: 'sel.allyTaunter', label: 'наш крикун', category: 'selector' },
+  'sel.allyNearest': { id: 'sel.allyNearest', label: 'ближайший свой', category: 'selector' },
+  'cond.allyTaunting': { id: 'cond.allyTaunting', label: 'наш держит вызов', category: 'condition' },
+  'cond.allyEngaged': { id: 'cond.allyEngaged', label: 'наш в контакте', category: 'condition' },
+  'cond.guarded': { id: 'cond.guarded', label: 'меня прикрывают', category: 'condition' },
+  'cond.allySurrounded': { id: 'cond.allySurrounded', label: 'нашего обступили', category: 'condition' },
+  'cond.alliesFocusing': { id: 'cond.alliesFocusing', label: 'наши навалились', category: 'condition' },
+  'act.screen': { id: 'act.screen', label: 'заслонить от стрелков', category: 'action' },
+  'act.regroup': { id: 'act.regroup', label: 'сомкнуть строй', category: 'action' },
+  'act.swap': { id: 'act.swap', label: 'меняться местами', category: 'action' },
 };
 
 /**
@@ -251,6 +279,31 @@ export const COMMON_WORDS: ConceptId[] = [
   // тролле), а в паре с вызовом добавляет к нему всего +1пп. Пока техника с
   // узкой нишей; кандидат на переработку в следующей итерации плана words
   'act.lure',
+  // вторая волна teamwork: роли своих — ось, а не отдельный приём. Каждая
+  // роль снимает привязку принципа к имени героя («прикрывай того, кому
+  // хуже» вместо «прикрывай Лию»). По аудиту (3 сида) «наш раненый» даёт
+  // +4пп наиву / +5пп кайту при пике +17пп на уроке — ровная польза обычного
+  // слова, причём выше именной защиты: подопечный переезжает сам. Остальные
+  // роли аудитом не мерены, место предварительное
+  'sel.allyWounded',
+  'sel.allyFrontman',
+  'sel.allyShooter',
+  'sel.allyNearest',
+  // условия про своих: дёшевы поодиночке, ценность — в связках «и»/«или».
+  // «наш держит вызов» мерено в комбо с вызовом (+8пп обеим базам, пик +25пп
+  // на уроке) — но числа там несёт связка целиком, само условие немо
+  'cond.allyTaunting',
+  'cond.allyEngaged',
+  'cond.guarded',
+  'cond.alliesFocusing',
+  // «нашего обступили → бить обидчика»: +1пп наиву, пик всего +6пп на крысах —
+  // обычное, несмотря на редкое зеркало «меня окружили»
+  'cond.allySurrounded',
+  // заслон от стрелков — контр-приём против артиллерии (соседняя ниша с
+  // «стрелок» и «вне линии огня»). По аудиту слабый и обоюдоострый: −1пп
+  // наиву, пик +6пп (огр с кастерами), худший −11пп (босс) — работает, но
+  // числами почти нем; кандидат на переработку вместе с «уводить от X»
+  'act.screen',
 ];
 
 /**
@@ -317,6 +370,21 @@ export const RARE_WORDS: ConceptId[] = [
   // единственное слово, которое меняет ЧУЖОЙ выбор цели, а не свой.
   // Аудит (3 сида): +6пп наиву, +8пп кайту, пик +25пп на уроке — редкое
   'act.taunt',
+  // вторая волна teamwork: роль «наш крикун» — ключ к связкам с вызовом
+  // («пока наш крикун держит — заходи во фланг»); аудитом отдельно не мерена,
+  // редкость предварительная
+  'sel.allyTaunter',
+  // «сомкнуть строй» — слово-решение по образцу глухой обороны: у него
+  // огромный размах по боям (урок +31пп, босс −39пп при средних +3/+1пп).
+  // Строй ломает фланги и держит рипост, но кучную партию выкашивают залпы —
+  // ровно тот выбор, ради которого слово и берут
+  'act.regroup',
+  // «меняться местами» — гейт нового вида действия (прецедент ярости и
+  // лечения): без слова обмена в бою не бывает вовсе. По аудиту почти нем
+  // (+1пп наиву, пик +3пп), но замер щадящий — вариант требует, чтобы
+  // передовой стоял вплотную к хрупкому; ниша приёма уже, чем у гейтов
+  // активов, и это кандидат на перепроверку следующим аудитом
+  'act.swap',
 ];
 
 /** Всё, что не в старте: открывается трофеями боёв, в скриптории и у книжника. */

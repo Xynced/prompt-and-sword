@@ -1,7 +1,7 @@
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { AP_PER_TURN, COVER, FULL_COVER, HAZARD_DMG, RIPOSTE_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
-import { type Rule, evalCondition } from './ir.js';
+import { type Rule, evalCondition, resolveAlly } from './ir.js';
 import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
 import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, Pos, Side, WeaponSpec } from './types.js';
@@ -109,6 +109,8 @@ export type BattleEvent =
   | { t: 'move'; unit: string; from: Pos; to: Pos }
   | { t: 'hazard'; unit: string; kind: HazardKind; dmg: number; hp: number }
   | { t: 'shove'; unit: string; target: string; from: Pos; to: Pos }
+  /** Обмен местами (план teamwork): `from` — клетка затевающего (туда встаёт подопечный), `to` — его новая. */
+  | { t: 'swap'; unit: string; target: string; from: Pos; to: Pos }
   /** holds: зона «полымя» держится — будут ещё залпы (пульсы Весты). */
   | { t: 'aoeCast'; unit: string; form: 'blast' | 'line' | 'ritual'; at: Pos; holds?: true }
   /** Вошёл в ярость: урон и уязвимость по спеке актива — до конца боя. */
@@ -436,7 +438,7 @@ export function runBattle(
                   g.compiled.rules.some(
                     (rl) =>
                       rl.then.kind === 'protect' &&
-                      rl.then.ally === aimed.id &&
+                      resolveAlly(rl.then.ally, g, units)?.id === aimed.id &&
                       evalCondition(rl.when, g, units, round),
                   ),
               )
@@ -636,6 +638,30 @@ export function runBattle(
             const level = unit.passives?.shieldwall?.cover ?? coverLevelOf(action);
             if (level > (ally.guardedBy?.level ?? 0)) ally.guardedBy = { id: unit.id, level };
             events.push({ t: 'cover', unit: unit.id, level: ally.guardedBy!.level, ally: ally.id });
+          }
+        } else if (action === 'swap' && targetId) {
+          // обмен местами: договорённость, а не толчок — ход подопечного не
+          // тратится. Условия перепроверяются на месте (как у толчка): между
+          // решением и исполнением подопечный мог погибнуть или отойти
+          const ally = units.find((u) => u.id === targetId)!;
+          if (ally.alive && ally.side === unit.side && dist(unit.pos, ally.pos) === 1) {
+            const mine = { ...unit.pos };
+            const theirs = { ...ally.pos };
+            unit.pos = theirs;
+            ally.pos = mine;
+            events.push({ t: 'swap', unit: unit.id, target: ally.id, from: mine, to: theirs });
+            // опасная клетка бьёт каждого, кто на ней закончил, — общее
+            // правило поля: вытаскивать своего из огня в огонь бессмысленно
+            for (const u of [unit, ally]) {
+              const hz = tiles[u.pos.y]?.[u.pos.x]?.hazard;
+              if (!hz) continue;
+              u.hp = Math.max(0, u.hp - HAZARD_DMG);
+              events.push({ t: 'hazard', unit: u.id, kind: hz, dmg: HAZARD_DMG, hp: u.hp });
+              if (u.hp === 0) {
+                u.alive = false;
+                events.push({ t: 'die', unit: u.id });
+              }
+            }
           }
         } else if (coverLevelOf(action) > 0) {
           unit.coverLevel = Math.max(unit.coverLevel, coverLevelOf(action));

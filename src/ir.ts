@@ -63,6 +63,18 @@ import { dist } from './grid.js';
  *              от X — быть у врагов на виду, но подальше от подопечного).
  *              Пара слов складывается в «отвлекай врагов от X и уводи их в
  *              сторону»; сама подмена цели — правило мира, не слово
+ * План teamwork, вторая волна (совместные действия):
+ *   Ссылки:    AllyRef — свой по имени (как было) ИЛИ по роли: раненый,
+ *              передовой, наш стрелок, наш крикун, ближайший свой. Роль
+ *              читается в момент решения, себя не выбирает и подстановок не
+ *              делает: некого — правило молчит
+ *   Условия:   allyTaunting (наш держит вызов), allyEngaged (наш в контакте),
+ *              guarded (меня прикрывают), allySurrounded (нашего обступили),
+ *              alliesFocusing (наши навалились)
+ *   Действия:  screen (заслонить от стрелков — телом порвать линию огня к
+ *              подопечному), regroup (сомкнуть строй — зеркало интервала),
+ *              swap (меняться местами со смежным своим — 1 AP платит только
+ *              затевающий)
  * Вложенность (глубокие чипсы): and — конъюнкция условий («если А: если Б —
  *   делай X» → одно правило с when = and[А, Б]), or — дизъюнкция («если А
  *   или Б»). «Или» одним правилом — не то же, что две фразы: при обоих
@@ -85,16 +97,40 @@ export type Selector =
   | 'straggler'
   | 'tormentor';
 
+/**
+ * Роль своего вместо имени (план teamwork, вторая волна): принцип переживает
+ * смену партии, а подопечный определяется по ходу боя. Разрешается строго —
+ * отката «нет такого, возьми ближайшего» у ролей нет (в отличие от вражеских
+ * селекторов): некого — правило молчит.
+ */
+export type AllyRole = 'wounded' | 'frontman' | 'shooter' | 'taunter' | 'nearest';
+
+/** Ссылка на своего: имя героя (как было) или роль. */
+export type AllyRef = string | { role: AllyRole };
+
+/**
+ * Как роль называется по-русски в трёх падежах — фразы конструктора,
+ * карточка «как понял» и чипсы UI строятся из одной таблицы, чтобы приказ и
+ * эхо совпадали слово в слово.
+ */
+export const ALLY_ROLE_RU: Record<AllyRole, { nom: string; gen: string; ins: string }> = {
+  wounded: { nom: 'наш раненый', gen: 'нашего раненого', ins: 'нашим раненым' },
+  frontman: { nom: 'передовой', gen: 'передового', ins: 'передовым' },
+  shooter: { nom: 'наш стрелок', gen: 'нашего стрелка', ins: 'нашим стрелком' },
+  taunter: { nom: 'наш крикун', gen: 'нашего крикуна', ins: 'нашим крикуном' },
+  nearest: { nom: 'ближайший свой', gen: 'ближайшего своего', ins: 'ближайшим своим' },
+};
+
 /** С какого раунда бой считается затянувшимся. */
 export const BATTLE_DRAGS_ROUND = 5;
 
 export type Condition =
   | { kind: 'always' }
-  | { kind: 'hpBelow'; who: 'self' | { ally: string }; frac: number }
+  | { kind: 'hpBelow'; who: 'self' | { ally: AllyRef }; frac: number }
   /** Зеркало hpBelow — «пока цел»: для контекстных прочтений линз (план линз); слова игрока пока нет. */
-  | { kind: 'hpAbove'; who: 'self' | { ally: string }; frac: number }
+  | { kind: 'hpAbove'; who: 'self' | { ally: AllyRef }; frac: number }
   | { kind: 'outnumbered' }
-  | { kind: 'allyInDanger'; ally: string }
+  | { kind: 'allyInDanger'; ally: AllyRef }
   | { kind: 'battleDrags' }
   | { kind: 'initiativeEdge' }
   | { kind: 'allyFallen' }
@@ -129,6 +165,17 @@ export type Condition =
   | { kind: 'allyHurt' }
   /** Враги скучились: хотя бы двое стоят вплотную друг к другу. */
   | { kind: 'enemiesClustered' }
+  // вторая волна teamwork: условия про то, что делают СВОИ
+  /** Кто-то из своих держит стойку вызова. */
+  | { kind: 'allyTaunting' }
+  /** Кто-то из своих стоит вплотную к врагу. */
+  | { kind: 'allyEngaged' }
+  /** На мне живое чужое прикрытие — щит союзника или стена. */
+  | { kind: 'guarded' }
+  /** Кого-то из своих обступили: два и больше смежных врага. */
+  | { kind: 'allySurrounded' }
+  /** Наши навалились: кого-то из врагов уже бил кто-то из своих. */
+  | { kind: 'alliesFocusing' }
   /**
    * Конъюнкция — глубокие чипсы: «если А: если Б — …». Из черновиков внутри
    * только простые условия и «или»; вложенные группы конструктор расплющивает сам.
@@ -138,11 +185,11 @@ export type Condition =
   | { kind: 'or'; conds: Condition[] };
 
 /** Ссылка на позицию-якорь для пространственных предпочтений. */
-export type PosRef = { type: 'ally'; id: string } | { type: 'enemy'; sel: Selector };
+export type PosRef = { type: 'ally'; id: AllyRef } | { type: 'enemy'; sel: Selector };
 
 export type Preference =
   | { kind: 'attack'; target: Selector }
-  | { kind: 'protect'; ally: string }
+  | { kind: 'protect'; ally: AllyRef }
   | { kind: 'holdPosition' }
   | { kind: 'retreat' }
   | { kind: 'nearTo'; ref: PosRef }
@@ -189,7 +236,14 @@ export type Preference =
    * само не забирает (это дело «вызывать на себя») — работает против тех, кто
    * бьёт ближайшего, и в связке с вызовом.
    */
-  | { kind: 'lure'; ally: string };
+  | { kind: 'lure'; ally: AllyRef }
+  // вторая волна teamwork: действия, у которых смысл есть только рядом со своими
+  /** Заслонить от стрелков: встать телом на линию огня к подопечному. */
+  | { kind: 'screen'; ally: AllyRef }
+  /** Сомкнуть строй: держаться плечом к плечу со своими (зеркало интервала). */
+  | { kind: 'regroup' }
+  /** Меняться местами: вытащить смежного своего из-под удара, встав на его клетку. */
+  | { kind: 'swap'; ally: AllyRef };
 
 /**
  * Структурная пометка линзы: что характер сделал с правилом (план линз).
@@ -229,6 +283,47 @@ export function alliesOf(self: CombatUnit, units: readonly CombatUnit[]): Combat
   return units.filter((u) => u.alive && u.side === self.side);
 }
 
+/**
+ * Кто имеется в виду под ссылкой на своего (план teamwork, вторая волна).
+ * Имя — как было; роль читается прямо сейчас, поэтому подопечный меняется по
+ * ходу боя. Себя роль не выбирает никогда, подстановок не делает: некого —
+ * undefined, и правило молчит. Тайбрейк по id — детерминизм.
+ */
+export function resolveAlly(
+  ref: AllyRef,
+  self: CombatUnit,
+  units: readonly CombatUnit[],
+): CombatUnit | undefined {
+  if (typeof ref === 'string') {
+    const u = byId(units, ref);
+    return u && u.alive ? u : undefined;
+  }
+  const mates = alliesOf(self, units).filter((a) => a.id !== self.id);
+  const best = (pool: readonly CombatUnit[], score: (u: CombatUnit) => number): CombatUnit | undefined =>
+    pool.reduce<CombatUnit | undefined>((b, u) => {
+      if (!b) return u;
+      const s = score(u);
+      const bs = score(b);
+      return s < bs || (s === bs && u.id < b.id) ? u : b;
+    }, undefined);
+  switch (ref.role) {
+    case 'wounded':
+      // «раненый» — именно раненый: у целой партии подопечного нет
+      return best(mates.filter((a) => a.hp < a.maxHp), (u) => u.hp / u.maxHp);
+    case 'frontman': {
+      const foes = enemiesOf(self, units);
+      if (foes.length === 0) return undefined;
+      return best(mates, (u) => Math.min(...foes.map((e) => dist(e.pos, u.pos))));
+    }
+    case 'shooter':
+      return best(mates.filter((a) => a.range > 1), (u) => dist(u.pos, self.pos));
+    case 'taunter':
+      return best(mates.filter((a) => a.stance?.taunt), (u) => dist(u.pos, self.pos));
+    case 'nearest':
+      return best(mates, (u) => dist(u.pos, self.pos));
+  }
+}
+
 export function evalCondition(
   cond: Condition,
   self: CombatUnit,
@@ -239,18 +334,18 @@ export function evalCondition(
     case 'always':
       return true;
     case 'hpBelow': {
-      const u = cond.who === 'self' ? self : byId(units, cond.who.ally);
+      const u = cond.who === 'self' ? self : resolveAlly(cond.who.ally, self, units);
       return !!u && u.alive && u.hp < cond.frac * u.maxHp;
     }
     case 'hpAbove': {
       // точный комплемент hpBelow: при равном frac активна ровно одна половина расщепления
-      const u = cond.who === 'self' ? self : byId(units, cond.who.ally);
+      const u = cond.who === 'self' ? self : resolveAlly(cond.who.ally, self, units);
       return !!u && u.alive && u.hp >= cond.frac * u.maxHp;
     }
     case 'outnumbered':
       return enemiesOf(self, units).length > alliesOf(self, units).length;
     case 'allyInDanger': {
-      const ally = byId(units, cond.ally);
+      const ally = resolveAlly(cond.ally, self, units);
       if (!ally || !ally.alive) return false;
       const adjEnemies = enemiesOf(self, units).filter((e) => dist(e.pos, ally.pos) === 1);
       return ally.hp < 0.5 * ally.maxHp || adjEnemies.length >= 2;
@@ -303,6 +398,34 @@ export function evalCondition(
     case 'enemiesClustered': {
       const es = enemiesOf(self, units);
       return es.some((e) => es.some((o) => o.id !== e.id && dist(e.pos, o.pos) === 1));
+    }
+    case 'allyTaunting':
+      return alliesOf(self, units).some((a) => a.id !== self.id && a.stance?.taunt === true);
+    case 'allyEngaged': {
+      const es = enemiesOf(self, units);
+      return alliesOf(self, units).some(
+        (a) => a.id !== self.id && es.some((e) => dist(e.pos, a.pos) === 1),
+      );
+    }
+    case 'guarded': {
+      // чужое прикрытие живо, только пока щитоносец жив и рядом (та же
+      // проверка, что у effectiveCover) — своя оборона условием не считается
+      const g = self.guardedBy;
+      if (!g) return false;
+      const protector = byId(units, g.id);
+      return !!protector && protector.alive && dist(protector.pos, self.pos) <= 1;
+    }
+    case 'allySurrounded': {
+      const es = enemiesOf(self, units);
+      return alliesOf(self, units).some(
+        (a) => a.id !== self.id && es.filter((e) => dist(e.pos, a.pos) === 1).length >= 2,
+      );
+    }
+    case 'alliesFocusing': {
+      // канал lastAttackerId — тот же, что у «бить туда же»; свои удары не в
+      // счёт: условие про то, что делает команда, а не я
+      const mates = alliesOf(self, units).filter((a) => a.id !== self.id);
+      return enemiesOf(self, units).some((e) => mates.some((a) => e.lastAttackerId === a.id));
     }
     case 'and':
       return cond.conds.every((c) => evalCondition(c, self, units, round));
@@ -404,27 +527,27 @@ export function resolvePosRef(
   self: CombatUnit,
   units: readonly CombatUnit[],
 ): CombatUnit | undefined {
-  if (ref.type === 'ally') {
-    const u = byId(units, ref.id);
-    return u && u.alive ? u : undefined;
-  }
+  if (ref.type === 'ally') return resolveAlly(ref.id, self, units);
   return resolveSelector(ref.sel, self, units);
 }
+
+/** Отладочное имя ссылки на своего: имя героя или роль. */
+const refName = (ref: AllyRef): string => (typeof ref === 'string' ? ref : ref.role);
 
 export function describePreference(p: Preference): string {
   switch (p.kind) {
     case 'attack':
       return `атаковать(${p.target})`;
     case 'protect':
-      return `защищать(${p.ally})`;
+      return `защищать(${refName(p.ally)})`;
     case 'holdPosition':
       return 'держать позицию';
     case 'retreat':
       return 'отступать';
     case 'nearTo':
-      return `рядом с(${p.ref.type === 'ally' ? p.ref.id : p.ref.sel})`;
+      return `рядом с(${p.ref.type === 'ally' ? refName(p.ref.id) : p.ref.sel})`;
     case 'behind':
-      return `позади(${p.ref.type === 'ally' ? p.ref.id : p.ref.sel})`;
+      return `позади(${p.ref.type === 'ally' ? refName(p.ref.id) : p.ref.sel})`;
     case 'bait':
       return 'приманка';
     case 'trade':
@@ -442,7 +565,7 @@ export function describePreference(p: Preference): string {
     case 'brace':
       return 'глухая оборона';
     case 'awayFrom':
-      return `подальше от(${p.ref.type === 'ally' ? p.ref.id : p.ref.sel})`;
+      return `подальше от(${p.ref.type === 'ally' ? refName(p.ref.id) : p.ref.sel})`;
     case 'strikeOften':
       return 'бить часто';
     case 'strikeHard':
@@ -482,6 +605,12 @@ export function describePreference(p: Preference): string {
     case 'taunt':
       return 'вызывать на себя';
     case 'lure':
-      return `уводить от(${p.ally})`;
+      return `уводить от(${refName(p.ally)})`;
+    case 'screen':
+      return `заслонить(${refName(p.ally)})`;
+    case 'regroup':
+      return 'сомкнуть строй';
+    case 'swap':
+      return `меняться местами(${refName(p.ally)})`;
   }
 }
