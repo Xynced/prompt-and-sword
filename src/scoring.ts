@@ -1122,7 +1122,7 @@ function computeAppeal(
           (rl) =>
             rl.then.kind === 'protect' &&
             resolveAlly(rl.then.ally, g, units)?.id === target.id &&
-            evalCondition(rl.when, g, units, round),
+            evalCondition(rl.when, g, units, round, ctx),
         ),
     );
     if (guarded) road *= INTERCEPT_APPEAL;
@@ -2020,7 +2020,7 @@ export function decide(
   ap: number = AP_PER_TURN,
   ctx: ScoreCtx = makeCtx(blocked),
 ): Decision {
-  const fired = self.compiled.rules.filter((r) => evalCondition(r.when, self, units, round));
+  const fired = self.compiled.rules.filter((r) => evalCondition(r.when, self, units, round, ctx));
   const condRules = fired.filter((r) => r.when.kind !== 'always').length;
 
   if (!self.compiled.instincts.gapFill && fired.length === 0) {

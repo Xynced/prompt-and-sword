@@ -1,5 +1,5 @@
-import type { CombatUnit, LensId } from './types.js';
-import { dist } from './grid.js';
+import type { CombatUnit, LensId, Pos } from './types.js';
+import { GRID_H, GRID_W, dist } from './grid.js';
 
 /**
  * IR — промежуточное представление принципов. 12 концептов MVP:
@@ -90,6 +90,18 @@ import { dist } from './grid.js';
  *              застить своим — не вставать на линию выстрела своих стрелков),
  *              pin (связывать боем — держать контакт с врагом, которого не
  *              держит никто из своих: разбирать толпу по одному)
+ * Четвёртая партия слов (план words) — «чтение боя»: условия про землю и
+ *   момент, селекторы про чужое внимание и контакт:
+ *   Условия:   lull (затишье — ни один враг не дотянется до меня за свой
+ *              ход; отрицание underCharge, гейт безопасного окна), onHighGround
+ *              (я на высоте — читает террейн), cornered (меня прижали —
+ *              свободных смежных клеток не осталось; ниша «отчаянно» и обмена),
+ *              inFormation (строй сомкнут — зеркало spreadThin)
+ *   Селекторы: heckler (вражеский крикун — кто держит стойку вызова; контра
+ *              задире), unengaged (свободный враг — которого не держит
+ *              вплотную никто из наших, кроме меня; пара к act.pin)
+ *   Условиям рельефа нужен вид на землю — опциональный GroundView в
+ *   evalCondition; не передан — условия рельефа молчат (нет арены — нет слова)
  * Вложенность (глубокие чипсы): and — конъюнкция условий («если А: если Б —
  *   делай X» → одно правило с when = and[А, Б]), or — дизъюнкция («если А
  *   или Б»). «Или» одним правилом — не то же, что две фразы: при обоих
@@ -110,7 +122,9 @@ export type Selector =
   | 'healer'
   | 'caster'
   | 'straggler'
-  | 'tormentor';
+  | 'tormentor'
+  | 'heckler'
+  | 'unengaged';
 
 /**
  * Роль своего вместо имени (план teamwork, вторая волна): принцип переживает
@@ -203,6 +217,15 @@ export type Condition =
   // третья волна teamwork
   /** Мы растянулись: кто-то из наших (включая меня) стоит без соседа-своего. */
   | { kind: 'spreadThin' }
+  // четвёртая партия слов — «чтение боя»
+  /** Затишье: ни один враг не дотянется до меня за свой ход (отрицание underCharge). */
+  | { kind: 'lull' }
+  /** Я на высоте: моя клетка выше уровня поля (нужен GroundView, без него — молчит). */
+  | { kind: 'onHighGround' }
+  /** Меня прижали: свободных смежных клеток ≤ 1 (границы, камень, тела). */
+  | { kind: 'cornered' }
+  /** Строй сомкнут: каждый из наших со смежным своим (зеркало spreadThin). */
+  | { kind: 'inFormation' }
   /**
    * Конъюнкция — глубокие чипсы: «если А: если Б — …». Из черновиков внутри
    * только простые условия и «или»; вложенные группы конструктор расплющивает сам.
@@ -368,11 +391,22 @@ export function resolveAlly(
   }
 }
 
+/**
+ * Вид на землю для условий рельефа (четвёртая партия слов). ScoreCtx подходит
+ * структурно; не передан (юнит-тесты, оценки вне арены) — условия рельефа
+ * молчат: нет арены — нет слова, как у «стеречь кромку».
+ */
+export interface GroundView {
+  heightAt: (p: Pos) => number;
+  blocked: (p: Pos) => boolean;
+}
+
 export function evalCondition(
   cond: Condition,
   self: CombatUnit,
   units: readonly CombatUnit[],
   round = 1,
+  ground?: GroundView,
 ): boolean {
   switch (cond.kind) {
     case 'always':
@@ -478,10 +512,41 @@ export function evalCondition(
       if (own.length < 2) return false;
       return own.some((u) => !own.some((o) => o.id !== u.id && dist(o.pos, u.pos) <= 1));
     }
+    case 'lull': {
+      // затишье — точное отрицание «накатывают»: никто не дотянется за свой
+      // ход; без врагов боя нет, условие молчит
+      const es = enemiesOf(self, units);
+      return es.length > 0 && !es.some((e) => dist(e.pos, self.pos) <= e.move * 2 + e.range);
+    }
+    case 'onHighGround':
+      return (ground?.heightAt(self.pos) ?? 0) > 0;
+    case 'cornered': {
+      // свободных смежных клеток ≤ 1: границы поля, камень (если земля
+      // известна) и тела обеих сторон
+      let free = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const p = { x: self.pos.x + dx, y: self.pos.y + dy };
+          if (p.x < 0 || p.y < 0 || p.x >= GRID_W || p.y >= GRID_H) continue;
+          if (ground?.blocked(p)) continue;
+          if (units.some((u) => u.alive && u.id !== self.id && u.pos.x === p.x && u.pos.y === p.y)) continue;
+          free++;
+        }
+      }
+      return free <= 1;
+    }
+    case 'inFormation': {
+      // зеркало spreadThin: каждый из наших со смежным своим; у отряда из
+      // одного строя нет — оба условия молчат
+      const own = alliesOf(self, units);
+      if (own.length < 2) return false;
+      return own.every((u) => own.some((o) => o.id !== u.id && dist(o.pos, u.pos) <= 1));
+    }
     case 'and':
-      return cond.conds.every((c) => evalCondition(c, self, units, round));
+      return cond.conds.every((c) => evalCondition(c, self, units, round, ground));
     case 'or':
-      return cond.conds.some((c) => evalCondition(c, self, units, round));
+      return cond.conds.some((c) => evalCondition(c, self, units, round, ground));
   }
 }
 
@@ -565,6 +630,30 @@ export function resolveSelector(
       );
       if (guilty.length === 0) return pick((u) => dist(u.pos, self.pos));
       return guilty.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
+    case 'heckler': {
+      // вражеский крикун: ближайший враг в стойке вызова; крикунов нет —
+      // ближайший (контр-слово к задире)
+      const hecklers = enemies.filter((u) => u.stance?.taunt === true);
+      if (hecklers.length === 0) return pick((u) => dist(u.pos, self.pos));
+      return hecklers.reduce((best, u) => {
+        const s = dist(u.pos, self.pos);
+        const bs = dist(best.pos, self.pos);
+        return s < bs || (s === bs && u.id < best.id) ? u : best;
+      });
+    }
+    case 'unengaged': {
+      // свободный: враг, которого не держит вплотную никто из наших. Мой
+      // собственный контакт не в счёт — иначе цель «освобождалась» бы от
+      // меня же каждый ход и селектор гонял бы бойца по кругу
+      const mates = units.filter((a) => a.alive && a.side === self.side && a.id !== self.id);
+      const free = enemies.filter((e) => !mates.some((a) => dist(a.pos, e.pos) === 1));
+      if (free.length === 0) return pick((u) => dist(u.pos, self.pos));
+      return free.reduce((best, u) => {
         const s = dist(u.pos, self.pos);
         const bs = dist(best.pos, self.pos);
         return s < bs || (s === bs && u.id < best.id) ? u : best;

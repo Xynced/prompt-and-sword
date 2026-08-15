@@ -505,6 +505,10 @@ function conditionOptions(): Opt<ConditionDraft>[] {
   if (has('cond.allySurrounded')) out.push({ value: { id: 'cond.allySurrounded' }, label: 'если нашего обступили' });
   if (has('cond.alliesFocusing')) out.push({ value: { id: 'cond.alliesFocusing' }, label: 'если наши навалились' });
   if (has('cond.spreadThin')) out.push({ value: { id: 'cond.spreadThin' }, label: 'если мы растянулись' });
+  if (has('cond.lull')) out.push({ value: { id: 'cond.lull' }, label: 'пока затишье' });
+  if (has('cond.onHighGround')) out.push({ value: { id: 'cond.onHighGround' }, label: 'пока я на высоте' });
+  if (has('cond.cornered')) out.push({ value: { id: 'cond.cornered' }, label: 'если меня прижали' });
+  if (has('cond.inFormation')) out.push({ value: { id: 'cond.inFormation' }, label: 'пока строй сомкнут' });
   return out;
 }
 
@@ -538,6 +542,8 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
       'sel.caster',
       'sel.straggler',
       'sel.tormentor',
+      'sel.heckler',
+      'sel.unengaged',
     ] as const
   ).filter(has);
   const selRu: Record<string, string> = {
@@ -555,6 +561,8 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
     'sel.caster': 'вражеского заклинателя',
     'sel.straggler': 'отбившегося',
     'sel.tormentor': 'обидчика наших',
+    'sel.heckler': 'вражеского крикуна',
+    'sel.unengaged': 'свободного врага',
   };
   if (has('act.attack')) {
     for (const s of selectors) out.push({ value: { id: 'act.attack', target: s }, label: `атаковать ${selRu[s]}` });

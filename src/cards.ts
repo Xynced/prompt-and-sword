@@ -28,6 +28,8 @@ const SEL_RU: Record<string, string> = {
   caster: 'вражеского заклинателя',
   straggler: 'отбившегося от своих',
   tormentor: 'обидчика наших',
+  heckler: 'вражеского крикуна',
+  unengaged: 'свободного врага',
 };
 
 /** Ссылка на своего в нужном падеже: имя героя не склоняем, роль — по таблице. */
@@ -101,6 +103,14 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если наши уже навалились на кого-то — ';
     case 'spreadThin':
       return 'если мы растянулись — ';
+    case 'lull':
+      return 'пока затишье и до меня не дотягиваются — ';
+    case 'onHighGround':
+      return 'пока я стою на высоте — ';
+    case 'cornered':
+      return 'если меня прижали и деваться некуда — ';
+    case 'inFormation':
+      return 'пока мы стоим строем, плечом к плечу — ';
     case 'and':
       // вложенность читается сцепкой «если … — если … — »
       return c.conds.map((s) => condRu(s, nm)).join('');

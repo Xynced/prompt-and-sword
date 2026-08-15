@@ -40,6 +40,8 @@ const SELECTORS: SelectorDraft[] = [
   'sel.caster',
   'sel.straggler',
   'sel.tormentor',
+  'sel.heckler',
+  'sel.unengaged',
 ];
 
 /** Условия и предпочтения без параметров: одна ветка схемы и валидации на всех. */
@@ -69,6 +71,10 @@ const PARAMLESS_CONDITIONS = [
   'cond.allySurrounded',
   'cond.alliesFocusing',
   'cond.spreadThin',
+  'cond.lull',
+  'cond.onHighGround',
+  'cond.cornered',
+  'cond.inFormation',
 ] as const;
 const PARAMLESS_PREFERENCES = [
   'act.holdPosition',

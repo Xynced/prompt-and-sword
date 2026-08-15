@@ -276,6 +276,8 @@ export function runBattle(
   const terrain = { name: layout.name, scenario: layout.scenario, tiles };
   const blocked = (p: Pos): boolean => tiles[p.y]?.[p.x]?.blocked === true;
   const heightAt = (p: Pos): number => tiles[p.y]?.[p.x]?.height ?? 0;
+  // вид на землю для условий рельефа («я на высоте», «меня прижали»)
+  const ground = { heightAt, blocked };
   const events: BattleEvent[] = [];
   for (const u of units) {
     events.push({ t: 'spawn', unit: u.id, name: u.name, side: u.side, pos: { ...u.pos }, maxHp: u.maxHp });
@@ -361,7 +363,7 @@ export function runBattle(
       // режим защёлкивается до конца боя — обратной дороги нет, условие
       // может перестать быть истинным (вылеченный трус остаётся в панике)
       const drift = unit.compiled.drift;
-      if (drift && evalCondition(drift.trigger, unit, units, round)) {
+      if (drift && evalCondition(drift.trigger, unit, units, round, ground)) {
         unit.compiled = { rules: drift.rules, instincts: drift.instincts };
         events.push({ t: 'moodShift', unit: unit.id, lens: drift.lens });
       }
@@ -439,7 +441,7 @@ export function runBattle(
                     (rl) =>
                       rl.then.kind === 'protect' &&
                       resolveAlly(rl.then.ally, g, units)?.id === aimed.id &&
-                      evalCondition(rl.when, g, units, round),
+                      evalCondition(rl.when, g, units, round, ground),
                   ),
               )
               .sort((a, b) => (a.id < b.id ? -1 : 1))[0];
