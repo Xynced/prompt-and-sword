@@ -86,6 +86,8 @@ const PARAMLESS_PREFERENCES = [
   'space.highGround',
   'space.behindCover',
   'space.avoidHazard',
+  'space.roughEdge',
+  'space.outflank',
   'act.shove',
   'space.spread',
   'act.barrage',

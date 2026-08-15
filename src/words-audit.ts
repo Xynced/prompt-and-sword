@@ -453,6 +453,26 @@ export const AUDIT_ENTRIES: AuditEntry[] = [
       w2({ condition: { id: 'cond.allySurrounded' }, preference: { id: 'act.attack', target: 'sel.tormentor' } }),
     ]),
   },
+  // — слова рельефа: пользоваться местностью, а не только не страдать от неё —
+  {
+    word: 'space.roughEdge',
+    label: 'стеречь кромку (стрелки)',
+    drafts: forRoles(['ranged'], () => [w2({ condition: always, preference: { id: 'space.roughEdge' } })]),
+  },
+  {
+    word: 'space.outflank',
+    label: 'обходить из-за спин (ближники)',
+    drafts: forRoles(['melee'], () => [w2({ condition: always, preference: { id: 'space.outflank' } })]),
+  },
+  {
+    word: null,
+    label: 'комбо: обход из-за спин + фланг (ближники)',
+    extra: ['space.outflank', 'space.flank'],
+    drafts: forRoles(['melee'], () => [
+      w2({ condition: always, preference: { id: 'space.outflank' } }),
+      w2({ condition: always, preference: { id: 'space.flank' } }),
+    ]),
+  },
 ];
 
 // ---- Сборка спеков и прогон ----
