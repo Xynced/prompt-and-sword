@@ -8,6 +8,7 @@ import {
   describeWeapons,
   driftQuip,
   lensQuip,
+  persistRu,
   understandingCard,
 } from '../cards.js';
 import {
@@ -695,6 +696,8 @@ interface FrameUnit {
   alive: boolean;
   /** Действующее прикрытие — значок на фишке до начала своего хода: прикрытие / глухая оборона / прикрыт союзником. */
   cover?: 'half' | 'full' | 'ally';
+  /** Что на юните тлеет (план damage-types, волна 6) — подпись значка: «огонь», «яд», «кровь». */
+  smolder?: string;
 }
 
 /** Мгновенный эффект кадра: всплывающий текст над клеткой или вспышка задетых клеток. */
@@ -997,6 +1000,7 @@ function buildFrames(
       case 'die': {
         units.get(e.unit)!.alive = false;
         units.get(e.unit)!.cover = undefined;
+        units.get(e.unit)!.smolder = undefined;
         activeZones.delete(e.unit); // зона умирает вместе с кастером
         pending?.parts.push(`${nm(e.unit)} падает`);
         float(e.unit, '✝', 'info');
@@ -1036,10 +1040,45 @@ function buildFrames(
         // зарастание случается до первого решения хода — свой кадр, как у ритуала
         flush();
         units.get(e.unit)!.hp = e.hp;
-        pending = { actorId: e.unit, factors: [], parts: [`зарастает: +${e.amount}`], fx: [] };
-        float(e.unit, `+${e.amount}`, 'heal');
+        pending = {
+          actorId: e.unit,
+          factors: [],
+          parts: [e.quenched ? 'не зарастает: огонь не даёт' : `зарастает: +${e.amount}`],
+          fx: [],
+        };
+        float(e.unit, e.quenched ? 'не зарастает' : `+${e.amount}`, e.quenched ? 'info' : 'heal');
         break;
       }
+      // длящийся урон (план damage-types, волна 6): занялся, тикает, погас
+      case 'persistStart':
+        units.get(e.target)!.smolder = persistRu(e.dmgType);
+        pending?.parts.push(`${nm(e.target)}: ${persistRu(e.dmgType)} (−${e.dmg} в конце хода)`);
+        float(e.target, `${persistRu(e.dmgType)}!`, 'dmg');
+        break;
+      case 'persist': {
+        // тик приходит в конце хода жертвы — своим кадром, как зарастание
+        flush();
+        units.get(e.unit)!.hp = e.hp;
+        pending = {
+          actorId: e.unit,
+          factors: [],
+          parts: [`${persistRu(e.dmgType)}: −${e.dmg}`],
+          fx: [],
+        };
+        float(e.unit, `−${e.dmg} ${persistRu(e.dmgType)}`, 'dmg');
+        break;
+      }
+      case 'persistEnd':
+        units.get(e.unit)!.smolder = undefined;
+        pending?.parts.push(`${persistRu(e.dmgType)} сходит на нет${e.assisted ? ' (помогли)' : ''}`);
+        float(e.unit, `${persistRu(e.dmgType)} унят`, 'buff');
+        break;
+      case 'douse':
+        pending?.parts.push(
+          e.unit === e.target ? 'сбивает с себя пламя' : `сбивает пламя с ${nm(e.target)}`,
+        );
+        float(e.target, 'сбить пламя', 'buff');
+        break;
       case 'moodShift': {
         // сдвиг характера — свой кадр с репликой; попадает и в разбор после боя
         flush();
@@ -1629,6 +1668,13 @@ function coverBadgeHtml(cover: FrameUnit['cover']): string {
   return cover ? `<span class="cov ${cover}" title="${COVER_BADGE_TITLE[cover]}">⛨</span>` : '';
 }
 
+/** Значок тлеющей раны: что горит и почём (план damage-types, волна 6). */
+function smolderBadgeHtml(smolder: FrameUnit['smolder']): string {
+  return smolder
+    ? `<span class="smold" title="${smolder}: урон в конце хода, пока не сбито">✸</span>`
+    : '';
+}
+
 function tokensHtml(): string {
   const f = frames[frameIdx];
   if (!f) return '';
@@ -1644,7 +1690,7 @@ function tokensHtml(): string {
       const hpw = Math.round((100 * Math.max(0, u.hp)) / u.maxHp);
       const mark = u.side === 'foe' && u.id === run.marked ? '<span class="mark-badge">◎</span>' : '';
       return `<div class="${cls}" data-unit="${u.id}" style="left:${u.x * CELL}%;top:${u.y * CELL}%">
-        ${mark}${coverBadgeHtml(u.cover)}<span class="dm"><span>${esc(glyphOf(u.name))}</span></span>
+        ${mark}${coverBadgeHtml(u.cover)}${smolderBadgeHtml(u.smolder)}<span class="dm"><span>${esc(glyphOf(u.name))}</span></span>
         <span class="hp-sliver"><span style="width:${hpw}%"></span></span>
       </div>`;
     })
@@ -1793,6 +1839,10 @@ function syncBattleFrame(): void {
       cov.className = `cov ${u.cover}`;
       cov.title = COVER_BADGE_TITLE[u.cover];
     }
+    const sm = el.querySelector<HTMLElement>('.smold');
+    if (!u.smolder) sm?.remove();
+    else if (!sm) el.insertAdjacentHTML('afterbegin', smolderBadgeHtml(u.smolder));
+    else sm.title = `${u.smolder}: урон в конце хода, пока не сбито`;
   }
   const fxl = document.getElementById('fxlayer');
   if (fxl) fxl.innerHTML = fxHtml();

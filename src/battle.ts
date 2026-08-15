@@ -6,6 +6,9 @@ import {
   COVER,
   FULL_COVER,
   HAZARD_DMG,
+  PERSIST_DC,
+  PERSIST_DC_ASSISTED,
+  REGEN_QUENCH,
   RIPOSTE_DMG,
   SAVE_DC,
   SELFLESS_VULN_MULT,
@@ -25,6 +28,8 @@ import type {
   Defenses,
   LensId,
   PassiveSpec,
+  Persist,
+  PersistSpec,
   Pos,
   Side,
   WeaponSpec,
@@ -45,6 +50,7 @@ import {
   castVictims,
   dmgTypeOf,
   gangBonus,
+  persistOf,
   saveKindFor,
   saveOf,
   stepBackDest,
@@ -190,8 +196,16 @@ export type BattleEvent =
   | { t: 'mark'; unit: string; target: string }
   /** Исцеление: цели восстановлено amount hp (после капа), hp — итог. */
   | { t: 'heal'; unit: string; target: string; amount: number; hp: number }
-  /** Регенерация: юнит зарастает в начале своего хода (пассив regen). */
-  | { t: 'regen'; unit: string; amount: number; hp: number }
+  /** Регенерация: юнит зарастает в начале своего хода (пассив regen); quenched — огонь или кислота не дали. */
+  | { t: 'regen'; unit: string; amount: number; hp: number; quenched?: true }
+  /** Занялся длящийся урон (план damage-types, волна 6): горение, кровь, яд. */
+  | { t: 'persistStart'; unit: string; target: string; dmgType: DamageType; dmg: number }
+  /** Тик длящегося урона в конце хода жертвы. */
+  | { t: 'persist'; unit: string; dmgType: DamageType; dmg: number; hp: number; soak?: DamageSoak }
+  /** Тление погасло флэт-чеком; assisted — помощь сбила DC до PERSIST_DC_ASSISTED. */
+  | { t: 'persistEnd'; unit: string; dmgType: DamageType; assisted?: true }
+  /** Сбить пламя / зажать рану себе или смежному своему: следующая проверка легче. */
+  | { t: 'douse'; unit: string; target: string }
   /** Эмоциональный дрейф (план линз): триггер сработал, режим защёлкнут до конца боя. */
   | { t: 'moodShift'; unit: string; lens: LensId }
   /** Благословение: атаки цели ×mult до конца боя. */
@@ -472,6 +486,73 @@ export function runBattle(
   }
   let rounds = 0;
 
+  // регенерация гаснет от огня и кислоты (pf2e): любой дошедший урон этих
+  // типов съедает ближайший тик заращивания у тролля
+  const noteQuench = (u: Fighter, type: DamageType | undefined, dmg: number): void => {
+    if (dmg > 0 && type && u.passives?.regen && REGEN_QUENCH.includes(type)) u.regenQuenched = true;
+  };
+
+  // занявшееся тление (план damage-types, волна 6): иммунный к типу не
+  // загорается вовсе, тот же тип не складывается — остаётся большая запись
+  // (правило pf2e), крит удваивает
+  const addPersist = (
+    by: Fighter,
+    target: Fighter,
+    spec: PersistSpec,
+    hitType: DamageType | undefined,
+    doubled: boolean,
+  ): void => {
+    const type = spec.type ?? hitType;
+    if (!type || !target.alive) return;
+    if (target.defenses?.immune?.includes(type)) return;
+    const dmg = spec.dmg * (doubled ? 2 : 1);
+    const current = target.persist?.find((x) => x.type === type);
+    if (current && current.dmg >= dmg) return;
+    if (current) current.dmg = dmg;
+    else (target.persist ??= []).push({ type, dmg });
+    events.push({ t: 'persistStart', unit: by.id, target: target.id, dmgType: type, dmg });
+  };
+
+  // тик тления в конце хода жертвы и флэт-чек гашения — порядок pf2e.
+  // Бросок берётся ключом ситуации, а не потоком rng: тление не сдвигает
+  // последовательность боя (та же причина, что у бросков атаки)
+  const tickPersist = (u: Fighter, round: number): void => {
+    if (!u.alive || !u.persist?.length) return;
+    const kept: Persist[] = [];
+    for (const p of u.persist) {
+      const bite = applyDefenses(p.dmg, p.type, u.defenses);
+      u.hp = Math.max(0, u.hp - bite.dmg);
+      events.push({
+        t: 'persist',
+        unit: u.id,
+        dmgType: p.type,
+        dmg: bite.dmg,
+        hp: u.hp,
+        ...(bite.soak ? { soak: bite.soak } : {}),
+      });
+      noteQuench(u, p.type, bite.dmg);
+      if (u.hp === 0) {
+        u.alive = false;
+        u.persist = undefined;
+        events.push({ t: 'die', unit: u.id });
+        return;
+      }
+      const natural = d20(seed, u.id, round, 0, `persist:${p.type}`);
+      if (natural >= (p.assisted ? PERSIST_DC_ASSISTED : PERSIST_DC)) {
+        events.push({
+          t: 'persistEnd',
+          unit: u.id,
+          dmgType: p.type,
+          ...(p.assisted ? { assisted: true as const } : {}),
+        });
+      } else {
+        // помощь работает на одну проверку — она уже израсходована
+        kept.push({ type: p.type, dmg: p.dmg });
+      }
+    }
+    u.persist = kept.length ? kept : undefined;
+  };
+
   // общий урон площадного каста: фиксированный, по всем жертвам (friendly
   // fire), с событием aoeHit и смертями; порядок жертв — порядок в units
   const applyAoe = (
@@ -481,6 +562,7 @@ export function runBattle(
     round: number,
     form: 'blast' | 'line' | 'ritual',
     dmgType?: DamageType,
+    persist?: PersistSpec,
   ): void => {
     for (const v of victims) {
       // базовый спасбросок pf2e (план damage-types): яд — Стойкостью, разум —
@@ -504,9 +586,16 @@ export function runBattle(
         ...(soak ? { soak } : {}),
         save: degree,
       });
+      noteQuench(v, dmgType, dmg);
       if (v.hp === 0) {
         v.alive = false;
         events.push({ t: 'die', unit: v.id });
+        continue;
+      }
+      // тление от зоны — только проваленному спасброску (правило pf2e):
+      // увернувшийся не горит, поймавший вдвое горит вдвое
+      if (persist && (degree === 'fail' || degree === 'critFail')) {
+        addPersist(caster, v, persist, dmgType, degree === 'critFail');
       }
     }
   };
@@ -564,6 +653,7 @@ export function runBattle(
           round,
           'ritual',
           unit.aoe?.ritual?.dmgType,
+          unit.aoe?.ritual?.persist,
         );
         const w = checkEnd(round);
         if (w) {
@@ -573,12 +663,22 @@ export function runBattle(
         if (!unit.alive) continue; // накрыл сам себя
       }
 
-      // регенерация: зарастает в начале своего хода, не выше максимума
+      // регенерация: зарастает в начале своего хода, не выше максимума.
+      // Огонь и кислота её гасят (pf2e): один тик пропущен, метка снимается —
+      // чтобы держать тролля закрытым, жечь его надо каждый круг
       const regen = unit.passives?.regen;
-      if (regen && unit.hp < unit.maxHp) {
-        const amount = Math.min(regen.amount, unit.maxHp - unit.hp);
-        unit.hp += amount;
-        events.push({ t: 'regen', unit: unit.id, amount, hp: unit.hp });
+      if (regen) {
+        const quenched = unit.regenQuenched === true;
+        unit.regenQuenched = false;
+        if (unit.hp < unit.maxHp) {
+          if (quenched) {
+            events.push({ t: 'regen', unit: unit.id, amount: 0, hp: unit.hp, quenched: true });
+          } else {
+            const amount = Math.min(regen.amount, unit.maxHp - unit.hp);
+            unit.hp += amount;
+            events.push({ t: 'regen', unit: unit.id, amount, hp: unit.hp });
+          }
+        }
       }
 
       // эмоциональный дрейф (план линз): триггер проверяется в начале хода,
@@ -780,6 +880,7 @@ export function runBattle(
                 ...(bite.soak ? { soak: bite.soak } : {}),
                 ...(degree === 'critSuccess' ? { outcome: 'crit' as const } : {}),
               });
+              noteQuench(target, dmgType, dmg);
               if (target.hp === 0) {
                 target.alive = false;
                 events.push({ t: 'die', unit: target.id });
@@ -796,6 +897,10 @@ export function runBattle(
                 target.tags.push('marked');
                 events.push({ t: 'mark', unit: unit.id, target: target.id });
               }
+              // тление приёма (план damage-types, волна 6): только дошедшим
+              // ударом, крит удваивает — правило pf2e
+              const rider = persistOf(weapon, move);
+              if (rider) addPersist(unit, target, rider, dmgType, degree === 'critSuccess');
             }
             // сдвоенный приём (райдер twin): вторая стрела — в ближайшего
             // другого врага в дальности; перехват телохранителя и метка
@@ -862,9 +967,13 @@ export function runBattle(
                   ...(bite2.soak ? { soak: bite2.soak } : {}),
                   ...(degree2 === 'critSuccess' ? { outcome: 'crit' as const } : {}),
                 });
+                noteQuench(second, dmgType, dmg2);
                 if (second.hp === 0) {
                   second.alive = false;
                   events.push({ t: 'die', unit: second.id });
+                } else {
+                  const rider2 = persistOf(weapon, move);
+                  if (rider2) addPersist(unit, second, rider2, dmgType, degree2 === 'critSuccess');
                 }
               }
             }
@@ -986,14 +1095,22 @@ export function runBattle(
           if (blast && blastReady(unit) && dist(unit.pos, at) <= blast.range && hasLoS(unit.pos, at, blocked)) {
             unit.blastUses = (unit.blastUses ?? 0) + 1;
             events.push({ t: 'aoeCast', unit: unit.id, form: 'blast', at: { ...at } });
-            applyAoe(unit, blast.mult, aoeVictims(at, units), round, 'blast', blast.dmgType);
+            applyAoe(unit, blast.mult, aoeVictims(at, units), round, 'blast', blast.dmgType, blast.persist);
           }
         } else if (action === 'aoeLine' && at) {
           // волна клинка: мгновенная полоса от себя, `at` — клетка-направление
           const line = unit.aoe?.line;
           if (line && dist(unit.pos, at) === 1) {
             events.push({ t: 'aoeCast', unit: unit.id, form: 'line', at: { ...at } });
-            applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked), round, 'line', line.dmgType);
+            applyAoe(
+              unit,
+              line.mult,
+              castVictims('aoeLine', at, unit, units, blocked),
+              round,
+              'line',
+              line.dmgType,
+              line.persist,
+            );
           }
         } else if (action === 'rage') {
           // вход в ярость: статус до конца боя, второго входа нет по устройству
@@ -1079,6 +1196,22 @@ export function runBattle(
               }
             }
           }
+        } else if (action === 'douse' && targetId) {
+          // сбить пламя / зажать рану (план damage-types, волна 6): себе или
+          // смежному своему. Не гасит само — роняет DC ближайшей проверки
+          // (assisted recovery pf2e). Одним движением сбивается всё тлеющее:
+          // дробить действие по типам не за что — тлеть двумя каналами разом
+          // и так редкость
+          const hurt = units.find((u) => u.id === targetId)!;
+          if (
+            hurt.alive &&
+            hurt.side === unit.side &&
+            (hurt.id === unit.id || dist(unit.pos, hurt.pos) === 1) &&
+            hurt.persist?.length
+          ) {
+            for (const pd of hurt.persist) pd.assisted = true;
+            events.push({ t: 'douse', unit: unit.id, target: hurt.id });
+          }
         } else if (coverLevelOf(action) > 0) {
           unit.coverLevel = Math.max(unit.coverLevel, coverLevelOf(action));
           events.push({ t: 'cover', unit: unit.id, level: unit.coverLevel });
@@ -1092,6 +1225,16 @@ export function runBattle(
           events.push({ t: 'end', winner: w, rounds: round });
           return { winner: w, rounds: round, events, units, terrain };
         }
+      }
+
+      // конец хода: тлеет и проверяется длящийся урон (порядок pf2e). Именно
+      // в конце, а не в начале: тогда потраченное на «сбить пламя» очко хода
+      // помогает той же проверке, а не следующей
+      tickPersist(unit, round);
+      const wp = checkEnd(round);
+      if (wp) {
+        events.push({ t: 'end', winner: wp, rounds: round });
+        return { winner: wp, rounds: round, events, units, terrain };
       }
     }
 

@@ -112,6 +112,8 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'пока затишье и до меня не дотягиваются — ';
     case 'weaponFails':
       return 'если моё оружие не берёт того, кто ближе всех, — ';
+    case 'smoldering':
+      return 'пока на мне тлеет рана — огонь, яд или кровь — ';
     case 'onHighGround':
       return 'пока я стою на высоте — ';
     case 'cornered':
@@ -203,6 +205,8 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'благословляю: усиливаю удары самого ударного из наших до конца боя';
     case 'feint':
       return 'финчу: обманным выпадом открываю врага под удары своих';
+    case 'douse':
+      return 'сбиваю пламя: трачу движение, чтобы сбить огонь или зажать рану — себе или тому из наших, кто рядом';
     case 'finish':
       return 'добиваю: если удар может снять цель с поля — бью его, остальное подождёт';
     case 'focusFire':
@@ -241,11 +245,17 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
  */
 export function describeAoe(aoe: AoeSpec): string {
   const w: string[] = [];
+  // тление зоны (план damage-types, волна 6): разведка обязана предупредить,
+  // что залп не просто бьёт, а оставляет гореть
+  const smolder = (form: { dmgType?: DamageType; persist?: { dmg: number; type?: DamageType } }): string =>
+    form.persist
+      ? `, ${persistRu(form.persist.type ?? form.dmgType ?? 'fire')} −${form.persist.dmg}/ход`
+      : '';
   if (aoe.blast) {
     const limit = aoe.blast.usesPerBattle ? `, ${aoe.blast.usesPerBattle} на бой` : '';
-    w.push(`заряд 3×3 (дальность ${aoe.blast.range}${limit})`);
+    w.push(`заряд 3×3 (дальность ${aoe.blast.range}${limit}${smolder(aoe.blast)})`);
   }
-  if (aoe.line) w.push(`волна 1×${aoe.line.len}`);
+  if (aoe.line) w.push(`волна 1×${aoe.line.len}${aoe.line.persist ? ` (${smolder(aoe.line).slice(2)})` : ''}`);
   if (aoe.ritual) {
     const limit = aoe.ritual.cooldown
       ? `, раз в ${aoe.ritual.cooldown} раунда`
@@ -253,7 +263,7 @@ export function describeAoe(aoe: AoeSpec): string {
         ? `, ${aoe.ritual.usesPerBattle} на бой`
         : '';
     const pulses = aoe.ritual.pulses && aoe.ritual.pulses > 1 ? `, жжёт ${aoe.ritual.pulses} хода` : '';
-    w.push(`ритуал 5×5 (замах виден за ход${pulses}${limit})`);
+    w.push(`ритуал 5×5 (замах виден за ход${pulses}${limit}${smolder(aoe.ritual)})`);
   }
   return w.join(' · ');
 }
@@ -278,6 +288,9 @@ function describeMove(w: WeaponSpec, m: WeaponMove): string {
   if (m.gang !== undefined) marks.push('толпой больнее');
   if (m.stepBack) marks.push('с отходом');
   if (m.twin) marks.push('по двум');
+  // тление приёма (волна 6): игрок обязан видеть, что удар оставляет в цели
+  const rider = m.persist ?? w.persist;
+  if (rider) marks.push(`${persistRu(rider.type ?? m.dmgType ?? w.dmgType ?? 'fire')} −${rider.dmg}/ход`);
   if (m.ap !== undefined) marks.push('весь ход');
   return `${m.name} ${Math.round(w.dmg * m.mult)}${marks.length > 0 ? ` (${marks.join(', ')})` : ''}`;
 }
@@ -292,7 +305,10 @@ export function describeWeapon(w: WeaponSpec): string {
     return `${w.name}${type} (${w.moves.map((m) => describeMove(w, m)).join('; ')})${aoe}`;
   }
   const range = w.range > 1 ? `, даль ${w.range}` : '';
-  return `${w.name} (удар ${w.dmg}${range}${type})${aoe}`;
+  const rider = w.persist
+    ? `, ${persistRu(w.persist.type ?? w.dmgType ?? 'fire')} −${w.persist.dmg}/ход`
+    : '';
+  return `${w.name} (удар ${w.dmg}${range}${type}${rider})${aoe}`;
 }
 
 /**
@@ -300,6 +316,19 @@ export function describeWeapon(w: WeaponSpec): string {
  * Слово об уязвимости бессмысленно, если игрок не может её узнать: сюда идут
  * и КБ со спасбросками, и слабости с сопротивлениями.
  */
+/**
+ * Как назвать тлеющий урон в логе (план damage-types, волна 6): огонь, яд,
+ * кислота — своими именами, физика — кровью. Слово подобрано так, чтобы
+ * годилось в любом падеже боевого лога: «кровь сходит на нет», «унял огонь».
+ */
+export function persistRu(t: DamageType): string {
+  if (t === 'fire') return 'огонь';
+  if (t === 'poison') return 'яд';
+  if (t === 'acid') return 'кислота';
+  if (t === 'bludgeoning' || t === 'piercing' || t === 'slashing') return 'кровь';
+  return DAMAGE_TYPE_RU[t];
+}
+
 export function describeDefenses(d: Defenses): string {
   const parts: string[] = [];
   if (d.ac !== undefined) parts.push(`КБ ${d.ac}`);
@@ -362,7 +391,9 @@ export function describePassives(p: PassiveSpec): string {
   if (p.shadow) parts.push(`из тени урон ×${p.shadow.mult}`);
   if (p.sneak) parts.push(`фланг ×${p.sneak.flankMult}`);
   if (p.retribution) parts.push(`кара обидчикам своих ×${p.retribution.mult}`);
-  if (p.regen) parts.push(`зарастает +${p.regen.amount} в ход`);
+  // регенерацию гасят огонь и кислота (pf2e): без этой строки контр-тактика
+  // против тролля остаётся тайной
+  if (p.regen) parts.push(`зарастает +${p.regen.amount} в ход (огонь и кислота не дают)`);
   return parts.join(' · ');
 }
 

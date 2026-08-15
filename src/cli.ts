@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { type BattleEvent, type BattleResult, runBattle } from './battle.js';
 import { type IrSet, makeFoes, makeIrSets, makeRushVariant } from './scenarios.js';
-import { understandingCard } from './cards.js';
+import { persistRu, understandingCard } from './cards.js';
 import { describeDraft } from './constructor.js';
 import { type CompileRequest, anthropicModelCall, compileFreeText, type ModelCall } from './compiler/compile.js';
 import { fileCache } from './compiler/cache-node.js';
@@ -205,7 +205,27 @@ function printBattleLog(r: BattleResult, names: Map<string, string>): void {
         console.log(`  ${nm(e.unit)} исцеляет ${nm(e.target)}: +${e.amount}, hp=${e.hp}`);
         break;
       case 'regen':
-        console.log(`  ${nm(e.unit)} зарастает: +${e.amount}, hp=${e.hp}`);
+        console.log(
+          e.quenched
+            ? `  ${nm(e.unit)} не зарастает: огонь не даёт, hp=${e.hp}`
+            : `  ${nm(e.unit)} зарастает: +${e.amount}, hp=${e.hp}`,
+        );
+        break;
+      case 'persistStart':
+        console.log(`  ${nm(e.target)}: ${persistRu(e.dmgType)} (−${e.dmg} в конце хода)`);
+        break;
+      case 'persist':
+        console.log(`  ${nm(e.unit)}: ${persistRu(e.dmgType)} — ${e.dmg} урона, hp=${e.hp}`);
+        break;
+      case 'persistEnd':
+        console.log(`  ${nm(e.unit)}: ${persistRu(e.dmgType)} сходит на нет${e.assisted ? ' (помогли)' : ''}`);
+        break;
+      case 'douse':
+        console.log(
+          e.unit === e.target
+            ? `  ${nm(e.unit)} сбивает с себя пламя`
+            : `  ${nm(e.unit)} сбивает пламя с ${nm(e.target)}`,
+        );
         break;
       case 'bless':
         console.log(`  ${nm(e.unit)} благословляет ${nm(e.target)} (урон ×${e.mult})`);

@@ -611,6 +611,29 @@ export const AUDIT_ENTRIES: AuditEntry[] = [
       { condition: always, preference: { id: 'act.attack', target: 'sel.nearest' } },
     ]),
   },
+  // волна 6 того же плана: длящийся урон. Слово помощи меряем и безусловно
+  // (тратить ход всегда, как только тлеет), и парой с условием — ниша у него
+  // ровно там, где на партии что-то горит
+  {
+    word: 'act.douse',
+    label: 'сбивать пламя (все)',
+    drafts: everyone(() => [
+      w2({ condition: always, preference: { id: 'act.douse' } }),
+      { condition: always, preference: { id: 'act.attack', target: 'sel.nearest' } },
+    ]),
+  },
+  // условие меряем НЕ в паре со сбиванием: там оно немо по построению —
+  // кандидата «сбить» не бывает, пока не тлеет, и безусловное слово ведёт
+  // себя ровно так же (замер волны 6 совпал до процента). Ниша условия —
+  // сменить план, пока горит
+  {
+    word: 'cond.smoldering',
+    label: 'на мне тлеет → отходить',
+    drafts: everyone(() => [
+      w2({ condition: { id: 'cond.smoldering' }, preference: { id: 'act.retreat' } }),
+      { condition: always, preference: { id: 'act.attack', target: 'sel.nearest' } },
+    ]),
+  },
 ];
 
 // ---- Сборка спеков и прогон ----

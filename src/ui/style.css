@@ -507,6 +507,23 @@ button.primary:disabled:hover { background: var(--ink); }
 }
 .cov.ally { border-style: dashed; }
 
+/* тлеющая рана (план damage-types, волна 6): значок держится, пока горит */
+.smold {
+  position: absolute;
+  top: -3px;
+  right: 2%;
+  z-index: 1;
+  width: 13px;
+  height: 13px;
+  display: grid;
+  place-items: center;
+  font: 700 9px/1 var(--serif);
+  border-radius: 50%;
+  background: var(--modal);
+  border: 1px solid var(--red);
+  color: var(--red);
+}
+
 /* ---- управление воспроизведением ---- */
 .controls-row {
   display: flex;

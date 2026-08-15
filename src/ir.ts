@@ -255,6 +255,11 @@ export type Condition =
    * «отойти»: слово о том, что драка бессмысленна именно этими руками.
    */
   | { kind: 'weaponFails' }
+  /**
+   * На мне тлеет (план damage-types, волна 6): длящийся урон любого типа —
+   * огонь, яд, кровь. Гейт для «сбивать пламя» и «отходить».
+   */
+  | { kind: 'smoldering' }
   /** Я на высоте: моя клетка выше уровня поля (нужен GroundView, без него — молчит). */
   | { kind: 'onHighGround' }
   /** Меня прижали: свободных смежных клеток ≤ 1 (границы, камень, тела). */
@@ -319,6 +324,11 @@ export type Preference =
   | { kind: 'heal' }
   | { kind: 'bless' }
   | { kind: 'feint' }
+  /**
+   * Сбивать пламя (план damage-types, волна 6): гасить длящийся урон себе и
+   * своим — помощь роняет DC ближайшей проверки.
+   */
+  | { kind: 'douse' }
   // вторая партия слов (план words): манеры выбора цели, а не «кого бить»
   /** Добивать: предпочитать удар, который снимает цель с поля. */
   | { kind: 'finish' }
@@ -578,6 +588,8 @@ export function evalCondition(
       if (own.length < 2) return false;
       return own.some((u) => !own.some((o) => o.id !== u.id && dist(o.pos, u.pos) <= 1));
     }
+    case 'smoldering':
+      return (self.persist?.length ?? 0) > 0;
     case 'weaponFails': {
       // считаем по ближайшему живому врагу: тип, которым я его беру без
       // скидки, — есть? Значит, оружие берёт. Урон без типа берёт всегда
@@ -901,6 +913,8 @@ export function describePreference(p: Preference): string {
       return 'благословить';
     case 'feint':
       return 'финтить';
+    case 'douse':
+      return 'сбивать пламя';
     case 'finish':
       return 'добивать';
     case 'focusFire':
