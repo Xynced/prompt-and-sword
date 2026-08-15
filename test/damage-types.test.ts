@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyLens } from '../src/lens.js';
-import { type Fighter, decide, dmgTypeOf, makeCtx, movesOf, weaponsOf } from '../src/scoring.js';
+import { type Fighter, attackBonusOf, decide, dmgTypeOf, makeCtx, movesOf, weaponsOf } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { heroArchetype } from '../src/heroes.js';
-import { applyDefenses } from '../src/tuning.js';
+import { applyDefenses, d20, degreeOf } from '../src/tuning.js';
 import type { CombatUnit, Defenses, Pos, Side, WeaponSpec } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
 
@@ -202,5 +202,46 @@ describe('скоринг видит защиты цели', () => {
     expect(pick(foeWith({ resist: { bludgeoning: 3 }, weak: { piercing: 3 } }))).toBe('копьё');
     // латы держат колющее и рубящее — обратно к молоту
     expect(pick(foeWith({ resist: { piercing: 3, slashing: 3 } }))).toBe('молот');
+  });
+});
+
+describe('бросок принадлежит моменту боя, а не порядку вызовов', () => {
+  it('d20: тот же ключ — тот же бросок, соседние ключи независимы', () => {
+    expect(d20(7, 'grom', 2, 3, 'atk:foe:cut')).toBe(d20(7, 'grom', 2, 3, 'atk:foe:cut'));
+    const keys = new Set([
+      d20(7, 'grom', 2, 3, 'atk:foe:cut'),
+      d20(7, 'grom', 2, 2, 'atk:foe:cut'),
+      d20(7, 'grom', 3, 3, 'atk:foe:cut'),
+      d20(7, 'lia', 2, 3, 'atk:foe:cut'),
+      d20(8, 'grom', 2, 3, 'atk:foe:cut'),
+    ]);
+    expect(keys.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('d20 покрывает все двадцать граней примерно поровну', () => {
+    const counts = new Array<number>(21).fill(0);
+    for (let round = 1; round <= 400; round++) {
+      for (let ap = 1; ap <= 5; ap++) counts[d20(1, 'u', round, ap, 'atk')] += 1;
+    }
+    expect(counts[0]).toBe(0);
+    for (let face = 1; face <= 20; face++) {
+      expect(counts[face]).toBeGreaterThan(50); // ожидание 100 на грань
+      expect(counts[face]).toBeLessThan(160);
+    }
+  });
+
+  it('исход удара в логе восстанавливается из ключа: кто, когда, на каком AP и по кому', () => {
+    const sword = heroArchetype('yar').weapons[1]!;
+    const res = runBattle(5, [
+      spec({ id: 'a', side: 'party', weapons: [sword], spawn: { x: 3, y: 3 } }),
+      spec({ id: 'b', side: 'foe', maxHp: 90, defenses: { ac: 17 }, spawn: { x: 4, y: 3 } }),
+    ]);
+    const first = attacks(res.events, 'a')[0]!;
+    // первый удар первого раунда: все три очка хода ещё на месте
+    const natural = d20(5, 'a', 1, 3, `atk:b:${movesOf(sword).find((m) => m.slot === first.action)!.id}`);
+    const degree = degreeOf(natural, natural + attackBonusOf(sword), 17);
+    expect(first.outcome ?? (degree === 'success' ? undefined : 'что-то не так')).toBe(
+      degree === 'critSuccess' ? 'crit' : degree === 'success' ? undefined : 'miss',
+    );
   });
 });

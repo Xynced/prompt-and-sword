@@ -522,7 +522,10 @@ describe('смоуки волны 2: наив vs контр', () => {
   it('прорыв: наив вязнет в ограх, решительный увод уходит без потерь', () => {
     const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 0 }, NAIVE);
     const runners = smokeSweep({ kind: 'fight', layer: 4, slot: 0 }, [[evacHard], [evacHard], [evacHard]]);
-    expect(naive.wins).toBeLessThanOrEqual(8);
+    // порог поднят на бой: с бросками (план damage-types) огры промахиваются
+    // чаще, чем били всегда, и наив иногда прорубается силой — но вдвое реже
+    // решительного увода
+    expect(naive.wins).toBeLessThanOrEqual(10);
     expect(runners.wins).toBeGreaterThanOrEqual(18);
     expect(runners.deaths).toBeLessThan(0.5);
   });
@@ -547,12 +550,15 @@ describe('смоуки волны 2: наив vs контр', () => {
   });
 
   it('трофей: доставка крепким носильщиком кончает бой раньше резни', () => {
-    const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, NAIVE);
-    const carryZ = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, [[atkNearest], [atkNearest], [carryRule, atkNearest]]);
-    expect(carryZ.wins).toBeGreaterThanOrEqual(naive.wins);
-    // запас сжался с 2 до 1.5 раундов: с бросками (план damage-types) резня
-    // идёт дольше, а доставка от них почти не зависит — но кончает бой раньше
+    // выборка шире обычной: на 20 сидах запас по раундам не отличим от шума
+    const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, NAIVE, 60);
+    const carryZ = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, [[atkNearest], [atkNearest], [carryRule, atkNearest]], 60);
+    // доставка по-прежнему кончает бой раньше резни, но премиса про победы
+    // сместилась (план damage-types, замер 200 сидов): 144 победы против 158
+    // у наива при 11.08 раунда против 13.74. С бросками часть забегов
+    // «успеть» не успевает — зато носильщик реже платит смертями
     expect(carryZ.rounds).toBeLessThan(naive.rounds - 1.5);
+    expect(carryZ.deaths).toBeLessThanOrEqual(naive.deaths);
   });
 
   it('погоня: наив рубит волков и упускает гонца; «прорывающийся» перехватывает', () => {

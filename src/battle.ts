@@ -621,6 +621,10 @@ export function runBattle(
 
       while (ap > 0 && !over && unit.alive) {
         const decision = decide(unit, units, round, blocked, ap, ctx);
+        // очки хода на момент решения — часть ключа броска (план damage-types)
+        // и разброса нерва: обе механики говорят об одном и том же моменте
+        // хода, а `ap` ниже уже списан ценой действия
+        const apAt = ap;
         // стойки манер (план words): держатся до следующего решения юнита —
         // приманка сохраняет прикрытие и на чужих ходах
         unit.stance = decision.stance;
@@ -711,7 +715,7 @@ export function runBattle(
             // (порядок pf2e: удвоение → иммунитет → слабость → сопротивление),
             // провал — промах: ни урона, ни райдеров, ни метки
             const dmgType = dmgTypeOf(weapon, move);
-            const natural = d20(seed, unit.id, round, ap, `atk:${target.id}:${move.id}`);
+            const natural = d20(seed, unit.id, round, apAt, `atk:${target.id}:${move.id}`);
             const degree = degreeOf(natural, natural + attackBonusOf(weapon), acOf(target));
             const swing = ATTACK_MULT[degree];
             if (swing === 0) {
@@ -800,7 +804,7 @@ export function runBattle(
               const second = twinVictim(unit, unit.pos, target, units, blocked, heightAt(unit.pos), mRange);
               // у второй стрелы свой бросок против своей цели: промах по
               // одному не отменяет попадания по другому (правило pf2e)
-              const natural2 = second ? d20(seed, unit.id, round, ap, `atk:${second.id}:${move.id}`) : 0;
+              const natural2 = second ? d20(seed, unit.id, round, apAt, `atk:${second.id}:${move.id}`) : 0;
               const degree2 = second
                 ? degreeOf(natural2, natural2 + attackBonusOf(weapon), acOf(second))
                 : 'fail';
