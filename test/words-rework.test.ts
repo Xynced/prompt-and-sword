@@ -14,7 +14,7 @@ import { BAIT_COVER, FULL_COVER, HARD_PIERCE, OFTEN_STANCE_BONUS, WEAK_ATK_MULT 
 import { TERRAIN_LAYOUTS, tileAt } from '../src/terrain.js';
 import { CONCEPTS, RETIRED_WORDS, UNLOCKABLE } from '../src/vocab.js';
 import { type UnitSpec, runBattle } from '../src/battle.js';
-import type { CombatUnit, Pos, WeaponSpec } from '../src/types.js';
+import type { CombatUnit, Pos, WeaponMove } from '../src/types.js';
 
 /**
  * Переработка мёртвого пласта слов (план words): стойки манер, приманка,
@@ -49,7 +49,9 @@ function ruleFactor(cand: Candidate, self: Fighter, units: Fighter[], rules: Rul
   return f?.value ?? 0;
 }
 
-const WEAPON: WeaponSpec = { name: 'меч', dmg: 8, range: 1 };
+// приёмы дефолт-тройки (план weapon-moves): стойки читают слот-темп приёма
+const JAB: WeaponMove = { id: 'jab', name: 'тычок', slot: 'weakAttack', mult: WEAK_ATK_MULT };
+const STRIKE: WeaponMove = { id: 'strike', name: 'удар', slot: 'attack', mult: 1 };
 
 describe('стойки манер', () => {
   it('stanceOf собирает стойки из сработавших правил', () => {
@@ -63,16 +65,16 @@ describe('стойки манер', () => {
 
   it('«часто»: слабый удар в стойке бьёт крепче', () => {
     const stance = { often: true, hard: false, bait: false };
-    expect(stanceAttackMult('weakAttack', WEAPON, stance)).toBeCloseTo(WEAK_ATK_MULT + OFTEN_STANCE_BONUS);
-    expect(stanceAttackMult('attack', WEAPON, stance)).toBe(1);
-    expect(stanceAttackMult('weakAttack', WEAPON, undefined)).toBeCloseTo(WEAK_ATK_MULT);
+    expect(stanceAttackMult(JAB, stance)).toBeCloseTo(WEAK_ATK_MULT + OFTEN_STANCE_BONUS);
+    expect(stanceAttackMult(STRIKE, stance)).toBe(1);
+    expect(stanceAttackMult(JAB, undefined)).toBeCloseTo(WEAK_ATK_MULT);
   });
 
   it('«наверняка»: полный удар режет митигацию вдвое, слабый — нет', () => {
     const stance = { often: false, hard: true, bait: false };
-    expect(stanceMitigation(FULL_COVER, 'attack', stance)).toBeCloseTo(FULL_COVER * HARD_PIERCE);
-    expect(stanceMitigation(FULL_COVER, 'weakAttack', stance)).toBeCloseTo(FULL_COVER);
-    expect(stanceMitigation(FULL_COVER, 'attack', undefined)).toBeCloseTo(FULL_COVER);
+    expect(stanceMitigation(FULL_COVER, STRIKE, stance)).toBeCloseTo(FULL_COVER * HARD_PIERCE);
+    expect(stanceMitigation(FULL_COVER, JAB, stance)).toBeCloseTo(FULL_COVER);
+    expect(stanceMitigation(FULL_COVER, STRIKE, undefined)).toBeCloseTo(FULL_COVER);
   });
 
   it('в бою стойка «наверняка» пробивает глухую оборону — урон заметно выше', () => {

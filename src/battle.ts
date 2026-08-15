@@ -12,12 +12,17 @@ import {
   AOE_RITUAL_RADIUS,
   aoeDamage,
   aoeVictims,
-  apCostFor,
   blastReady,
+  candApCost,
+  candMove,
   castVictims,
+  gangBonus,
+  stepBackDest,
+  twinVictim,
   ritualReady,
   attackMult,
   coverLevelOf,
+  isSureStrike,
   decide,
   effectiveCover,
   heightDmgBonus,
@@ -165,6 +170,8 @@ export type BattleEvent =
       dmg: number;
       flank: boolean;
       targetHp: number;
+      /** Имя приёма — только у оружия с китом (план weapon-moves). */
+      move?: string;
     }
   | { t: 'cover'; unit: string; level: number; ally?: string }
   | { t: 'wait'; unit: string }
@@ -526,7 +533,7 @@ export function runBattle(
           condRules: decision.condRules,
           firedCount: decision.firedCount,
         });
-        ap -= apCostFor(action, unit);
+        ap -= candApCost(decision.chosen, unit);
 
         if (isMovement(action)) {
           events.push({ t: 'move', unit: unit.id, from: { ...unit.pos }, to: { ...to } });
@@ -548,13 +555,15 @@ export function runBattle(
             return { winner: aw, rounds: round, events, units, terrain };
           }
         } else if (isAttack(action) && targetId) {
-          if (action === 'selflessAttack') unit.exposed = true;
-          const aimed = units.find((u) => u.id === targetId)!;
-          // урон, дальность и «стрелковость» — по оружию кандидата
+          // урон, дальность и «стрелковость» — по оружию и приёму кандидата
           const weapon: WeaponSpec = weaponsOf(unit)[decision.chosen.weapon ?? 0]!;
+          const move = candMove(unit, decision.chosen);
+          const mRange = move.range ?? weapon.range;
+          if (move.expose) unit.exposed = true;
+          const aimed = units.find((u) => u.id === targetId)!;
           if (
             aimed.alive &&
-            dist(unit.pos, aimed.pos) <= rangeAt(unit, heightAt(unit.pos), weapon.range)
+            dist(unit.pos, aimed.pos) <= rangeAt(unit, heightAt(unit.pos), mRange)
           ) {
             // перехват (план защиты): смежный телохранитель со сработавшим
             // правилом «защищать(цель)» принимает удар на себя — раз в раунд.
@@ -589,7 +598,7 @@ export function runBattle(
               .filter((u) => u.alive && u.side === target.side && u !== target)
               .map((u) => u.pos);
             const flank =
-              weapon.range === 1 && isFlanking(unit.pos, target.pos, allyPositions, targetAllyPositions);
+              mRange === 1 && isFlanking(unit.pos, target.pos, allyPositions, targetAllyPositions);
             // фланговый множитель: у плута «в спину» — свой, острее общего
             const flankMult = flank ? unit.passives?.sneak?.flankMult ?? 1.5 : 1;
             const raw = rollDamage(
@@ -598,15 +607,15 @@ export function runBattle(
                 blessMult(unit) *
                 shadowMult(unit, unit.pos, units, blocked) *
                 retributionMult(unit, target, units) *
-                stanceAttackMult(action, weapon, unit.stance) *
+                (stanceAttackMult(move, unit.stance) + gangBonus(move, unit, target, units)) *
                 flankMult,
               rng,
             );
             // каменное укрытие цели не складывается с прикрытием — берётся максимум;
-            // стойка «наверняка» режет митигацию полного удара вдвое
+            // пирс приёма или стойки «наверняка» режет митигацию (сильнейший)
             const mitigation = stanceMitigation(
               Math.max(effectiveCover(target, units), ctx.coverFrom(unit.pos, target.pos)),
-              action,
+              move,
               unit.stance,
             );
             const dmg = Math.max(
@@ -616,7 +625,7 @@ export function runBattle(
                   (1 - mitigation) *
                   (target.exposed ? SELFLESS_VULN_MULT : 1) *
                   rageVulnMult(target),
-              ) + heightDmgBonus(unit, heightAt(unit.pos), weapon.range),
+              ) + heightDmgBonus(unit, heightAt(unit.pos), mRange),
             );
             target.hp = Math.max(0, target.hp - dmg);
             target.lastAttackerId = unit.id;
@@ -628,6 +637,7 @@ export function runBattle(
               dmg,
               flank,
               targetHp: target.hp,
+              ...(weapon.moves ? { move: move.name } : {}),
             });
             if (target.hp === 0) {
               target.alive = false;
@@ -645,14 +655,59 @@ export function runBattle(
               target.tags.push('marked');
               events.push({ t: 'mark', unit: unit.id, target: target.id });
             }
+            // сдвоенный приём (райдер twin): вторая стрела — в ближайшего
+            // другого врага в дальности; перехват телохранителя и метка
+            // достаются только основной цели, фланг стрелку не положен
+            if (move.twin) {
+              const second = twinVictim(unit, unit.pos, target, units, blocked, heightAt(unit.pos), mRange);
+              if (second) {
+                const raw2 = rollDamage(
+                  weapon.dmg *
+                    rageDmgMult(unit) *
+                    blessMult(unit) *
+                    shadowMult(unit, unit.pos, units, blocked) *
+                    retributionMult(unit, second, units) *
+                    stanceAttackMult(move, unit.stance),
+                  rng,
+                );
+                const mit2 = stanceMitigation(
+                  Math.max(effectiveCover(second, units), ctx.coverFrom(unit.pos, second.pos)),
+                  move,
+                  unit.stance,
+                );
+                const dmg2 = Math.max(
+                  1,
+                  Math.round(
+                    raw2 * (1 - mit2) * (second.exposed ? SELFLESS_VULN_MULT : 1) * rageVulnMult(second),
+                  ) + heightDmgBonus(unit, heightAt(unit.pos), mRange),
+                );
+                second.hp = Math.max(0, second.hp - dmg2);
+                second.lastAttackerId = unit.id;
+                events.push({
+                  t: 'attack',
+                  unit: unit.id,
+                  action,
+                  target: second.id,
+                  dmg: dmg2,
+                  flank: false,
+                  targetHp: second.hp,
+                  ...(weapon.moves ? { move: move.name } : {}),
+                });
+                if (second.hp === 0) {
+                  second.alive = false;
+                  events.push({ t: 'die', unit: second.id });
+                }
+              }
+            }
             // рипост (план защиты): ближний удар по живому в глухой обороне
             // ранит бьющего — фиксированно, без rng (прецедент шипов).
-            // Стойка «наверняка» (план words) рипоста не ловит: удар расчётлив
+            // Расчётливый удар (стойка «наверняка» или sure/pierce приёма)
+            // рипоста не ловит
             if (
-              weapon.range === 1 &&
+              mRange === 1 &&
               target.alive &&
               target.coverLevel >= FULL_COVER &&
-              !(unit.stance?.hard && action === 'attack')
+              !isSureStrike(move, unit.stance)
             ) {
               unit.hp = Math.max(0, unit.hp - RIPOSTE_DMG);
               unit.lastAttackerId = target.id;
@@ -660,6 +715,49 @@ export function runBattle(
               if (unit.hp === 0) {
                 unit.alive = false;
                 events.push({ t: 'die', unit: unit.id });
+              }
+            }
+            // толчок приёма («щитом в грудь»): цель сдвигается на 1 от бьющего,
+            // некуда — просто урон. После рипоста: сначала ответ, потом отлёт
+            if (move.push && unit.alive && target.alive) {
+              const dest = shoveDest(unit.pos, target.pos);
+              if (
+                inBounds(dest) &&
+                !blocked(dest) &&
+                !units.some((u) => u.alive && posEq(u.pos, dest))
+              ) {
+                events.push({ t: 'shove', unit: unit.id, target: target.id, from: { ...target.pos }, to: { ...dest } });
+                target.pos = { ...dest };
+                // опасность на клетке назначения срабатывает немедленно — как у толчка
+                const hz = tiles[dest.y]?.[dest.x]?.hazard;
+                if (hz) {
+                  target.hp = Math.max(0, target.hp - HAZARD_DMG);
+                  target.lastAttackerId = unit.id;
+                  events.push({ t: 'hazard', unit: target.id, kind: hz, dmg: HAZARD_DMG, hp: target.hp });
+                  if (target.hp === 0) {
+                    target.alive = false;
+                    events.push({ t: 'die', unit: target.id });
+                  }
+                }
+                const aw = afterMove(target);
+                if (aw) {
+                  events.push({ t: 'end', winner: aw, rounds: round });
+                  return { winner: aw, rounds: round, events, units, terrain };
+                }
+              }
+            }
+            // отскок (райдер stepBack): после удара шаг на 1 строго от цели;
+            // занятая, каменная или опасная клетка — отскока нет
+            if (move.stepBack && unit.alive) {
+              const dest = stepBackDest(unit, target, units, ctx);
+              if (dest) {
+                events.push({ t: 'move', unit: unit.id, from: { ...unit.pos }, to: { ...dest } });
+                unit.pos = { ...dest };
+                const aw = afterMove(unit);
+                if (aw) {
+                  events.push({ t: 'end', winner: aw, rounds: round });
+                  return { winner: aw, rounds: round, events, units, terrain };
+                }
               }
             }
           }

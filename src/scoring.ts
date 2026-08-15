@@ -29,7 +29,7 @@ import {
   zoneDist,
 } from './grid.js';
 import type { HazardKind, Tile } from './terrain.js';
-import type { ActionKind, CombatUnit, Pos, WeaponSpec, Zone } from './types.js';
+import type { ActionKind, CombatUnit, Pos, WeaponMove, WeaponSpec, Zone } from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
   APPEAL_FLOOR,
@@ -166,6 +166,27 @@ export function weaponsOf(u: CombatUnit): WeaponSpec[] {
   return u.weapons && u.weapons.length > 0
     ? u.weapons
     : [{ name: '', dmg: u.atk, range: u.range, aoe: u.aoe }];
+}
+
+/**
+ * Приёмы оружия (план weapon-moves): явный кит — или дефолт-тройка
+ * «тычок/удар/размен» с общими числами манер. Дефолт кэшируется по объекту
+ * оружия и в точности повторяет прежнюю универсальную тройку — поведение
+ * юнитов без кита не сдвигается ни на волос.
+ */
+const DEFAULT_MOVES = new WeakMap<WeaponSpec, WeaponMove[]>();
+export function movesOf(w: WeaponSpec): WeaponMove[] {
+  if (w.moves && w.moves.length > 0) return w.moves;
+  let d = DEFAULT_MOVES.get(w);
+  if (!d) {
+    d = [
+      { id: 'jab', name: 'тычок', slot: 'weakAttack', mult: w.weakMult ?? WEAK_ATK_MULT },
+      { id: 'strike', name: 'удар', slot: 'attack', mult: 1 },
+      { id: 'allin', name: 'размен', slot: 'selflessAttack', mult: SELFLESS_ATK_MULT, expose: true },
+    ];
+    DEFAULT_MOVES.set(w, d);
+  }
+  return d;
 }
 
 /** Клетка, куда толчок сдвигает цель: ровно на 1 строго от толкающего. */
@@ -362,15 +383,27 @@ export function stanceOf(
 
 type Stance = ReturnType<typeof stanceOf>;
 
-/** Множитель вида атаки с учётом стойки: «часто» бьёт слабым крепче. */
-export function stanceAttackMult(action: ActionKind, weapon: WeaponSpec, stance?: Stance | CombatUnit['stance']): number {
-  const bonus = stance?.often && action === 'weakAttack' ? OFTEN_STANCE_BONUS : 0;
-  return attackMultFor(action, weapon) + bonus;
+/** Множитель приёма с учётом стойки: «часто» бьёт быстрым темпом крепче. */
+export function stanceAttackMult(move: WeaponMove, stance?: Stance | CombatUnit['stance']): number {
+  const bonus = stance?.often && move.slot === 'weakAttack' ? OFTEN_STANCE_BONUS : 0;
+  return move.mult + bonus;
 }
 
-/** Митигация цели с учётом стойки бьющего: «наверняка» режет её вдвое. */
-export function stanceMitigation(mitigation: number, action: ActionKind, stance?: Stance | CombatUnit['stance']): number {
-  return stance?.hard && action === 'attack' ? mitigation * HARD_PIERCE : mitigation;
+/**
+ * Митигация цели с учётом приёма и стойки бьющего: пирс стойки «наверняка»
+ * (полный темп) и врождённый пирс приёма не складываются — берётся сильнейший.
+ */
+export function stanceMitigation(mitigation: number, move: WeaponMove, stance?: Stance | CombatUnit['stance']): number {
+  const kept = Math.min(stance?.hard && move.slot === 'attack' ? HARD_PIERCE : 1, move.pierce ?? 1);
+  return mitigation * kept;
+}
+
+/**
+ * Расчётливый удар — не напарывается на рипост глухой обороны: стойка
+ * «наверняка» на полном темпе, либо sure/pierce самого приёма.
+ */
+export function isSureStrike(move: WeaponMove, stance?: Stance | CombatUnit['stance']): boolean {
+  return move.sure === true || move.pierce !== undefined || (stance?.hard === true && move.slot === 'attack');
 }
 
 /**
@@ -464,7 +497,20 @@ export const coverLevelOf = (a: ActionKind): number => COVER_LEVEL[a];
  * С нормировкой правило платит за потраченный ход, а выбирать между слабым,
  * обычным и отчаянным ударом остаётся урону и риску.
  */
-const apShare = (a: ActionKind): number => AP_COST[a] / AP_COST.attack;
+/**
+ * Цена действия кандидата: у приёма кита может быть своя («серия» — весь ход,
+ * 3 AP); прочее — apCostFor. Доля от полного удара — candApShare: премии
+ * правил за атаку платят за потраченный ход и обязаны видеть цену приёма.
+ */
+export function candApCost(cand: Candidate, self: CombatUnit): number {
+  if (cand.move !== undefined && isAttack(cand.action)) {
+    const ap = candMove(self, cand).ap;
+    if (ap !== undefined) return ap;
+  }
+  return apCostFor(cand.action, self);
+}
+const candApShare = (cand: Candidate, self: CombatUnit): number =>
+  candApCost(cand, self) / AP_COST.attack;
 
 export interface Candidate {
   /** Клетка после действия; у всего, кроме шага, — текущая клетка юнита. */
@@ -476,6 +522,8 @@ export interface Candidate {
   at?: Pos;
   /** Индекс оружия атаки в `weaponsOf` — у мастера трёх оружий их несколько. */
   weapon?: number;
+  /** Индекс приёма в `movesOf` — только у оружия с явным китом (план weapon-moves). */
+  move?: number;
 }
 
 export interface Factor {
@@ -680,15 +728,25 @@ export function generateCandidates(
     }
   }
 
-  // атаки — на каждое оружие: мастер трёх оружий сам выбирает копьё против
-  // строя и молот в упор; у юнита с одним оружием кандидаты те же, что раньше
+  // атаки — на каждое оружие и каждый его приём (план weapon-moves): мастер
+  // трёх оружий сам выбирает копьё против строя и молот в упор; у оружия без
+  // кита — дефолт-тройка, кандидаты те же, что раньше
   const weapons = weaponsOf(self);
   for (const e of enemiesOf(self, units) as Fighter[]) {
     for (let wi = 0; wi < weapons.length; wi++) {
-      if (!canAttackFrom(here, self, e, units, blocked, ctx.heightAt(here), weapons[wi]!.range)) continue;
-      for (const action of ['weakAttack', 'attack', 'selflessAttack'] as const) {
-        if (ap >= AP_COST[action] && allowed(action)) {
-          out.push({ to: here, action, targetId: e.id, ...(weapons.length > 1 ? { weapon: wi } : {}) });
+      const w = weapons[wi]!;
+      const moves = movesOf(w);
+      for (let mi = 0; mi < moves.length; mi++) {
+        const m = moves[mi]!;
+        if (!canAttackFrom(here, self, e, units, blocked, ctx.heightAt(here), m.range ?? w.range)) continue;
+        if (ap >= (m.ap ?? AP_COST[m.slot]) && allowed(m.slot)) {
+          out.push({
+            to: here,
+            action: m.slot,
+            targetId: e.id,
+            ...(weapons.length > 1 ? { weapon: wi } : {}),
+            ...(w.moves ? { move: mi } : {}),
+          });
         }
       }
     }
@@ -938,7 +996,7 @@ const BLESS_RULE_BONUS = 2.5;
 
 /**
  * Премия правилу «финтить» при двух добирающих. Должна обыгрывать слабый удар
- * (премия атаки 3 × apShare 0.5 + агрессия ≈ 2.9 при весе 2): жадный цикл не
+ * (премия атаки 3 × доля хода 0.5 + агрессия ≈ 2.9 при весе 2): жадный цикл не
  * видит связку «финт → удар», поэтому финт обязан выигрывать сам по себе —
  * его выгоду добирают следующие удары по открытой цели.
  */
@@ -1079,7 +1137,7 @@ function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
  */
 function expectedAttackDamage(
   self: Fighter,
-  action: ActionKind,
+  move: WeaponMove,
   target: CombatUnit,
   units: readonly CombatUnit[],
   ctx: ScoreCtx,
@@ -1089,23 +1147,93 @@ function expectedAttackDamage(
 ): number {
   const mitigation = stanceMitigation(
     Math.max(effectiveCover(target, units), ctx.coverFrom(from, target.pos)),
-    action,
+    move,
     stance,
   );
   return (
     expectedDamage(weapon.dmg) *
       rageDmgMult(self) *
       blessMult(self) *
-      stanceAttackMult(action, weapon, stance) *
+      (stanceAttackMult(move, stance) + gangBonus(move, self, target, units)) *
       (1 - mitigation) *
       (target.exposed ? SELFLESS_VULN_MULT : 1) *
       rageVulnMult(target) +
-    heightDmgBonus(self, ctx.heightAt(from), weapon.range)
+    heightDmgBonus(self, ctx.heightAt(from), move.range ?? weapon.range)
   );
 }
 
 /** Оружие кандидата-атаки; у не-атак и одиночного оружия — первое. */
 const candWeapon = (self: Fighter, cand: Candidate): WeaponSpec => weaponsOf(self)[cand.weapon ?? 0]!;
+
+/** Приём кандидата-атаки: по индексу кита — или из дефолт-тройки по слоту действия. */
+export function candMove(self: CombatUnit, cand: Candidate): WeaponMove {
+  const moves = movesOf(weaponsOf(self)[cand.weapon ?? 0]!);
+  return (cand.move !== undefined ? moves[cand.move] : moves.find((m) => m.slot === cand.action)) ?? moves[0]!;
+}
+
+/**
+ * Прибавка к множителю «толпового» приёма (райдер gang): +gang за каждого
+ * живого союзника бьющего, стоящего вплотную к цели, — кинжалы в окружении.
+ */
+export function gangBonus(
+  move: WeaponMove,
+  attacker: CombatUnit,
+  target: CombatUnit,
+  units: readonly CombatUnit[],
+): number {
+  if (!move.gang) return 0;
+  let n = 0;
+  for (const u of units) {
+    if (u.alive && u !== attacker && u !== target && u.side === attacker.side && dist(u.pos, target.pos) === 1) n++;
+  }
+  return move.gang * n;
+}
+
+/**
+ * Клетка отскока после удара (райдер stepBack): на 1 строго от цели.
+ * Занятая, каменная или опасная клетка — отскока нет: в шипы не прыгаем,
+ * поэтому ни скорингу, ни бою не нужна отдельная логика опасности.
+ */
+export function stepBackDest(
+  self: CombatUnit,
+  target: CombatUnit,
+  units: readonly CombatUnit[],
+  ctx: ScoreCtx,
+): Pos | null {
+  const dest = shoveDest(target.pos, self.pos);
+  if (!inBounds(dest) || ctx.blocked(dest) || ctx.hazardAt(dest)) return null;
+  if (units.some((u) => u.alive && u !== self && posEq(u.pos, dest))) return null;
+  return dest;
+}
+
+/**
+ * Вторая жертва сдвоенного приёма (райдер twin): ближайший к бьющему другой
+ * живой враг в дальности приёма с чистой линией; при равенстве — меньший id.
+ * Общая для скоринга и боя — выбор обязан совпадать.
+ */
+export function twinVictim(
+  self: Fighter,
+  from: Pos,
+  primary: CombatUnit,
+  units: readonly Fighter[],
+  blocked: (p: Pos) => boolean,
+  height: number,
+  range: number,
+): Fighter | null {
+  let best: Fighter | null = null;
+  for (const e of enemiesOf(self, units) as Fighter[]) {
+    if (e.id === primary.id) continue;
+    if (!canAttackFrom(from, self, e, units, blocked, height, range)) continue;
+    if (
+      !best ||
+      dist(from, e.pos) < dist(from, best.pos) ||
+      (dist(from, e.pos) === dist(from, best.pos) && e.id < best.id)
+    ) {
+      best = e;
+    }
+  }
+  return best;
+}
 
 function nearestEnemyDist(p: Pos, self: Fighter, units: readonly Fighter[]): number {
   const es = enemiesOf(self, units);
@@ -1279,7 +1407,7 @@ function scorePreference(
       // правило говорит, КОГО бить, а не чем: премия за потраченный ход, а не
       // за факт удара, поэтому вид атаки выбирают урон и риск, а не правило
       if (isAttack(cand.action) && cand.targetId === target.id) {
-        s += 3 * w * apShare(cand.action) * quality * appeal;
+        s += 3 * w * candApShare(cand, self) * quality * appeal;
       }
       // Шаг, из которого цель реально простреливается, — половина дела. Без
       // этого жадный цикл выбирает клетку по одной лишь тяге `-0.6 × gap`:
@@ -1355,7 +1483,7 @@ function scorePreference(
       if (!isAttack(cand.action) || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
       const expDmg = Math.min(
-        expectedAttackDamage(self, cand.action, target, units, ctx, cand.to, candWeapon(self, cand)),
+        expectedAttackDamage(self, candMove(self, cand), target, units, ctx, cand.to, candWeapon(self, cand)),
         target.hp,
       );
       return expDmg >= target.hp ? 3 * w : 1.5 * (expDmg / target.maxHp) * w;
@@ -1407,7 +1535,7 @@ function scorePreference(
           .filter((u) => u.alive && u.side === target.side && u !== target)
           .map((u) => u.pos);
         if (self.range === 1 && isFlanking(cand.to, target.pos, allies, targetAllies)) {
-          s += 2.5 * w * apShare(cand.action);
+          s += 2.5 * w * candApShare(cand, self);
         }
       }
       if (self.range === 1) {
@@ -1695,7 +1823,7 @@ function scorePreference(
       // добивания, а не тяга к раненым (кого бить, по-прежнему решает attack)
       if (!isAttack(cand.action) || !cand.targetId) return 0;
       const target = units.find((u) => u.id === cand.targetId)!;
-      const expDmg = expectedAttackDamage(self, cand.action, target, units, ctx, cand.to, candWeapon(self, cand));
+      const expDmg = expectedAttackDamage(self, candMove(self, cand), target, units, ctx, cand.to, candWeapon(self, cand));
       return expDmg >= target.hp ? FINISH_RULE_BONUS * w : 0;
     }
     case 'focusFire': {
@@ -1705,7 +1833,7 @@ function scorePreference(
       const started = units.some(
         (a) => a.alive && a.side === self.side && target.lastAttackerId === a.id,
       );
-      return started ? FOCUS_FIRE_BONUS * w * apShare(cand.action) : 0;
+      return started ? FOCUS_FIRE_BONUS * w * candApShare(cand, self) : 0;
     }
     case 'taunt': {
       // вызывать на себя: работает стойкой (её ставит решение), а позиционно —
@@ -1947,16 +2075,32 @@ export function scoreCandidate(
 
   if (isAttack(cand.action) && cand.targetId) {
     const weapon = candWeapon(self, cand);
+    const move = candMove(self, cand);
     const target = units.find((u) => u.id === cand.targetId)!;
     const stance = stanceOf(firedRules);
     const expDmg = Math.min(
-      expectedAttackDamage(self, cand.action, target, units, ctx, cand.to, weapon, stance) *
+      expectedAttackDamage(self, move, target, units, ctx, cand.to, weapon, stance) *
         shadowMult(self, cand.to, units, ctx.blocked) *
         retributionMult(self, target, units),
       target.hp,
     );
     const lethal = expDmg >= target.hp;
-    const v = ((expDmg / target.maxHp) * 6 + (lethal ? 4 : 0)) * instincts.aggression;
+    let aggr = (expDmg / target.maxHp) * 6 + (lethal ? 4 : 0);
+    // сдвоенный приём (райдер twin): вторая стрела — та же валюта, суммой
+    // (прецедент АОЕ); без неё половинный множитель хоронил бы приём
+    if (move.twin) {
+      const second = twinVictim(self, cand.to, target, units, ctx.blocked, ctx.heightAt(cand.to), move.range ?? weapon.range);
+      if (second) {
+        const d2 = Math.min(
+          expectedAttackDamage(self, move, second, units, ctx, cand.to, weapon, stance) *
+            shadowMult(self, cand.to, units, ctx.blocked) *
+            retributionMult(self, second, units),
+          second.hp,
+        );
+        aggr += (d2 / second.maxHp) * 6 + (d2 >= second.hp ? 4 : 0);
+      }
+    }
+    const v = aggr * instincts.aggression;
     if (v !== 0) factors.push({ label: 'инстинкт:агрессия', value: v });
     // цель задачи боя (план objectives): слабая тяга к юниту с тегом quarry —
     // фон, который любое слово игрока перебивает
@@ -1964,12 +2108,12 @@ export function scoreCandidate(
       factors.push({ label: 'инстинкт:задача', value: QUARRY_BIAS });
     }
     // рипост (план защиты): ближний удар по глухой обороне вернётся раной —
-    // умный переключается, настойчивый платит; стойка «наверняка» не ловит
+    // умный переключается, настойчивый платит; расчётливый удар не ловит
     if (
-      weapon.range === 1 &&
+      (move.range ?? weapon.range) === 1 &&
       !lethal &&
       target.coverLevel >= FULL_COVER &&
-      !(stance.hard && cand.action === 'attack')
+      !isSureStrike(move, stance)
     ) {
       factors.push({
         label: 'рипост цели',
@@ -1979,6 +2123,22 @@ export function scoreCandidate(
     // аффинность оружия к манере: мягкий вкус, слово игрока (±2.5) перебивает
     const aff = weapon.affinity?.[cand.action as 'weakAttack' | 'attack' | 'selflessAttack'];
     if (aff) factors.push({ label: 'оружие:манера', value: aff * WEAPON_AFFINITY_BONUS });
+    // толчок приёма: сдвиг сам по себе скоринг не ценит (урок слова «толкать»:
+    // премии отрыва подменяли удары), но толчок в шипы или под висящую зону —
+    // честный урон той же валютой, что и агрессия
+    if (move.push) {
+      const dest = shoveDest(cand.to, target.pos);
+      const free =
+        inBounds(dest) &&
+        !ctx.blocked(dest) &&
+        !units.some((u) => u.alive && posEq(u.pos, dest));
+      if (free && (ctx.hazardAt(dest) || zoneDangerAt(dest, units, target) > 0)) {
+        factors.push({
+          label: 'толчок в опасное',
+          value: (Math.min(HAZARD_DMG, target.hp) / target.maxHp) * 6 * instincts.aggression,
+        });
+      }
+    }
   }
 
   // площадной каст: та же валюта, что у агрессии, но суммой по накрытым.
@@ -2024,7 +2184,10 @@ export function scoreCandidate(
   }
 
   const hpFrac = self.hp / self.maxHp;
-  const threat = threatAt(cand.to, self, units);
+  // отскок (райдер stepBack): угроза и ZoC меряются с клетки, где юнит
+  // окажется ПОСЛЕ удара, — иначе выгода приёма невидима и он мёртв
+  const restPos = attackRestPos(self, cand, units, ctx);
+  const threat = threatAt(restPos, self, units);
   if (threat > 0) {
     const v = -(threat / self.maxHp) * 2 * instincts.survival * (2 - hpFrac);
     factors.push({ label: 'инстинкт:самосохранение', value: v });
@@ -2045,7 +2208,7 @@ export function scoreCandidate(
   if (zoneDmg > 0) {
     factors.push({ label: 'инстинкт:зона замаха', value: -(zoneDmg / self.maxHp) * 6 * instincts.survival });
   }
-  if (!instincts.ignoreZoC && zocOf(self, units)(cand.to)) {
+  if (!instincts.ignoreZoC && zocOf(self, units)(restPos)) {
     factors.push({ label: 'инстинкт:зона контроля', value: -1.5 * instincts.survival });
   }
 
@@ -2057,7 +2220,8 @@ export function scoreCandidate(
     const v = ((threat * mit) / self.maxHp) * 6 * instincts.survival;
     if (v !== 0) factors.push({ label: 'инстинкт:прикрытие', value: v });
   }
-  if (cand.action === 'selflessAttack' && threat > 0) {
+  // открывающий приём (дефолт-размен, «сплеча») — плата уязвимостью
+  if (isAttack(cand.action) && cand.targetId && candMove(self, cand).expose && threat > 0) {
     const v = -((threat * (SELFLESS_VULN_MULT - 1)) / self.maxHp) * 6 * instincts.survival * (2 - hpFrac);
     factors.push({ label: 'инстинкт:открыться', value: v });
   }
@@ -2097,6 +2261,16 @@ export function scoreCandidate(
     factors.push({ label, value: v });
   }
   return factors;
+}
+
+/** Клетка, где юнит окажется после действия: у приёма с отскоком — клетка отскока. */
+function attackRestPos(self: Fighter, cand: Candidate, units: readonly Fighter[], ctx: ScoreCtx): Pos {
+  if (cand.move === undefined || !isAttack(cand.action) || !cand.targetId) return cand.to;
+  const move = candMove(self, cand);
+  if (!move.stepBack) return cand.to;
+  const target = units.find((u) => u.id === cand.targetId);
+  if (!target) return cand.to;
+  return stepBackDest(self, target, units, ctx) ?? cand.to;
 }
 
 /**
@@ -2144,7 +2318,7 @@ export function decide(
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = scoreCandidate(cand, self, units, fired, ctx, round, appealMemo);
-    const spent = cand.action === 'wait' ? ap : apCostFor(cand.action, self);
+    const spent = cand.action === 'wait' ? ap : candApCost(cand, self);
     const score = factors.reduce((s, f) => s + f.value, 0) - spent * AP_VALUE;
     if (
       !best ||
@@ -2152,7 +2326,7 @@ export function decide(
       (Math.abs(score - best.score) <= 1e-9 &&
         (dist(cand.to, self.pos) < dist(best.cand.to, self.pos) ||
           (dist(cand.to, self.pos) === dist(best.cand.to, self.pos) &&
-            apCostFor(cand.action, self) < apCostFor(best.cand.action, self))))
+            candApCost(cand, self) < candApCost(best.cand, self))))
     ) {
       best = { cand, score, factors };
     }
