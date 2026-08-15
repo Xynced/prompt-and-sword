@@ -64,6 +64,12 @@ export function fingerprint(result: BattleResult): Fingerprint {
       case 'move':
         pos.set(e.unit, { ...e.to });
         break;
+      case 'swap':
+        // обмен местами двигает обоих — иначе отпечаток считает дистанции по
+        // устаревшим позициям
+        pos.set(e.unit, { ...e.to });
+        pos.set(e.target, { ...e.from });
+        break;
       case 'attack':
         firstContactRound ??= round;
         if (side.get(e.unit) === 'party') {

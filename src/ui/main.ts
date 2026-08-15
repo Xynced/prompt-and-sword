@@ -3,6 +3,7 @@ import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
 import { describeActive, describePassives, describeWeapons, driftQuip, lensQuip, understandingCard } from '../cards.js';
 import {
+  ROLE_CONCEPT,
   type ConditionDraft,
   type PhraseDraft,
   type PreferenceDraft,
@@ -13,7 +14,7 @@ import {
 import { type ModelCall, anthropicModelCall, compileFreeText } from '../compiler/compile.js';
 import type { CompilerCache } from '../compiler/cache.js';
 import type { CompilerOutput } from '../compiler/schema.js';
-import { BATTLE_DRAGS_ROUND, type Rule } from '../ir.js';
+import { ALLY_ROLE_RU, BATTLE_DRAGS_ROUND, type AllyRef, type AllyRole, type Rule } from '../ir.js';
 import { CONCEPTS, type ConceptId } from '../vocab.js';
 import {
   type MapNode,
@@ -439,6 +440,22 @@ interface Opt<T> {
   label: string;
 }
 
+/**
+ * Ссылки на своего для чипсов (план teamwork, вторая волна): живые товарищи
+ * по именам плюс открытые роли. Роль в списке ровно одна на слово — кого она
+ * назовёт, решает бой.
+ */
+function allyRefOptions(exceptId?: string, form: 'nom' | 'gen' | 'ins' = 'gen'): Opt<AllyRef>[] {
+  const names = heroNames(run);
+  const out: Opt<AllyRef>[] = run.heroes
+    .filter((h) => h.alive && h.id !== exceptId)
+    .map((h) => ({ value: h.id as AllyRef, label: names[h.id] ?? h.id }));
+  for (const [role, word] of Object.entries(ROLE_CONCEPT) as [AllyRole, ConceptId][]) {
+    if (run.vocab.includes(word)) out.push({ value: { role }, label: ALLY_ROLE_RU[role][form] });
+  }
+  return out;
+}
+
 function conditionOptions(): Opt<ConditionDraft>[] {
   const names = heroNames(run);
   const out: Opt<ConditionDraft>[] = [{ value: { id: 'always' }, label: 'всегда' }];
@@ -448,17 +465,14 @@ function conditionOptions(): Opt<ConditionDraft>[] {
       { value: { id: 'cond.hpBelow', who: 'self', frac: 0.3 }, label: 'если моё hp < 30%' },
       { value: { id: 'cond.hpBelow', who: 'self', frac: 0.5 }, label: 'если моё hp < 50%' },
     );
-    for (const h of run.heroes.filter((h) => h.alive)) {
-      out.push({
-        value: { id: 'cond.hpBelow', who: { ally: h.id }, frac: 0.5 },
-        label: `если hp ${names[h.id]} < 50%`,
-      });
+    for (const a of allyRefOptions()) {
+      out.push({ value: { id: 'cond.hpBelow', who: { ally: a.value }, frac: 0.5 }, label: `если hp ${a.label} < 50%` });
     }
   }
   if (has('cond.outnumbered')) out.push({ value: { id: 'cond.outnumbered' }, label: 'если врагов больше' });
   if (has('cond.allyInDanger')) {
-    for (const h of run.heroes.filter((h) => h.alive)) {
-      out.push({ value: { id: 'cond.allyInDanger', ally: h.id }, label: `если ${names[h.id]} в опасности` });
+    for (const a of allyRefOptions(undefined, 'nom')) {
+      out.push({ value: { id: 'cond.allyInDanger', ally: a.value }, label: `если ${a.label} в опасности` });
     }
   }
   if (has('cond.hpAbove')) {
@@ -485,6 +499,11 @@ function conditionOptions(): Opt<ConditionDraft>[] {
   if (has('cond.lastEnemy')) out.push({ value: { id: 'cond.lastEnemy' }, label: 'если враг остался один' });
   if (has('cond.allyHurt')) out.push({ value: { id: 'cond.allyHurt' }, label: 'если кто-то из наших ранен' });
   if (has('cond.enemiesClustered')) out.push({ value: { id: 'cond.enemiesClustered' }, label: 'если враги скучились' });
+  if (has('cond.allyTaunting')) out.push({ value: { id: 'cond.allyTaunting' }, label: 'если наш держит вызов' });
+  if (has('cond.allyEngaged')) out.push({ value: { id: 'cond.allyEngaged' }, label: 'если наш в контакте' });
+  if (has('cond.guarded')) out.push({ value: { id: 'cond.guarded' }, label: 'если меня прикрывают' });
+  if (has('cond.allySurrounded')) out.push({ value: { id: 'cond.allySurrounded' }, label: 'если нашего обступили' });
+  if (has('cond.alliesFocusing')) out.push({ value: { id: 'cond.alliesFocusing' }, label: 'если наши навалились' });
   return out;
 }
 
@@ -540,16 +559,27 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
     for (const s of selectors) out.push({ value: { id: 'act.attack', target: s }, label: `атаковать ${selRu[s]}` });
   }
   if (has('act.protect')) {
-    for (const h of run.heroes.filter((h) => h.alive && h.id !== heroId)) {
-      out.push({ value: { id: 'act.protect', ally: h.id }, label: `защищать ${names[h.id]}` });
+    for (const a of allyRefOptions(heroId)) {
+      out.push({ value: { id: 'act.protect', ally: a.value }, label: `защищать ${a.label}` });
     }
   }
   if (has('act.taunt')) out.push({ value: { id: 'act.taunt' }, label: 'вызывать на себя' });
   if (has('act.lure')) {
-    for (const h of run.heroes.filter((h) => h.alive && h.id !== heroId)) {
-      out.push({ value: { id: 'act.lure', ally: h.id }, label: `уводить врагов от ${names[h.id]}` });
+    for (const a of allyRefOptions(heroId)) {
+      out.push({ value: { id: 'act.lure', ally: a.value }, label: `уводить врагов от ${a.label}` });
     }
   }
+  if (has('act.screen')) {
+    for (const a of allyRefOptions(heroId)) {
+      out.push({ value: { id: 'act.screen', ally: a.value }, label: `заслонять ${a.label} от стрелков` });
+    }
+  }
+  if (has('act.swap')) {
+    for (const a of allyRefOptions(heroId, 'ins')) {
+      out.push({ value: { id: 'act.swap', ally: a.value }, label: `меняться местами с ${a.label}` });
+    }
+  }
+  if (has('act.regroup')) out.push({ value: { id: 'act.regroup' }, label: 'смыкать строй' });
   if (has('act.holdPosition')) out.push({ value: { id: 'act.holdPosition' }, label: 'держать позицию' });
   if (has('act.wait')) out.push({ value: { id: 'act.wait' }, label: 'ждать' });
   if (has('act.retreat')) out.push({ value: { id: 'act.retreat' }, label: 'отступать' });
@@ -586,8 +616,8 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
         : space === 'space.behind'
           ? 'держаться позади'
           : 'держаться подальше от';
-    for (const h of run.heroes.filter((h) => h.alive && h.id !== heroId)) {
-      out.push({ value: { id: space, ref: { ally: h.id } }, label: `${verb} ${names[h.id]}` });
+    for (const a of allyRefOptions(heroId, space === 'space.nearTo' ? 'ins' : 'gen')) {
+      out.push({ value: { id: space, ref: { ally: a.value } }, label: `${verb} ${a.label}` });
     }
     for (const s of selectors) {
       out.push({ value: { id: space, ref: { enemy: s } }, label: `${verb}: враг-${selRu[s]}` });
@@ -720,7 +750,11 @@ function buildFrames(
     switch (cond.kind) {
       case 'hpBelow':
       case 'hpAbove': {
-        const u = cond.who === 'self' ? self : all.find((x) => x.id === (cond.who as { ally: string }).ally);
+        // роль вместо имени (план teamwork): кого она назовёт, знает только
+        // бой — в эвристике реплик считаем условие истинным, как и неизвестные
+        const who = cond.who;
+        if (who !== 'self' && typeof who.ally !== 'string') return true;
+        const u = who === 'self' ? self : all.find((x) => x.id === who.ally);
         if (!u || !u.alive) return false;
         return cond.kind === 'hpBelow' ? u.hp < cond.frac * u.maxHp : u.hp >= cond.frac * u.maxHp;
       }
@@ -840,6 +874,18 @@ function buildFrames(
         u.hp = e.hp;
         pending?.parts.push(`${e.kind === 'spikes' ? 'напоролся на шипы' : 'обожжён'}: −${e.dmg}`);
         float(e.unit, `−${e.dmg}`, 'dmg');
+        break;
+      }
+      case 'swap': {
+        // обмен местами: двигаются оба, кадр один — приём читается как жест
+        const u = units.get(e.unit)!;
+        const t = units.get(e.target)!;
+        u.x = e.to.x;
+        u.y = e.to.y;
+        t.x = e.from.x;
+        t.y = e.from.y;
+        pending?.parts.push(`меняется местами с ${nm(e.target)}`);
+        float(e.target, '⇄ местами', 'buff');
         break;
       }
       case 'shove': {

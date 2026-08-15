@@ -1,4 +1,4 @@
-import type { Condition, LensMark, Preference, Rule } from './ir.js';
+import { ALLY_ROLE_RU, type AllyRef, type Condition, type LensMark, type Preference, type Rule } from './ir.js';
 import { applyLens } from './lens.js';
 import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, WeaponSpec } from './types.js';
 
@@ -30,6 +30,13 @@ const SEL_RU: Record<string, string> = {
   tormentor: 'обидчика наших',
 };
 
+/** Ссылка на своего в нужном падеже: имя героя не склоняем, роль — по таблице. */
+const allyRu = (
+  ref: AllyRef,
+  nm: (id: string) => string,
+  form: 'nom' | 'gen' | 'ins' = 'gen',
+): string => (typeof ref === 'string' ? nm(ref) : ALLY_ROLE_RU[ref.role][form]);
+
 function condRu(c: Condition, nm: (id: string) => string): string {
   switch (c.kind) {
     case 'always':
@@ -37,15 +44,15 @@ function condRu(c: Condition, nm: (id: string) => string): string {
     case 'hpBelow':
       return c.who === 'self'
         ? `если моё hp ниже ${Math.round(c.frac * 100)}% — `
-        : `если hp ${nm(c.who.ally)} ниже ${Math.round(c.frac * 100)}% — `;
+        : `если hp ${allyRu(c.who.ally, nm)} ниже ${Math.round(c.frac * 100)}% — `;
     case 'hpAbove':
       return c.who === 'self'
         ? `пока моё hp не ниже ${Math.round(c.frac * 100)}% — `
-        : `пока hp ${nm(c.who.ally)} не ниже ${Math.round(c.frac * 100)}% — `;
+        : `пока hp ${allyRu(c.who.ally, nm)} не ниже ${Math.round(c.frac * 100)}% — `;
     case 'outnumbered':
       return 'если врагов больше, чем нас — ';
     case 'allyInDanger':
-      return `если ${nm(c.ally)} в опасности — `;
+      return `если ${allyRu(c.ally, nm, 'nom')} в опасности — `;
     case 'battleDrags':
       return 'если бой затянулся — ';
     case 'initiativeEdge':
@@ -82,6 +89,16 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если кто-то из наших ранен — ';
     case 'enemiesClustered':
       return 'если враги скучились — ';
+    case 'allyTaunting':
+      return 'если кто-то из наших вызвал врагов на себя — ';
+    case 'allyEngaged':
+      return 'если кто-то из наших схватился с врагом — ';
+    case 'guarded':
+      return 'если меня прикрывают — ';
+    case 'allySurrounded':
+      return 'если кого-то из наших обступили — ';
+    case 'alliesFocusing':
+      return 'если наши уже навалились на кого-то — ';
     case 'and':
       // вложенность читается сцепкой «если … — если … — »
       return c.conds.map((s) => condRu(s, nm)).join('');
@@ -96,15 +113,15 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
     case 'attack':
       return `атакую ${SEL_RU[p.target]}`;
     case 'protect':
-      return `прикрываю ${nm(p.ally)}`;
+      return `прикрываю ${allyRu(p.ally, nm)}`;
     case 'holdPosition':
       return 'держу позицию';
     case 'retreat':
       return 'отхожу';
     case 'nearTo':
-      return `держусь рядом с ${p.ref.type === 'ally' ? nm(p.ref.id) : SEL_RU[p.ref.sel]}`;
+      return `держусь рядом с ${p.ref.type === 'ally' ? allyRu(p.ref.id, nm, 'ins') : SEL_RU[p.ref.sel]}`;
     case 'behind':
-      return `встаю позади ${p.ref.type === 'ally' ? nm(p.ref.id) : SEL_RU[p.ref.sel]}`;
+      return `встаю позади ${p.ref.type === 'ally' ? allyRu(p.ref.id, nm) : SEL_RU[p.ref.sel]}`;
     case 'bait':
       return 'изображаю приманку: маячу перед врагами, не подставляясь под удар';
     case 'trade':
@@ -122,7 +139,7 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
     case 'brace':
       return 'встаю в глухую оборону, когда до меня могут достать';
     case 'awayFrom':
-      return `держусь подальше от ${p.ref.type === 'ally' ? nm(p.ref.id) : SEL_RU[p.ref.sel]}`;
+      return `держусь подальше от ${p.ref.type === 'ally' ? allyRu(p.ref.id, nm) : SEL_RU[p.ref.sel]}`;
     case 'strikeOften':
       return 'бью часто и вполсилы: лучше три замаха, чем один';
     case 'strikeHard':
@@ -162,7 +179,13 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
     case 'taunt':
       return 'вызываю на себя: маячу у врагов на виду и злю их — пусть идут ко мне, а не к нашим';
     case 'lure':
-      return `увожу врагов от ${nm(p.ally)}: держусь у них на виду, но тяну их в сторону`;
+      return `увожу врагов от ${allyRu(p.ally, nm)}: держусь у них на виду, но тяну их в сторону`;
+    case 'screen':
+      return `заслоняю ${allyRu(p.ally, nm)} от стрелков: встаю телом на линию выстрела`;
+    case 'regroup':
+      return 'смыкаю строй: держусь плечом к плечу со своими';
+    case 'swap':
+      return `меняюсь местами с ${allyRu(p.ally, nm, 'ins')}: вытаскиваю из-под удара, встаю сам`;
   }
 }
 
@@ -271,8 +294,8 @@ export function lensQuip(m: LensMark, names: Record<string, string> = {}, rule?:
         return m.mult < 1 ? 'Нападать? Иду… но без охоты.' : 'Дистанция — это святое.';
       if (m.kind === 'reword' && m.from.kind === 'protect')
         return rule?.when.kind === 'hpBelow'
-          ? `Прикрывать ${nm(m.from.ally)}? Прикрывал, пока цел был. Теперь — из-за спины.`
-          : `Прикрывать ${nm(m.from.ally)}? Постою за спиной — оттуда тоже всё видно.`;
+          ? `Прикрывать ${allyRu(m.from.ally, nm)}? Прикрывал, пока цел был. Теперь — из-за спины.`
+          : `Прикрывать ${allyRu(m.from.ally, nm)}? Постою за спиной — оттуда тоже всё видно.`;
       if (from === 'bait') return 'Приманкой пусть смелые работают. Я просто отойду.';
       if (from === 'strikeDesperate') return 'Отчаянно не могу. В полную силу — куда ни шло.';
       if (from === 'rage') return 'В ярость? Уж лучше в глухую оборону.';
@@ -303,7 +326,7 @@ export function lensQuip(m: LensMark, names: Record<string, string> = {}, rule?:
     case 'guardian':
       if (m.kind === 'instinct') return 'Самый раненый из наших — за мной.';
       if (m.kind === 'reword' && m.from.kind === 'protect')
-        return `${nm(m.from.ally)} ранен(а)? Всё. Остальное подождёт.`;
+        return `${allyRu(m.from.ally, nm, 'nom')} ранен(а)? Всё. Остальное подождёт.`;
       return 'Своих не бросаю.';
     case 'paranoid':
       return 'Стрелки. Везде стрелки. Я — в сторонку.';

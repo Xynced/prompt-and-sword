@@ -24,6 +24,8 @@ export type ActionKind =
   | 'cover'
   | 'fullCover'
   | 'shieldAlly'
+  /** Обмен клетками со смежным союзником (план teamwork): цену платит затевающий. */
+  | 'swap'
   | 'wait';
 
 /**

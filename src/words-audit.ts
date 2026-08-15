@@ -405,6 +405,54 @@ export const AUDIT_ENTRIES: AuditEntry[] = [
       w2({ condition: always, preference: { id: 'act.lure', ally: ctx.squishyId } }),
     ]),
   },
+  // — совместные действия (план teamwork, вторая волна): роли, условия про
+  //   своих и три действия, у которых смысл есть только рядом с товарищем —
+  {
+    word: 'sel.allyWounded',
+    label: 'прикрывать раненого — роль вместо имени (передовой)',
+    extra: ['act.protect'],
+    drafts: forRoles(['front'], () => [
+      w2({ condition: always, preference: { id: 'act.protect', ally: { role: 'wounded' } } }),
+    ]),
+  },
+  {
+    word: 'act.screen',
+    label: 'у врага стрелки → заслонять хрупкого (передовой)',
+    extra: ['cond.enemyShooters'],
+    drafts: forRoles(['front'], (_h, ctx) => [
+      w2({ condition: { id: 'cond.enemyShooters' }, preference: { id: 'act.screen', ally: ctx.squishyId } }),
+    ]),
+  },
+  {
+    word: 'act.regroup',
+    label: 'смыкать строй (все)',
+    drafts: everyone(() => [w2({ condition: always, preference: { id: 'act.regroup' } })]),
+  },
+  {
+    word: 'act.swap',
+    label: 'хрупкий в опасности → меняться с ним местами (передовой)',
+    extra: ['cond.allyInDanger'],
+    drafts: forRoles(['front'], (_h, ctx) => [
+      w2({ condition: { id: 'cond.allyInDanger', ally: ctx.squishyId }, preference: { id: 'act.swap', ally: ctx.squishyId } }),
+    ]),
+  },
+  {
+    word: 'cond.allyTaunting',
+    label: 'комбо: передовой вызывает — остальные во фланг',
+    extra: ['act.taunt', 'space.flank'],
+    drafts: (hero) =>
+      hero.role === 'front'
+        ? [w2({ condition: always, preference: { id: 'act.taunt' } })]
+        : [w2({ condition: { id: 'cond.allyTaunting' }, preference: { id: 'space.flank' } })],
+  },
+  {
+    word: 'cond.allySurrounded',
+    label: 'нашего обступили → бить обидчика наших',
+    extra: ['sel.tormentor'],
+    drafts: everyone(() => [
+      w2({ condition: { id: 'cond.allySurrounded' }, preference: { id: 'act.attack', target: 'sel.tormentor' } }),
+    ]),
+  },
 ];
 
 // ---- Сборка спеков и прогон ----

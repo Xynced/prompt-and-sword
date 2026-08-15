@@ -1,4 +1,4 @@
-import type { Condition, PosRef, Rule, Selector } from './ir.js';
+import { ALLY_ROLE_RU, type AllyRef, type AllyRole, type Condition, type PosRef, type Rule, type Selector } from './ir.js';
 import { CONCEPTS, type ConceptId } from './vocab.js';
 
 /**
@@ -9,10 +9,10 @@ import { CONCEPTS, type ConceptId } from './vocab.js';
 
 export type SimpleConditionDraft =
   | { id: 'always' }
-  | { id: 'cond.hpBelow'; who: 'self' | { ally: string }; frac: number }
-  | { id: 'cond.hpAbove'; who: 'self' | { ally: string }; frac: number }
+  | { id: 'cond.hpBelow'; who: 'self' | { ally: AllyRef }; frac: number }
+  | { id: 'cond.hpAbove'; who: 'self' | { ally: AllyRef }; frac: number }
   | { id: 'cond.outnumbered' }
-  | { id: 'cond.allyInDanger'; ally: string }
+  | { id: 'cond.allyInDanger'; ally: AllyRef }
   | { id: 'cond.battleDrags' }
   | { id: 'cond.initiativeEdge' }
   | { id: 'cond.allyFallen' }
@@ -30,7 +30,12 @@ export type SimpleConditionDraft =
   | { id: 'cond.enemyWavering' }
   | { id: 'cond.lastEnemy' }
   | { id: 'cond.allyHurt' }
-  | { id: 'cond.enemiesClustered' };
+  | { id: 'cond.enemiesClustered' }
+  | { id: 'cond.allyTaunting' }
+  | { id: 'cond.allyEngaged' }
+  | { id: 'cond.guarded' }
+  | { id: 'cond.allySurrounded' }
+  | { id: 'cond.alliesFocusing' };
 
 /**
  * Условие фразы: простое — или один комбинатор (глубокие чипсы): «и» (and,
@@ -61,11 +66,11 @@ export type SelectorDraft =
 
 export type PreferenceDraft =
   | { id: 'act.attack'; target: SelectorDraft }
-  | { id: 'act.protect'; ally: string }
+  | { id: 'act.protect'; ally: AllyRef }
   | { id: 'act.holdPosition' }
   | { id: 'act.retreat' }
-  | { id: 'space.nearTo'; ref: { ally: string } | { enemy: SelectorDraft } }
-  | { id: 'space.behind'; ref: { ally: string } | { enemy: SelectorDraft } }
+  | { id: 'space.nearTo'; ref: { ally: AllyRef } | { enemy: SelectorDraft } }
+  | { id: 'space.behind'; ref: { ally: AllyRef } | { enemy: SelectorDraft } }
   | { id: 'act.bait' }
   | { id: 'act.trade' }
   | { id: 'act.coverRetreat' }
@@ -74,7 +79,7 @@ export type PreferenceDraft =
   | { id: 'space.lineOfFire' }
   | { id: 'space.chokepoint' }
   | { id: 'act.brace' }
-  | { id: 'space.awayFrom'; ref: { ally: string } | { enemy: SelectorDraft } }
+  | { id: 'space.awayFrom'; ref: { ally: AllyRef } | { enemy: SelectorDraft } }
   | { id: 'act.strikeOften' }
   | { id: 'act.strikeHard' }
   | { id: 'act.strikeDesperate' }
@@ -94,7 +99,10 @@ export type PreferenceDraft =
   | { id: 'act.bless' }
   | { id: 'act.feint' }
   | { id: 'act.taunt' }
-  | { id: 'act.lure'; ally: string };
+  | { id: 'act.lure'; ally: AllyRef }
+  | { id: 'act.screen'; ally: AllyRef }
+  | { id: 'act.regroup' }
+  | { id: 'act.swap'; ally: AllyRef };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -124,10 +132,33 @@ const SELECTOR_MAP: Record<SelectorDraft, Selector> = {
   'sel.tormentor': 'tormentor',
 };
 
+/** Слово-роль за ссылкой на своего; имя героя слова не стоит. */
+export const ROLE_CONCEPT: Record<AllyRole, ConceptId> = {
+  wounded: 'sel.allyWounded',
+  frontman: 'sel.allyFrontman',
+  shooter: 'sel.allyShooter',
+  taunter: 'sel.allyTaunter',
+  nearest: 'sel.allyNearest',
+};
+
+const allyConcepts = (ref: AllyRef): ConceptId[] =>
+  typeof ref === 'string' ? [] : [ROLE_CONCEPT[ref.role]];
+
+/** Ссылка на своего в тексте фразы: имя героя или роль в нужном падеже. */
+const allyText = (
+  ref: AllyRef,
+  nm: (id: string) => string,
+  form: 'nom' | 'gen' | 'ins' = 'gen',
+): string => (typeof ref === 'string' ? nm(ref) : ALLY_ROLE_RU[ref.role][form]);
+
 /** Концепты условия; «и»/«или» — грамматика, а не слово: платят только вложенные условия. */
 function condConcepts(c: ConditionDraft): ConceptId[] {
   if (c.id === 'always') return [];
   if (c.id === 'and' || c.id === 'or') return c.conds.flatMap(condConcepts);
+  if (c.id === 'cond.allyInDanger') return [c.id, ...allyConcepts(c.ally)];
+  if ((c.id === 'cond.hpBelow' || c.id === 'cond.hpAbove') && c.who !== 'self') {
+    return [c.id, ...allyConcepts(c.who.ally)];
+  }
   return [c.id];
 }
 
@@ -136,11 +167,12 @@ function requiredConcepts(draft: PhraseDraft): ConceptId[] {
   const p = draft.preference;
   out.push(p.id);
   if (p.id === 'act.attack') out.push(p.target);
-  if (
-    (p.id === 'space.nearTo' || p.id === 'space.behind' || p.id === 'space.awayFrom') &&
-    'enemy' in p.ref
-  ) {
-    out.push(p.ref.enemy);
+  if (p.id === 'space.nearTo' || p.id === 'space.behind' || p.id === 'space.awayFrom') {
+    if ('enemy' in p.ref) out.push(p.ref.enemy);
+    else out.push(...allyConcepts(p.ref.ally));
+  }
+  if (p.id === 'act.protect' || p.id === 'act.lure' || p.id === 'act.screen' || p.id === 'act.swap') {
+    out.push(...allyConcepts(p.ally));
   }
   return out;
 }
@@ -153,11 +185,11 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
     case 'cond.hpBelow':
       return c.who === 'self'
         ? `если hp ниже ${Math.round(c.frac * 100)}%: `
-        : `если hp ${nm(c.who.ally)} ниже ${Math.round(c.frac * 100)}%: `;
+        : `если hp ${allyText(c.who.ally, nm)} ниже ${Math.round(c.frac * 100)}%: `;
     case 'cond.hpAbove':
       return c.who === 'self'
         ? `пока hp выше ${Math.round(c.frac * 100)}%: `
-        : `пока hp ${nm(c.who.ally)} выше ${Math.round(c.frac * 100)}%: `;
+        : `пока hp ${allyText(c.who.ally, nm)} выше ${Math.round(c.frac * 100)}%: `;
     case 'cond.outnumbered':
       return 'если врагов больше: ';
     case 'cond.battleDrags':
@@ -171,7 +203,7 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
     case 'cond.underCharge':
       return 'если враги накатывают: ';
     case 'cond.allyInDanger':
-      return `если ${nm(c.ally)} в опасности: `;
+      return `если ${allyText(c.ally, nm, 'nom')} в опасности: `;
     case 'cond.firstBlood':
       return 'если кровь пролилась: ';
     case 'cond.leaderDown':
@@ -198,6 +230,16 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
       return 'если кто-то из наших ранен: ';
     case 'cond.enemiesClustered':
       return 'если враги скучились: ';
+    case 'cond.allyTaunting':
+      return 'если наш держит вызов: ';
+    case 'cond.allyEngaged':
+      return 'если наш в контакте: ';
+    case 'cond.guarded':
+      return 'если меня прикрывают: ';
+    case 'cond.allySurrounded':
+      return 'если нашего обступили: ';
+    case 'cond.alliesFocusing':
+      return 'если наши навалились: ';
     case 'and':
       return c.conds.map((s) => condText(s, nm)).join('');
     case 'or':
@@ -209,13 +251,21 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
 function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): string {
   const nm = (id: string): string => names[id] ?? id;
   const p = draft.preference;
-  const refText = (ref: { ally: string } | { enemy: SelectorDraft }): string =>
-    'ally' in ref ? nm(ref.ally) : CONCEPTS[ref.enemy].label;
+  const refText = (
+    ref: { ally: AllyRef } | { enemy: SelectorDraft },
+    form: 'nom' | 'gen' | 'ins' = 'gen',
+  ): string => ('ally' in ref ? allyText(ref.ally, nm, form) : CONCEPTS[ref.enemy].label);
   const prefText =
     p.id === 'act.taunt'
       ? 'вызывать на себя'
       : p.id === 'act.lure'
-      ? `уводить врагов от ${nm(p.ally)}`
+      ? `уводить врагов от ${allyText(p.ally, nm)}`
+      : p.id === 'act.screen'
+      ? `заслонять ${allyText(p.ally, nm)} от стрелков`
+      : p.id === 'act.regroup'
+      ? 'смыкать строй'
+      : p.id === 'act.swap'
+      ? `меняться местами с ${allyText(p.ally, nm, 'ins')}`
       : p.id === 'act.finish'
       ? 'добивать'
       : p.id === 'act.focusFire'
@@ -255,7 +305,7 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       : p.id === 'act.attack'
       ? `атаковать: ${CONCEPTS[p.target].label}`
       : p.id === 'act.protect'
-        ? `защищать ${nm(p.ally)}`
+        ? `защищать ${allyText(p.ally, nm)}`
         : p.id === 'act.holdPosition'
           ? 'держать позицию'
           : p.id === 'act.retreat'
@@ -279,7 +329,7 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
                         : p.id === 'space.awayFrom'
                           ? `держаться подальше от ${refText(p.ref)}`
                           : p.id === 'space.nearTo'
-                            ? `держаться рядом с ${refText(p.ref)}`
+                            ? `держаться рядом с ${refText(p.ref, 'ins')}`
                             : `держаться позади ${refText(p.ref)}`;
   return condText(draft.condition, nm) + prefText;
 }
@@ -333,6 +383,16 @@ function compileCondition(c: ConditionDraft): Condition {
       return { kind: 'allyHurt' };
     case 'cond.enemiesClustered':
       return { kind: 'enemiesClustered' };
+    case 'cond.allyTaunting':
+      return { kind: 'allyTaunting' };
+    case 'cond.allyEngaged':
+      return { kind: 'allyEngaged' };
+    case 'cond.guarded':
+      return { kind: 'guarded' };
+    case 'cond.allySurrounded':
+      return { kind: 'allySurrounded' };
+    case 'cond.alliesFocusing':
+      return { kind: 'alliesFocusing' };
     case 'and':
       return { kind: 'and', conds: c.conds.map((s) => compileCondition(s)) };
     case 'or':
@@ -352,7 +412,7 @@ export function compilePhrase(
   const when: Rule['when'] = compileCondition(draft.condition);
 
   const p = draft.preference;
-  const toPosRef = (ref: { ally: string } | { enemy: SelectorDraft }): PosRef =>
+  const toPosRef = (ref: { ally: AllyRef } | { enemy: SelectorDraft }): PosRef =>
     'ally' in ref ? { type: 'ally', id: ref.ally } : { type: 'enemy', sel: SELECTOR_MAP[ref.enemy] };
 
   const then: Rule['then'] =
@@ -360,6 +420,12 @@ export function compilePhrase(
       ? { kind: 'taunt' }
       : p.id === 'act.lure'
       ? { kind: 'lure', ally: p.ally }
+      : p.id === 'act.screen'
+      ? { kind: 'screen', ally: p.ally }
+      : p.id === 'act.regroup'
+      ? { kind: 'regroup' }
+      : p.id === 'act.swap'
+      ? { kind: 'swap', ally: p.ally }
       : p.id === 'act.finish'
       ? { kind: 'finish' }
       : p.id === 'act.focusFire'
