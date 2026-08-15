@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { applyLens } from '../src/lens.js';
-import { type Fighter, attackMult, effectiveCover, generateCandidates } from '../src/scoring.js';
+import { type Fighter, attackMult, effectiveGuard, generateCandidates } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
-import { expectedDamage } from '../src/tuning.js';
+import { BRACE_AC, COVER_AC, expectedDamage } from '../src/tuning.js';
 import type { CombatUnit, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
+import { dist } from '../src/grid.js';
 
 /**
  * Щит союзнику — правка механики прикрытия: щит кроет только смежного, и
@@ -27,7 +28,7 @@ function fighter(id: string, side: Side, pos: Pos, over: Partial<CombatUnit> = {
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],
@@ -70,7 +71,7 @@ describe('щит союзнику требует смежности', () => {
     const near = fighter('near', 'party', { x: 6, y: 5 });
     const g2 = fighter('g2', 'party', { x: 6, y: 6 });
     const foe = fighter('e', 'foe', { x: 12, y: 5 });
-    near.guardedBy = { id: 'g2', level: 0.25 };
+    near.guardedBy = { id: 'g2', bonus: COVER_AC };
     const shieldNear = (c: { action: string; targetId?: string }): boolean =>
       c.action === 'shieldAlly' && c.targetId === 'near';
     expect(generateCandidates(self, [self, near, g2, foe]).some(shieldNear)).toBe(false);
@@ -94,29 +95,29 @@ describe('чужое прикрытие живёт, пока защитник ж
   const scene = (): { ward: Fighter; tank: Fighter } => {
     const ward = fighter('ward', 'party', { x: 5, y: 5 });
     const tank = fighter('tank', 'party', { x: 6, y: 5 });
-    ward.guardedBy = { id: 'tank', level: 0.4 };
+    ward.guardedBy = { id: 'tank', bonus: 3 };
     return { ward, tank };
   };
 
-  it('смежный живой защитник — уровень щита; своё прикрытие берётся максимумом', () => {
+  it('смежный живой защитник — бонус щита; своя оборона берётся максимумом', () => {
     const { ward, tank } = scene();
-    expect(effectiveCover(ward, [ward, tank])).toBe(0.4);
-    ward.coverLevel = 0.67; // глухая защита сильнее щита
-    expect(effectiveCover(ward, [ward, tank])).toBe(0.67);
+    expect(effectiveGuard(ward, [ward, tank])).toBe(3);
+    ward.guard = BRACE_AC; // глухая защита сильнее щита
+    expect(effectiveGuard(ward, [ward, tank])).toBe(BRACE_AC);
   });
 
   it('защитник отошёл — чужое гаснет, своё остаётся', () => {
     const { ward, tank } = scene();
     tank.pos = { x: 8, y: 5 };
-    expect(effectiveCover(ward, [ward, tank])).toBe(0);
-    ward.coverLevel = 0.25;
-    expect(effectiveCover(ward, [ward, tank])).toBe(0.25);
+    expect(effectiveGuard(ward, [ward, tank])).toBe(0);
+    ward.guard = COVER_AC;
+    expect(effectiveGuard(ward, [ward, tank])).toBe(COVER_AC);
   });
 
   it('павший защитник не кроет', () => {
     const { ward, tank } = scene();
     tank.alive = false;
-    expect(effectiveCover(ward, [ward, tank])).toBe(0);
+    expect(effectiveGuard(ward, [ward, tank])).toBe(0);
   });
 });
 
@@ -131,7 +132,7 @@ describe('в бою: толчок уводит подопечного из-по�
   const scene = (pusherRules: Rule[]): UnitSpec[] => [
     spec({
       id: 'tank', side: 'party', spawn: { x: 4, y: 2 }, speed: 9, lenses: ['guardian'],
-      passives: { shieldwall: { cover: 0.4 } },
+      passives: { shieldwall: { ac: 3 } },
     }),
     spec({ id: 'ward', side: 'party', spawn: { x: 5, y: 3 }, maxHp: 100, speed: 6, rules: [atkNearest] }),
     spec({ id: 'pusher', side: 'foe', spawn: { x: 6, y: 2 }, atk: 5, speed: 8, rules: pusherRules }),
@@ -142,23 +143,52 @@ describe('в бою: толчок уводит подопечного из-по�
   const E = (action: Extract<BattleEvent, { t: 'attack' }>['action']): number =>
     expectedDamage(40 * attackMult(action));
 
-  it('подопечный у плеча: удар режется щитом −40%', () => {
+  it('подопечный у плеча: щит идёт в КБ, а прошедший удар несёт полную силу', () => {
     const res = runBattle(11, scene([]));
     expect(res.terrain.name).toBe('поляна');
-    expect(res.events.some((e) => e.t === 'cover' && e.unit === 'tank' && e.ally === 'ward' && e.level === 0.4)).toBe(true);
+    expect(res.events.some((e) => e.t === 'cover' && e.unit === 'tank' && e.ally === 'ward' && e.bonus === 3)).toBe(true);
     const hit = strikerHit(res.events);
-    // потолок считаем по исходу броска: крит удваивает урон до митигации
-    const swing = hit.outcome === 'crit' ? 2 : 1;
-    expect(hit.dmg).toBeLessThanOrEqual(Math.round(E(hit.action) * swing * 0.6) + 1);
-  });
-
-  it('увели толчком — щит спал, удар проходит в полную силу', () => {
-    const shove = r({ when: { kind: 'always' }, then: { kind: 'shove' }, weight: 5, source: 'толкай' });
-    const res = runBattle(11, scene([shove]));
-    expect(res.events.some((e) => e.t === 'cover' && e.unit === 'tank' && e.ally === 'ward' && e.level === 0.4)).toBe(true);
-    expect(res.events.some((e) => e.t === 'shove' && e.target === 'ward')).toBe(true);
-    const hit = strikerHit(res.events);
+    // щит больше не режет урон (план armor): он поднимает КБ подопечного,
+    // поэтому дошедший удар бьёт в полную силу — плата взимается промахами
     const swing = hit.outcome === 'crit' ? 2 : 1;
     expect(hit.dmg).toBeGreaterThanOrEqual(Math.round(E(hit.action) * swing) - 1);
+  });
+
+  it('увели толчком — щит спал: подопечный без чужого прикрытия', () => {
+    const shove = r({ when: { kind: 'always' }, then: { kind: 'shove' }, weight: 5, source: 'толкай' });
+    const res = runBattle(11, scene([shove]));
+    expect(res.events.some((e) => e.t === 'cover' && e.unit === 'tank' && e.ally === 'ward' && e.bonus === 3)).toBe(true);
+    expect(res.events.some((e) => e.t === 'shove' && e.target === 'ward')).toBe(true);
+    const ward = res.units.find((u) => u.id === 'ward')!;
+    const tank = res.units.find((u) => u.id === 'tank')!;
+    if (dist(ward.pos, tank.pos) > 1) expect(effectiveGuard(ward, res.units)).toBe(0);
+  });
+
+  it('смоук: под щитом по подопечному промахиваются чаще', () => {
+    // цена щита теперь в бросках, а не в уроне: сравниваем долю промахов
+    // ударника по подопечному со щитоносцем-наседкой и без него
+    const missShare = (guarded: boolean): number => {
+      let swings = 0;
+      let misses = 0;
+      for (let seed = 1; seed <= 20; seed++) {
+        const res = runBattle(seed * 101, [
+          // без щита — тот же щитоносец, но за полем: подопечный дерётся сам
+          spec({
+            id: 'tank', side: 'party', spawn: guarded ? { x: 4, y: 2 } : { x: 1, y: 12 }, speed: 9,
+            lenses: ['guardian'], passives: { shieldwall: { ac: 3 } },
+          }),
+          spec({ id: 'ward', side: 'party', spawn: { x: 5, y: 3 }, maxHp: 400, speed: 6, rules: [atkNearest] }),
+          spec({ id: 'striker', side: 'foe', spawn: { x: 5, y: 4 }, maxHp: 400, atk: 8, speed: 7, rules: [atkNearest] }),
+        ]);
+        for (const e of attacksIn(res.events)) {
+          if (e.unit !== 'striker' || e.target !== 'ward') continue;
+          swings++;
+          if (e.outcome === 'miss') misses++;
+        }
+      }
+      expect(swings).toBeGreaterThan(50);
+      return misses / swings;
+    };
+    expect(missShare(true)).toBeGreaterThan(missShare(false) + 0.05);
   });
 });

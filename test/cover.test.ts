@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { hasTerrainCover, posKey } from '../src/grid.js';
 import { applyLens } from '../src/lens.js';
-import { AP_COST, type Fighter, decide, makeCtx } from '../src/scoring.js';
+import { AP_COST, type Fighter, decide, generateCandidates, makeCtx, scoreCandidate } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { pickTerrain } from '../src/terrain.js';
-import { TERRAIN_COVER } from '../src/tuning.js';
+import { TERRAIN_COVER_AC } from '../src/tuning.js';
 import { compilePhrase } from '../src/constructor.js';
 import { CONCEPTS, COMMON_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { understandingCard } from '../src/cards.js';
@@ -13,9 +13,10 @@ import type { CombatUnit, Pos, Side } from '../src/types.js';
 import type { Rule } from '../src/ir.js';
 
 /**
- * Каменное укрытие (план поля, шаг 3): гибрид Q-2 — камень, ортогонально
- * смежный цели со стороны стрелка, режет урон вдвое (не запрещает выстрел);
- * камень, смежный обоим, — всегда укрытие. Стрелок с высоты 2 бьёт поверх.
+ * Каменное укрытие: геометрия — гибрид Q-2 (камень, ортогонально смежный цели
+ * со стороны стрелка, укрывает; камень, смежный обоим, — всегда укрытие;
+ * выстрел не запрещён). Цена укрытия — бонус к КБ цели (план armor), а не доля
+ * снятого урона. Стрелок с высоты 2 бьёт поверх.
  */
 
 const FULL_VOCAB = Object.keys(CONCEPTS) as ConceptId[];
@@ -34,7 +35,7 @@ function fighter(id: string, side: Side, pos: Pos, over: Partial<CombatUnit> = {
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],
@@ -82,8 +83,8 @@ describe('геометрия гибрида', () => {
   });
 });
 
-describe('укрытие в расчёте урона', () => {
-  it('выстрел в укрытую цель слабее вдвое', () => {
+describe('укрытие в броске атаки', () => {
+  it('по укрытой цели промахиваются чаще, чем по открытой', () => {
     // сид 11 → «поляна» с камнем (7,5); цель (8,5) за ним от стрелка с запада.
     // Манеру «наверняка» в фикстуру не даём: её стойка пробивает укрытие
     // (план words) — сравниваем первые ПОЛНЫЕ удары обеих прогонок
@@ -95,18 +96,32 @@ describe('укрытие в расчёте урона', () => {
       weapons: [{ name: 'арбалет', dmg: 5, range: 4, affinity: { attack: 1, weakAttack: -1 } }],
       spawn,
     });
+    // мишень неодушевлённая: юнит без правил уходит в глухую оборону, а её
+    // бонус (BRACE_AC) перекрыл бы укрытие — бонусы обстоятельств не
+    // складываются, берётся высший, и разница рядов исчезла бы
     const dummy = (spawn: Pos): UnitSpec => ({
-      id: 'e', name: 'e', side: 'foe', maxHp: 40, atk: 5, range: 1, speed: 1, move: 0,
-      lenses: ['plain'], rules: [], spawn,
+      id: 'e', name: 'e', side: 'foe', maxHp: 400, atk: 5, range: 1, speed: 1, move: 0,
+      lenses: ['plain'], rules: [], inert: true, spawn,
     });
-    const covered = runBattle(11, [shooter({ x: 4, y: 5 }), dummy({ x: 8, y: 5 })]);
-    expect(covered.terrain.name).toBe('поляна');
-    const clear = runBattle(11, [shooter({ x: 4, y: 7 }), dummy({ x: 8, y: 7 })]);
-    const a = attacksIn(covered.events).find((e) => e.action === 'attack')!;
-    const b = attacksIn(clear.events).find((e) => e.action === 'attack')!;
-    expect(a.unit).toBe('a');
-    expect(a.dmg).toBe(Math.max(1, Math.round(b.dmg * TERRAIN_COVER)));
-    expect(a.dmg).toBeLessThan(b.dmg);
+    // укрытие больше не режет урон прошедшего удара — оно поднимает КБ, и
+    // разница видна долей промахов: считаем её на двадцати сидах
+    const missRate = (y: number): number => {
+      let swings = 0;
+      let misses = 0;
+      for (let seed = 1; seed <= 120; seed++) {
+        const res = runBattle(seed * 101, [shooter({ x: 4, y }), dummy({ x: 8, y })]);
+        if (res.terrain.name !== 'поляна') continue;
+        for (const e of attacksIn(res.events)) {
+          if (e.unit !== 'a') continue;
+          swings++;
+          if (e.outcome === 'miss') misses++;
+        }
+      }
+      expect(swings).toBeGreaterThan(100);
+      return misses / swings;
+    };
+    // ряд 5 — за камнем (7,5) от стрелка с запада, ряд 7 — чистое поле
+    expect(missRate(5)).toBeGreaterThan(missRate(7) + 0.05);
   });
 
   it('стрелок с высоты 2 бьёт поверх укрытия', () => {
@@ -116,27 +131,51 @@ describe('укрытие в расчёте урона', () => {
     const blocked = (p: Pos): boolean => layout.tiles[p.y]?.[p.x]?.blocked === true;
     const ctx = makeCtx(blocked, layout.tiles);
     const target = { x: 4, y: 4 }; // к западу от камня (5,4)
-    expect(ctx.coverFrom({ x: 8, y: 4 }, target)).toBe(TERRAIN_COVER); // с равнины цель укрыта
-    expect(ctx.coverFrom({ x: 8, y: 8 }, target)).toBe(0); // с вершины укрытия нет
+    expect(ctx.coverAcFrom({ x: 8, y: 4 }, target)).toBe(TERRAIN_COVER_AC); // с равнины цель укрыта
+    expect(ctx.coverAcFrom({ x: 8, y: 8 }, target)).toBe(0); // с вершины укрытия нет
   });
 });
 
 describe('стрелок и укрытая цель', () => {
-  it('меняет позицию на чистый угол, а не стреляет в камень', () => {
+  /*
+   * Премиса сместилась вместе со шкалой укрытий (план armor). Пока укрытие
+   * резало половину урона, обход камня окупал целый ход: выстрел в камень
+   * стоил 0.5 урона, обход — 1.0. Честное pf2e-укрытие (+2 к КБ ≈ четверть
+   * ожидаемого урона) обход больше не окупает: «выстрел сквозь укрытие плюс
+   * добор» несёт больше, чем «шаг плюс чистый выстрел», и стрелок стреляет.
+   * Тяга к чистому углу при этом никуда не делась — она решает выбор клетки,
+   * когда стрелок всё-таки идёт.
+   */
+  it('из двух шагов выбирает тот, где угол чистый', () => {
     const rock = { x: 8, y: 4 }; // к северу от цели: закрывает северные подходы
     const blocked = blockedBy([rock]);
     const ctx = makeCtx(blocked);
     const self = fighter('s', 'party', { x: 5, y: 3 }, { range: 4, move: 2, atk: 4 }, [rule({ kind: 'attack', target: 'nearest' })]);
     // цель способна отвечать: иначе «отчаянный удар» в укрытие бесплатен
     const enemy = fighter('e', 'foe', { x: 8, y: 5 }, { move: 2, atk: 8, speed: 1 });
-    expect(ctx.coverFrom(self.pos, enemy.pos)).toBe(TERRAIN_COVER); // сейчас цель укрыта
+    expect(ctx.coverAcFrom(self.pos, enemy.pos)).toBe(TERRAIN_COVER_AC); // сейчас цель укрыта
 
+    const moves = generateCandidates(self, [self, enemy], ctx, 3).filter((c) => c.action === 'move');
+    const scoreOf = (c: (typeof moves)[number]): number =>
+      scoreCandidate(c, self, [self, enemy], self.compiled.rules, ctx, 1).reduce(
+        (sum, f) => sum + f.value,
+        0,
+      );
+    const best = moves.reduce((a, b) => (scoreOf(b) > scoreOf(a) ? b : a));
+    expect(ctx.coverAcFrom(best.to, enemy.pos)).toBe(0); // лучший шаг — на чистый угол
+    const covered = moves.filter((c) => ctx.coverAcFrom(c.to, enemy.pos) > 0);
+    expect(covered.length).toBeGreaterThan(0);
+    expect(scoreOf(best)).toBeGreaterThan(Math.max(...covered.map(scoreOf)));
+  });
+
+  it('но ход на обход не тратит: стреляет сквозь укрытие и добирает', () => {
+    const rock = { x: 8, y: 4 };
+    const blocked = blockedBy([rock]);
+    const ctx = makeCtx(blocked);
+    const self = fighter('s', 'party', { x: 5, y: 3 }, { range: 4, move: 2, atk: 4 }, [rule({ kind: 'attack', target: 'nearest' })]);
+    const enemy = fighter('e', 'foe', { x: 8, y: 5 }, { move: 2, atk: 8, speed: 1 });
     const first = decide(self, [self, enemy], 1, blocked, 3, ctx);
-    expect(first.chosen.action).toBe('move');
-    expect(ctx.coverFrom(first.chosen.to, enemy.pos)).toBe(0); // угол чистый
-    self.pos = { ...first.chosen.to };
-    const second = decide(self, [self, enemy], 1, blocked, 3 - AP_COST.move, ctx);
-    expect(second.chosen.targetId).toBe('e'); // и стреляет уже в полную силу
+    expect(first.chosen.targetId).toBe('e');
   });
 
   it('без укрытия с той же клетки стреляет сразу', () => {
@@ -156,7 +195,7 @@ describe('слово «за укрытием»', () => {
     const ctx = makeCtx(blocked);
     const self = fighter('s', 'party', { x: 5, y: 5 }, { move: 2 }, [rule({ kind: 'behindCover' }, 1.5)]);
     const enemy = fighter('e', 'foe', { x: 14, y: 5 }, { range: 5, move: 0 });
-    expect(ctx.coverFrom(enemy.pos, self.pos)).toBe(0); // старт — в чистом поле
+    expect(ctx.coverAcFrom(enemy.pos, self.pos)).toBe(0); // старт — в чистом поле
     let ap = 3;
     while (ap > 0) {
       const d = decide(self, [self, enemy], 1, blocked, ap, ctx);
@@ -164,7 +203,7 @@ describe('слово «за укрытием»', () => {
       self.pos = { ...d.chosen.to };
       ap -= AP_COST.move;
     }
-    expect(ctx.coverFrom(enemy.pos, self.pos)).toBe(TERRAIN_COVER);
+    expect(ctx.coverAcFrom(enemy.pos, self.pos)).toBe(TERRAIN_COVER_AC);
   });
 
   it('в CORE-пуле; компилируется при открытом словаре и закрыт в стартовом', () => {

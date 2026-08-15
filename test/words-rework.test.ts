@@ -3,14 +3,14 @@ import type { Rule } from '../src/ir.js';
 import { applyLens } from '../src/lens.js';
 import {
   type Candidate,
-  effectiveCover,
+  effectiveGuard,
   makeCtx,
   scoreCandidate,
   stanceAttackMult,
-  stanceMitigation,
+  stanceGuard,
   stanceOf,
 } from '../src/scoring.js';
-import { BAIT_COVER, FULL_COVER, HARD_PIERCE, OFTEN_STANCE_BONUS, WEAK_ATK_MULT } from '../src/tuning.js';
+import { BAIT_AC, BRACE_AC, HARD_PIERCE, OFTEN_STANCE_BONUS, WEAK_ATK_MULT } from '../src/tuning.js';
 import { TERRAIN_LAYOUTS, tileAt } from '../src/terrain.js';
 import { CONCEPTS, RETIRED_WORDS, UNLOCKABLE } from '../src/vocab.js';
 import { type UnitSpec, runBattle } from '../src/battle.js';
@@ -26,7 +26,7 @@ type Fighter = CombatUnit & { compiled: ReturnType<typeof applyLens> };
 function unit(id: string, side: 'party' | 'foe', pos: Pos, over: Partial<CombatUnit> = {}): CombatUnit {
   return {
     id, name: id, side, maxHp: 60, hp: 60, atk: 8, range: 1, speed: 5, move: 2,
-    pos: { ...pos }, startPos: { ...pos }, alive: true, coverLevel: 0, exposed: false,
+    pos: { ...pos }, startPos: { ...pos }, alive: true, guard: 0, exposed: false,
     tags: [], lenses: ['plain'], ...over,
   };
 }
@@ -70,11 +70,11 @@ describe('стойки манер', () => {
     expect(stanceAttackMult(JAB, undefined)).toBeCloseTo(WEAK_ATK_MULT);
   });
 
-  it('«наверняка»: полный удар режет митигацию вдвое, слабый — нет', () => {
+  it('«наверняка»: полный удар режет бонус обороны, слабый — нет', () => {
     const stance = { often: false, hard: true, bait: false };
-    expect(stanceMitigation(FULL_COVER, STRIKE, stance)).toBeCloseTo(FULL_COVER * HARD_PIERCE);
-    expect(stanceMitigation(FULL_COVER, JAB, stance)).toBeCloseTo(FULL_COVER);
-    expect(stanceMitigation(FULL_COVER, STRIKE, undefined)).toBeCloseTo(FULL_COVER);
+    expect(stanceGuard(BRACE_AC, STRIKE, stance)).toBe(Math.round(BRACE_AC * HARD_PIERCE));
+    expect(stanceGuard(BRACE_AC, JAB, stance)).toBe(BRACE_AC);
+    expect(stanceGuard(BRACE_AC, STRIKE, undefined)).toBe(BRACE_AC);
   });
 
   it('в бою стойка «наверняка» пробивает глухую оборону — урон заметно выше', () => {
@@ -106,13 +106,13 @@ describe('стойки манер', () => {
 });
 
 describe('стойка приманки', () => {
-  it('effectiveCover: приманка держит плавающее прикрытие, максимум со своим', () => {
+  it('effectiveGuard: приманка держит плавающее прикрытие, максимум со своим', () => {
     const bait = unit('b', 'party', { x: 0, y: 0 }, { stance: { bait: true } });
-    expect(effectiveCover(bait, [bait])).toBeCloseTo(BAIT_COVER);
-    bait.coverLevel = FULL_COVER; // своё сильнее — берётся оно
-    expect(effectiveCover(bait, [bait])).toBeCloseTo(FULL_COVER);
+    expect(effectiveGuard(bait, [bait])).toBe(BAIT_AC);
+    bait.guard = BRACE_AC; // своё сильнее — берётся оно
+    expect(effectiveGuard(bait, [bait])).toBe(BRACE_AC);
     const plain = unit('p', 'party', { x: 0, y: 0 });
-    expect(effectiveCover(plain, [plain])).toBe(0);
+    expect(effectiveGuard(plain, [plain])).toBe(0);
   });
 });
 

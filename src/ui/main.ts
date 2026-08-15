@@ -4,6 +4,7 @@ import { GRID_H, GRID_W } from '../grid.js';
 import {
   describeActive,
   describeDefenses,
+  describeShield,
   describePassives,
   describeWeapons,
   driftQuip,
@@ -60,7 +61,7 @@ import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../pl
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU, applyLens } from '../lens.js';
 import { AOE_BLAST_RADIUS, AOE_RITUAL_RADIUS, lineCells } from '../scoring.js';
-import { AP_PER_TURN, FULL_COVER, NERVE_AMP } from '../tuning.js';
+import { AP_PER_TURN, BRACE_AC, NERVE_AMP } from '../tuning.js';
 import type { LensId, Side, WeaponSpec } from '../types.js';
 
 /**
@@ -392,7 +393,8 @@ function abilityLine(archetypeId: string): string {
   // защиты своих (план damage-types) — тем же контрактом, что и разведка
   // врага: игрок сравнивает КБ и спасброски, выбирая, кого куда ставить
   const def = arch.defenses ? ` · защита: ${describeDefenses(arch.defenses)}` : '';
-  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${def}${act}${pas}`;
+  const sh = arch.shield ? ` · ${describeShield(arch.shield)}` : '';
+  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${def}${sh}${act}${pas}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {
@@ -695,7 +697,7 @@ interface FrameUnit {
   y: number;
   alive: boolean;
   /** Действующее прикрытие — значок на фишке до начала своего хода: прикрытие / глухая оборона / прикрыт союзником. */
-  cover?: 'half' | 'full' | 'ally';
+  cover?: 'half' | 'full' | 'ally' | 'shield';
   /** Что на юните тлеет (план damage-types, волна 6) — подпись значка: «огонь», «яд», «кровь». */
   smolder?: string;
 }
@@ -1107,11 +1109,26 @@ function buildFrames(
         float(e.unit, `−${e.dmg} рипост`, 'dmg');
         break;
       }
+      case 'shieldBlock':
+        // строка идёт в запись ходящего (это его удар), поэтому называем того,
+        // кто закрылся, — иначе читается «Тесса держит удар Тессы»
+        pending?.parts.push(`${nm(e.unit)} принимает удар на щит: −${e.absorbed}`);
+        float(e.unit, `⛨ −${e.absorbed}`, 'buff');
+        break;
+      case 'shieldBreak': {
+        pending?.parts.push(`щит ${nm(e.unit)} разваливается`);
+        float(e.unit, 'щит сломан', 'dmg');
+        const u = units.get(e.unit);
+        if (u && u.cover === 'half') u.cover = undefined;
+        break;
+      }
       case 'cover': {
         pending?.parts.push(
           e.ally
-            ? `прикрыл ${nm(e.ally)} (−${Math.round(e.level * 100)}% урона)`
-            : `прикрылся (−${Math.round(e.level * 100)}% урона)`,
+            ? `прикрыл ${nm(e.ally)} (+${e.bonus} к КБ)`
+            : e.from === 'raiseShield'
+              ? `поднимает щит (+${e.bonus} к КБ)`
+              : `прикрылся (+${e.bonus} к КБ)`,
         );
         if (e.ally) {
           const a = units.get(e.ally);
@@ -1120,9 +1137,10 @@ function buildFrames(
           float(e.ally, '⛨ прикрыт', 'buff');
         } else {
           const u = units.get(e.unit);
-          const full = e.level >= FULL_COVER;
-          if (u) u.cover = full ? 'full' : 'half';
-          float(e.unit, full ? '⛨ глухая оборона' : '⛨ прикрытие', 'buff');
+          const full = e.bonus >= BRACE_AC;
+          const shield = e.from === 'raiseShield';
+          if (u) u.cover = full ? 'full' : shield ? 'shield' : 'half';
+          float(e.unit, full ? '⛨ глухая оборона' : shield ? '⛨ щит поднят' : '⛨ прикрытие', 'buff');
         }
         break;
       }
@@ -1659,9 +1677,10 @@ function marginLogHtml(): string {
 
 /** Подписи значков прикрытия: что даёт и почём. */
 const COVER_BADGE_TITLE: Record<NonNullable<FrameUnit['cover']>, string> = {
-  half: 'прикрытие: −25% входящего урона до своего хода',
-  full: 'глухая оборона: −66% входящего урона, ближний удар ловит рипост',
+  half: 'прикрытие: +2 к КБ до своего хода',
+  full: 'глухая оборона: +4 к КБ, ближний удар ловит рипост',
   ally: 'прикрыт союзником, пока тот жив и рядом',
+  shield: 'щит поднят: бонус к КБ и блок — раз в раунд гасит удар твёрдостью щита',
 };
 
 function coverBadgeHtml(cover: FrameUnit['cover']): string {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { type Fighter, decide, makeCtx, scoreCandidate, targetAppeal } from '../src/scoring.js';
 import { applyLens } from '../src/lens.js';
-import { APPEAL_FLOOR, FULL_COVER, INTERCEPT_APPEAL } from '../src/tuning.js';
+import { APPEAL_FLOOR, BRACE_AC, INTERCEPT_APPEAL } from '../src/tuning.js';
 import { type ConceptId, CONCEPTS, COMMON_WORDS, RARE_WORDS } from '../src/vocab.js';
 import { compilePhrase } from '../src/constructor.js';
 import { ruleRu } from '../src/cards.js';
@@ -46,7 +46,7 @@ function fighter(
     pos,
     startPos: { ...pos },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses,
@@ -89,7 +89,7 @@ describe('цена дороги: доступность цели', () => {
     // вторая механика на тот же случай только ухудшала оборонительное слово
     // (аудит: «глухая оборона» −34 → −38пп наиву), поэтому скидку убрали
     const foe = fighter('foe', 'foe', { x: 5, y: 5 }, {}, [atkWeakest]);
-    const turtle = fighter('t', 'party', { x: 7, y: 5 }, { hp: 10, coverLevel: FULL_COVER });
+    const turtle = fighter('t', 'party', { x: 7, y: 5 }, { hp: 10, guard: BRACE_AC, guardFrom: 'fullCover' });
     const open = fighter('o', 'party', { x: 7, y: 6 });
     const units = [foe, turtle, open];
     expect(targetAppeal(turtle, foe, units, ctx)).toBe(1);
@@ -113,7 +113,7 @@ describe('цена дороги: доступность цели', () => {
     const scene = (lenses: LensId[]): number => {
       const foe = fighter('foe', 'foe', { x: 2, y: 5 }, {}, [atkWeakest], lenses);
       const near = fighter('near', 'party', { x: 4, y: 5 });
-      const far = fighter('far', 'party', { x: 12, y: 5 }, { hp: 5, coverLevel: FULL_COVER });
+      const far = fighter('far', 'party', { x: 12, y: 5 }, { hp: 5, guard: BRACE_AC, guardFrom: 'fullCover' });
       return targetAppeal(far, foe, [foe, near, far], ctx);
     };
     expect(scene(['fanatic'])).toBe(1);
@@ -178,7 +178,7 @@ describe('цена дороги в решении', () => {
 
   it('без альтернатив приказ не глохнет: юнит идёт к единственной цели', () => {
     const foe = fighter('foe', 'foe', { x: 5, y: 5 }, {}, [atkWeakest]);
-    const lone = fighter('lone', 'party', { x: 13, y: 5 }, { hp: 6, coverLevel: FULL_COVER });
+    const lone = fighter('lone', 'party', { x: 13, y: 5 }, { hp: 6, guard: BRACE_AC, guardFrom: 'fullCover' });
     const d = decide(foe, [foe, lone], 1);
     // единственная цель — крюка нет, приказ ведёт к ней как раньше
     expect(d.chosen.action).toBe('move');

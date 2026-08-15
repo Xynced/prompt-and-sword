@@ -293,7 +293,7 @@ function unit(id: string, side: 'party' | 'foe', x: number, y: number, over: Par
     pos: { x, y },
     startPos: { x, y },
     alive: true,
-    coverLevel: 0,
+    guard: 0,
     exposed: false,
     tags: [],
     lenses: ['plain'],
@@ -562,10 +562,14 @@ describe('смоуки волны 2: наив vs контр', () => {
   });
 
   it('погоня: наив рубит волков и упускает гонца; «прорывающийся» перехватывает', () => {
-    const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 4 }, NAIVE);
-    const chaseP = smokeSweep({ kind: 'fight', layer: 4, slot: 4 }, [[atkIntruder], [atkIntruder], [atkIntruder]]);
-    expect(naive.wins).toBeLessThanOrEqual(6);
-    expect(chaseP.wins).toBeGreaterThanOrEqual(naive.wins + 7);
+    // выборка расширена до 60 сидов (план armor): оборона переехала в бонусы
+    // к КБ, гонец стал живучее в бросках, и на 20 сидах разрыв слова и наива
+    // (2 против 6 побед) уже неотличим от шума. На 60 сидах слово по-прежнему
+    // утраивает шансы перехвата
+    const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 4 }, NAIVE, 60);
+    const chaseP = smokeSweep({ kind: 'fight', layer: 4, slot: 4 }, [[atkIntruder], [atkIntruder], [atkIntruder]], 60);
+    expect(naive.wins).toBeLessThanOrEqual(15);
+    expect(chaseP.wins).toBeGreaterThanOrEqual(naive.wins + 8);
   });
 });
 

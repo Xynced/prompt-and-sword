@@ -236,6 +236,12 @@ function printBattleLog(r: BattleResult, names: Map<string, string>): void {
       case 'intercept':
         console.log(`  ${nm(e.unit)} принимает удар, предназначенный ${nm(e.target)}`);
         break;
+      case 'shieldBlock':
+        console.log(`  ${nm(e.unit)} принимает удар ${nm(e.by)} на щит: −${e.absorbed}`);
+        break;
+      case 'shieldBreak':
+        console.log(`  ⛨ щит ${nm(e.unit)} разваливается`);
+        break;
       case 'riposte':
         console.log(`  ${nm(e.unit)} напарывается на рипост ${nm(e.by)}: −${e.dmg}, hp=${e.hp}`);
         break;

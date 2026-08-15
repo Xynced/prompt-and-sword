@@ -1,7 +1,7 @@
 import { ALLY_ROLE_RU, type AllyRef, type Condition, type LensMark, type Preference, type Rule } from './ir.js';
 import { applyLens } from './lens.js';
 import { DAMAGE_TYPE_RU } from './types.js';
-import type { ActiveSpec, AoeSpec, DamageType, Defenses, LensId, PassiveSpec, WeaponMove, WeaponSpec } from './types.js';
+import type { ActiveSpec, AoeSpec, DamageType, Defenses, LensId, PassiveSpec, ShieldSpec, WeaponMove, WeaponSpec } from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -353,6 +353,14 @@ export function describeDefenses(d: Defenses): string {
   return parts.join(' · ');
 }
 
+/**
+ * Строка щита (план armor) — читается с карточки героя и из разведки: игрок
+ * должен видеть и бонус, и то, сколько щит выдержит, прежде чем развалиться.
+ */
+export function describeShield(sh: ShieldSpec): string {
+  return `щит +${sh.ac} к КБ · гасит ${sh.hardness} (раз в раунд) · запас ${sh.hp}`;
+}
+
 /** Строка оружейного набора: у мастера несколько — через «;». */
 export function describeWeapons(weapons: readonly WeaponSpec[]): string {
   return weapons.map(describeWeapon).join('; ');
@@ -385,11 +393,11 @@ export function describeActive(active: ActiveSpec): string {
 /** Строка классовых пассивов — читается с карточки героя и разведки. */
 export function describePassives(p: PassiveSpec): string {
   const parts: string[] = [];
-  if (p.shieldwall) parts.push(`щит союзнику −${Math.round(p.shieldwall.cover * 100)}%`);
+  if (p.shieldwall) parts.push(`щит союзнику +${p.shieldwall.ac} к КБ`);
   if (p.markOnHit) parts.push('метит цель ударом');
   if (p.steadfast) parts.push('глухая оборона за 2 очка');
   if (p.shadow) parts.push(`из тени урон ×${p.shadow.mult}`);
-  if (p.sneak) parts.push(`фланг ×${p.sneak.flankMult}`);
+  if (p.sneak) parts.push(`фланг: −${p.sneak.offGuard} к КБ цели`);
   if (p.retribution) parts.push(`кара обидчикам своих ×${p.retribution.mult}`);
   // регенерацию гасят огонь и кислота (pf2e): без этой строки контр-тактика
   // против тролля остаётся тайной
