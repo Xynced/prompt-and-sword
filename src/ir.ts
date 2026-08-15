@@ -80,6 +80,16 @@ import { dist } from './grid.js';
  *              подопечному), regroup (сомкнуть строй — зеркало интервала),
  *              swap (меняться местами со смежным своим — 1 AP платит только
  *              затевающий)
+ * План teamwork, третья волна (канал метки и позиция относительно своих):
+ *   Ссылки:    роли caster (наш заклинатель) и healer (наш лекарь) — маг с
+ *              ритуалом и целитель ролью «наш стрелок» невыразимы
+ *   Условия:   spreadThin (мы растянулись — кто-то из наших без соседа-своего)
+ *   Действия:  mark (метить цель — стойка: мои удары вешают метку всей
+ *              стороне, канал sel.marked), fallback (отходить за спины —
+ *              отступать К своим, а не от врага в никуда), clearLine (не
+ *              застить своим — не вставать на линию выстрела своих стрелков),
+ *              pin (связывать боем — держать контакт с врагом, которого не
+ *              держит никто из своих: разбирать толпу по одному)
  * Вложенность (глубокие чипсы): and — конъюнкция условий («если А: если Б —
  *   делай X» → одно правило с when = and[А, Б]), or — дизъюнкция («если А
  *   или Б»). «Или» одним правилом — не то же, что две фразы: при обоих
@@ -108,7 +118,14 @@ export type Selector =
  * отката «нет такого, возьми ближайшего» у ролей нет (в отличие от вражеских
  * селекторов): некого — правило молчит.
  */
-export type AllyRole = 'wounded' | 'frontman' | 'shooter' | 'taunter' | 'nearest';
+export type AllyRole =
+  | 'wounded'
+  | 'frontman'
+  | 'shooter'
+  | 'taunter'
+  | 'nearest'
+  | 'caster'
+  | 'healer';
 
 /** Ссылка на своего: имя героя (как было) или роль. */
 export type AllyRef = string | { role: AllyRole };
@@ -124,6 +141,8 @@ export const ALLY_ROLE_RU: Record<AllyRole, { nom: string; gen: string; ins: str
   shooter: { nom: 'наш стрелок', gen: 'нашего стрелка', ins: 'нашим стрелком' },
   taunter: { nom: 'наш крикун', gen: 'нашего крикуна', ins: 'нашим крикуном' },
   nearest: { nom: 'ближайший свой', gen: 'ближайшего своего', ins: 'ближайшим своим' },
+  caster: { nom: 'наш заклинатель', gen: 'нашего заклинателя', ins: 'нашим заклинателем' },
+  healer: { nom: 'наш лекарь', gen: 'нашего лекаря', ins: 'нашим лекарем' },
 };
 
 /** С какого раунда бой считается затянувшимся. */
@@ -181,6 +200,9 @@ export type Condition =
   | { kind: 'allySurrounded' }
   /** Наши навалились: кого-то из врагов уже бил кто-то из своих. */
   | { kind: 'alliesFocusing' }
+  // третья волна teamwork
+  /** Мы растянулись: кто-то из наших (включая меня) стоит без соседа-своего. */
+  | { kind: 'spreadThin' }
   /**
    * Конъюнкция — глубокие чипсы: «если А: если Б — …». Из черновиков внутри
    * только простые условия и «или»; вложенные группы конструктор расплющивает сам.
@@ -252,7 +274,16 @@ export type Preference =
   /** Сомкнуть строй: держаться плечом к плечу со своими (зеркало интервала). */
   | { kind: 'regroup' }
   /** Меняться местами: вытащить смежного своего из-под удара, встав на его клетку. */
-  | { kind: 'swap'; ally: AllyRef };
+  | { kind: 'swap'; ally: AllyRef }
+  // третья волна teamwork: канал метки и позиция относительно своих
+  /** Метить цель: стойка — мои удары вешают метку всей стороне (канал sel.marked). */
+  | { kind: 'mark' }
+  /** Отходить за спины: отступать к своим — за живой заслон, а не к краю карты. */
+  | { kind: 'fallback' }
+  /** Не застить своим: не вставать на линию выстрела своих стрелков. */
+  | { kind: 'clearLine' }
+  /** Связывать боем: держать контакт с врагом, которого не держит никто из своих. */
+  | { kind: 'pin' };
 
 /**
  * Структурная пометка линзы: что характер сделал с правилом (план линз).
@@ -330,6 +361,10 @@ export function resolveAlly(
       return best(mates.filter((a) => a.stance?.taunt), (u) => dist(u.pos, self.pos));
     case 'nearest':
       return best(mates, (u) => dist(u.pos, self.pos));
+    case 'caster':
+      return best(mates.filter((a) => a.aoe !== undefined), (u) => dist(u.pos, self.pos));
+    case 'healer':
+      return best(mates.filter((a) => a.active?.heal), (u) => dist(u.pos, self.pos));
   }
 }
 
@@ -435,6 +470,13 @@ export function evalCondition(
       // счёт: условие про то, что делает команда, а не я
       const mates = alliesOf(self, units).filter((a) => a.id !== self.id);
       return enemiesOf(self, units).some((e) => mates.some((a) => e.lastAttackerId === a.id));
+    }
+    case 'spreadThin': {
+      // строй разорван: кто-то из наших (включая меня) без смежного своего.
+      // Одному рваться не от кого — у отряда из одного условие молчит
+      const own = alliesOf(self, units);
+      if (own.length < 2) return false;
+      return own.some((u) => !own.some((o) => o.id !== u.id && dist(o.pos, u.pos) <= 1));
     }
     case 'and':
       return cond.conds.every((c) => evalCondition(c, self, units, round));
@@ -625,5 +667,13 @@ export function describePreference(p: Preference): string {
       return 'сомкнуть строй';
     case 'swap':
       return `меняться местами(${refName(p.ally)})`;
+    case 'mark':
+      return 'метить цель';
+    case 'fallback':
+      return 'отходить за спины';
+    case 'clearLine':
+      return 'не застить своим';
+    case 'pin':
+      return 'связывать боем';
   }
 }

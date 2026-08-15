@@ -37,7 +37,7 @@ export const DEBUG_BATTLES: readonly DebugBattle[] = [
   { id: 'swarm', label: 'Масса', note: '9 крыс: тел больше, чем ходов', node: { kind: 'fight', layer: 1, slot: 0 } },
   { id: 'behead', label: 'Обезглавить', note: 'сценарий: победа в момент смерти Вожака', node: { kind: 'fight', layer: 1, slot: 1 } },
   { id: 'camp', label: 'Разбитый лагерь', note: 'сценарий: герои раскиданы, стая между ними', node: { kind: 'fight', layer: 3, slot: 0 } },
-  { id: 'slingers', label: 'Застрельщики', note: '4 пращника: камнем по раненым', node: { kind: 'fight', layer: 3, slot: 1 } },
+  { id: 'slingers', label: 'Задира и застрельщики', note: 'крикун уводит удары от строя пращников', node: { kind: 'fight', layer: 3, slot: 1 } },
   { id: 'healer', label: 'Ближники и лекарь', note: 'добивание вязнет в костоправе', node: { kind: 'fight', layer: 5, slot: 0 } },
   { id: 'waves', label: 'Загонная охота', note: 'сценарий: волна подкрепления на 5-м раунде', node: { kind: 'fight', layer: 5, slot: 1 } },
   { id: 'elite-smart', label: 'Умная элита', note: 'солдаты и сержант: порядок целей решает', node: { kind: 'elite', layer: 3, slot: 0 } },

@@ -238,6 +238,38 @@ export function slinger(n: number): UnitSpec {
 }
 
 /**
+ * Задира (Goblin Heckler, план teamwork): гоблин-крикун при застрельщиках —
+ * дразнит героев стойкой вызова и юлит под ударами (приманка), уводя удары
+ * партии от строя пращников; те тем временем бьют камнями по раненым. Тот же
+ * канал внимания, что у слова игрока «вызывать на себя», — механика
+ * симметрична. Контр — дисциплинированные характеры: буквалист (provocable 0)
+ * на выкрики не оборачивается, дуэлянт ведётся втрое слабее.
+ */
+export function heckler(): UnitSpec {
+  return {
+    id: 'heckler',
+    name: 'Задира',
+    side: 'foe',
+    maxHp: 34,
+    weapons: [{ name: 'ржавый тесак', dmg: 4, range: 1 }],
+    speed: 7,
+    move: 3,
+    lenses: ['plain'],
+    rules: [
+      rule({ when: { kind: 'always' }, then: { kind: 'taunt' }, weight: 1.6, source: 'задира: дразнить и звать на себя' }),
+      rule({
+        when: { kind: 'always' },
+        then: { kind: 'lure', ally: 'slinger1' },
+        weight: 1.0,
+        source: 'задира: уводить от пращников',
+      }),
+      rule({ when: { kind: 'always' }, then: { kind: 'bait' }, weight: 0.8, source: 'задира: юлить под ударами' }),
+      rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 0.8, source: 'задира: тычок исподтишка' }),
+    ],
+  };
+}
+
+/**
  * Умная элита: хобгоблин-латник (Hobgoblin Soldier, Formation) — дисциплина
  * вместо ярости: держит строй с напарником, фокусит раненых, прикрывается.
  * Меч для строя, метательное копьё — достать отходящего (второе оружие).

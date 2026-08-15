@@ -99,6 +99,8 @@ function condRu(c: Condition, nm: (id: string) => string): string {
       return 'если кого-то из наших обступили — ';
     case 'alliesFocusing':
       return 'если наши уже навалились на кого-то — ';
+    case 'spreadThin':
+      return 'если мы растянулись — ';
     case 'and':
       // вложенность читается сцепкой «если … — если … — »
       return c.conds.map((s) => condRu(s, nm)).join('');
@@ -190,6 +192,14 @@ function prefRu(p: Preference, nm: (id: string) => string): string {
       return 'смыкаю строй: держусь плечом к плечу со своими';
     case 'swap':
       return `меняюсь местами с ${allyRu(p.ally, nm, 'ins')}: вытаскиваю из-под удара, встаю сам`;
+    case 'mark':
+      return 'мечу цель ударами: на ком мой удар — на том метка для всех наших';
+    case 'fallback':
+      return 'отхожу за спины: отступаю к своим, за живой заслон, а не куда глаза глядят';
+    case 'clearLine':
+      return 'своим не защу: не встаю на линию выстрела наших стрелков — пусть бьют мимо меня';
+    case 'pin':
+      return 'связываю боем: держу контакт с врагом, которого больше никто из наших не держит';
   }
 }
 

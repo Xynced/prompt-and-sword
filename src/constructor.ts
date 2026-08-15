@@ -35,7 +35,8 @@ export type SimpleConditionDraft =
   | { id: 'cond.allyEngaged' }
   | { id: 'cond.guarded' }
   | { id: 'cond.allySurrounded' }
-  | { id: 'cond.alliesFocusing' };
+  | { id: 'cond.alliesFocusing' }
+  | { id: 'cond.spreadThin' };
 
 /**
  * Условие фразы: простое — или один комбинатор (глубокие чипсы): «и» (and,
@@ -104,7 +105,11 @@ export type PreferenceDraft =
   | { id: 'act.lure'; ally: AllyRef }
   | { id: 'act.screen'; ally: AllyRef }
   | { id: 'act.regroup' }
-  | { id: 'act.swap'; ally: AllyRef };
+  | { id: 'act.swap'; ally: AllyRef }
+  | { id: 'act.mark' }
+  | { id: 'space.fallback' }
+  | { id: 'space.clearLine' }
+  | { id: 'act.pin' };
 
 export interface PhraseDraft {
   condition: ConditionDraft;
@@ -141,6 +146,8 @@ export const ROLE_CONCEPT: Record<AllyRole, ConceptId> = {
   shooter: 'sel.allyShooter',
   taunter: 'sel.allyTaunter',
   nearest: 'sel.allyNearest',
+  caster: 'sel.allyCaster',
+  healer: 'sel.allyHealer',
 };
 
 const allyConcepts = (ref: AllyRef): ConceptId[] =>
@@ -242,6 +249,8 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
       return 'если нашего обступили: ';
     case 'cond.alliesFocusing':
       return 'если наши навалились: ';
+    case 'cond.spreadThin':
+      return 'если мы растянулись: ';
     case 'and':
       return c.conds.map((s) => condText(s, nm)).join('');
     case 'or':
@@ -260,6 +269,14 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
   const prefText =
     p.id === 'act.taunt'
       ? 'вызывать на себя'
+      : p.id === 'act.mark'
+      ? 'метить цель ударами'
+      : p.id === 'space.fallback'
+      ? 'отходить за спины своих'
+      : p.id === 'space.clearLine'
+      ? 'не застить своим стрелкам'
+      : p.id === 'act.pin'
+      ? 'связывать врагов боем'
       : p.id === 'act.lure'
       ? `уводить врагов от ${allyText(p.ally, nm)}`
       : p.id === 'act.screen'
@@ -399,6 +416,8 @@ function compileCondition(c: ConditionDraft): Condition {
       return { kind: 'allySurrounded' };
     case 'cond.alliesFocusing':
       return { kind: 'alliesFocusing' };
+    case 'cond.spreadThin':
+      return { kind: 'spreadThin' };
     case 'and':
       return { kind: 'and', conds: c.conds.map((s) => compileCondition(s)) };
     case 'or':
@@ -424,6 +443,14 @@ export function compilePhrase(
   const then: Rule['then'] =
     p.id === 'act.taunt'
       ? { kind: 'taunt' }
+      : p.id === 'act.mark'
+      ? { kind: 'mark' }
+      : p.id === 'space.fallback'
+      ? { kind: 'fallback' }
+      : p.id === 'space.clearLine'
+      ? { kind: 'clearLine' }
+      : p.id === 'act.pin'
+      ? { kind: 'pin' }
       : p.id === 'act.lure'
       ? { kind: 'lure', ally: p.ally }
       : p.id === 'act.screen'
