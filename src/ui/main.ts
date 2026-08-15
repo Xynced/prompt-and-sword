@@ -51,7 +51,7 @@ import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../pl
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU, applyLens } from '../lens.js';
 import { AOE_BLAST_RADIUS, AOE_RITUAL_RADIUS, lineCells } from '../scoring.js';
-import { AP_PER_TURN, FULL_COVER } from '../tuning.js';
+import { AP_PER_TURN, FULL_COVER, NERVE_AMP } from '../tuning.js';
 import type { LensId, Side, WeaponSpec } from '../types.js';
 
 /**
@@ -105,9 +105,15 @@ let fitScale = 1;
 let debugOpen = false;
 let debugError = '';
 /** Черновик сборки; пустой слот — архетип ''. */
-const debugDraft: { battle: string; seed: number; party: { archetypeId: string; lenses: LensId[] }[] } = {
+const debugDraft: {
+  battle: string;
+  seed: number;
+  nerve: boolean;
+  party: { archetypeId: string; lenses: LensId[] }[];
+} = {
   battle: DEBUG_BATTLES[0]!.id,
   seed: 1,
+  nerve: false,
   party: [],
 };
 
@@ -391,12 +397,15 @@ const LENS_HINT: Record<LensId, string> = {
   showman: 'позёр красуется перед строем врага — приманка без приказа.',
 };
 
+/** Подпись важности фразы: фокус (план nerve) держит приказ при разбросе весов. */
+const WEIGHT_NOTE: Record<number, string> = { 1: '', 2: ' (важно)', 3: ' (фокус)' };
+
 /** Приказы героя как связный текст (до линзы — как написано). */
 function ordersSentence(h: { phrases: PhraseDraft[] }): string {
   const names = heroNames(run);
   if (h.phrases.length === 0) return '';
   return h.phrases
-    .map((d) => cap(describeDraft(d, names)) + ((d.weight ?? 1) >= 2 ? ' (важно)' : ''))
+    .map((d) => cap(describeDraft(d, names)) + WEIGHT_NOTE[Math.min(3, d.weight ?? 1)])
     .join('. ') + '.';
 }
 
@@ -1464,6 +1473,9 @@ function mapScreenHtml(): string {
         <span class="spacer"></span>
         <button class="linkish" data-action="toggle-debug">${debugLenses ? 'debug: скрыть характеры' : 'debug'}</button>
         <button class="linkish" data-action="open-debug" title="отладка: любой сценарий, партия и характеры">собрать бой</button>
+        <button class="linkish" data-action="toggle-nerve" title="нерв: под давлением бойцы взвешивают решение неровно">${
+          run.nerve ? 'нерв: вкл' : 'нерв: выкл'
+        }</button>
         ${freeVocabBtnHtml()}
         <button class="linkish" data-action="export-journal">журнал плейтеста</button>
         <span>${
@@ -1869,6 +1881,7 @@ function editorHtml(): string {
               <select class="weight-select" data-hero="${eh.id}" data-idx="${i}">
                 <option value="1" ${(ph.weight ?? 1) === 1 ? 'selected' : ''}>обычно</option>
                 <option value="2" ${(ph.weight ?? 1) === 2 ? 'selected' : ''}>важно</option>
+                <option value="3" ${(ph.weight ?? 1) === 3 ? 'selected' : ''}>фокус</option>
               </select>
             </span>
             <button class="mini" data-action="clear-phrase" data-hero="${eh.id}" data-idx="${i}">стереть</button>
@@ -1963,6 +1976,9 @@ function debugPanelHtml(): string {
       <div class="dbg-row">
         <label>бой <select class="dbg-battle">${battleOpts}</select></label>
         <label>сид <input class="dbg-seed" type="number" min="1" step="1" value="${debugDraft.seed}"></label>
+        <label title="под давлением бойцы взвешивают решение неровно"><input class="dbg-nerve" type="checkbox" ${
+          debugDraft.nerve ? 'checked' : ''
+        }> нерв</label>
         <span class="spacer"></span>
         <span class="kicker">${esc(battle.note)}</span>
       </div>
@@ -1999,6 +2015,7 @@ function debugBuild(): void {
     battle: debugDraft.battle,
     seed: debugDraft.seed,
     party: debugDraft.party.filter((h) => h.archetypeId),
+    ...(debugDraft.nerve ? { nerve: NERVE_AMP } : {}),
   };
   let state: RunState;
   try {
@@ -2301,6 +2318,12 @@ function bind(): void {
       render();
     });
   }
+  for (const inp of app.querySelectorAll<HTMLInputElement>('input.dbg-nerve')) {
+    inp.addEventListener('change', () => {
+      debugDraft.nerve = inp.checked;
+      render();
+    });
+  }
   for (const inp of app.querySelectorAll<HTMLInputElement>('input.dbg-seed')) {
     inp.addEventListener('change', () => {
       const v = Number(inp.value);
@@ -2468,6 +2491,11 @@ function bind(): void {
           break;
         case 'toggle-debug':
           debugLenses = !debugLenses;
+          render();
+          break;
+        case 'toggle-nerve':
+          // режим на весь забег: следующий бой узла считается с разбросом весов
+          run.nerve = run.nerve ? 0 : NERVE_AMP;
           render();
           break;
         case 'open-debug':

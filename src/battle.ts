@@ -120,6 +120,11 @@ export interface BattleSetup {
   zone?: Zone;
   /** Клетка трофея задачи carry. */
   prize?: Pos;
+  /**
+   * Режим нерва (план nerve): амплитуда seeded-разброса весов решения.
+   * 0 или отсутствие — режим выключен, бой считается ровно как раньше.
+   */
+  nerve?: number;
 }
 
 export type BattleEvent =
@@ -506,11 +511,17 @@ export function runBattle(
       const zoneInstinct =
         ((objective.kind === 'reachZone' || objective.kind === 'holdZone') && unit.side === 'party') ||
         (objective.kind === 'carry' && carrierId === unit.id);
-      const ctx = makeCtx(blocked, tiles, {
-        ...(zone ? { zone } : {}),
-        ...(objective.kind === 'carry' ? { prize: { at: prizeAt, carrierId } } : {}),
-        ...(zoneInstinct ? { zoneInstinct: true } : {}),
-      });
+      const ctx = makeCtx(
+        blocked,
+        tiles,
+        {
+          ...(zone ? { zone } : {}),
+          ...(objective.kind === 'carry' ? { prize: { at: prizeAt, carrierId } } : {}),
+          ...(zoneInstinct ? { zoneInstinct: true } : {}),
+        },
+        // разброс привязан к сиду боя: «те же кости» — тот же нерв
+        setup.nerve ? { amp: setup.nerve, seed } : undefined,
+      );
       let ap = AP_PER_TURN;
       let over = false;
 

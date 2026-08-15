@@ -371,6 +371,11 @@ export interface Rule {
   source: string;
   /** Следы линз; отсутствие поля = правило понято дословно. */
   marks?: LensMark[];
+  /**
+   * Фокус игрока (план nerve): приказ, за который боец держится. Кроме
+   * повышенного веса он собирает бойца — режим нерва шатает его решения слабее.
+   */
+  focus?: boolean;
 }
 
 export type CompiledPrinciple = Rule[];

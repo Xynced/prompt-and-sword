@@ -1,5 +1,6 @@
 import { ALLY_ROLE_RU, type AllyRef, type AllyRole, type Condition, type PosRef, type Rule, type Selector } from './ir.js';
 import { CONCEPTS, type ConceptId } from './vocab.js';
+import { FOCUS_WEIGHT } from './tuning.js';
 
 /**
  * Конструктор принципов: фразы из чипсов словаря → IR без LLM.
@@ -128,7 +129,10 @@ export type PreferenceDraft =
 export interface PhraseDraft {
   condition: ConditionDraft;
   preference: PreferenceDraft;
-  /** Насколько это важно: 1 = обычно, 2 = очень. */
+  /**
+   * Насколько это важно: 1 = обычно, 2 = важно, 3 = фокус (план nerve — приказ,
+   * который держится и при разбросе весов в режиме нерва).
+   */
   weight?: number;
 }
 
@@ -592,14 +596,16 @@ export function compilePhrase(
                             ? { kind: 'nearTo', ref: toPosRef(p.ref) }
                             : { kind: 'behind', ref: toPosRef(p.ref) };
 
+  const weight = draft.weight ?? 1;
   return {
     ok: true,
     rule: {
       when,
       then,
-      weight: (draft.weight ?? 1) * 1.5,
+      weight: weight * 1.5,
       scope: 'self',
       source: describeDraft(draft, names),
+      ...(weight >= FOCUS_WEIGHT ? { focus: true } : {}),
     },
   };
 }
