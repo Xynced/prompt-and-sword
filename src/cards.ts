@@ -288,6 +288,9 @@ function describeMove(w: WeaponSpec, m: WeaponMove): string {
   if (m.gang !== undefined) marks.push('толпой больнее');
   if (m.stepBack) marks.push('с отходом');
   if (m.twin) marks.push('по двум');
+  // парный приём (MAP, план action-economy): игрок обязан видеть, что за одно
+  // очко хода приём бьёт дважды — иначе множитель читается как ослабленный
+  if (m.pair) marks.push('дважды');
   // тление приёма (волна 6): игрок обязан видеть, что удар оставляет в цели
   const rider = m.persist ?? w.persist;
   if (rider) marks.push(`${persistRu(rider.type ?? m.dmgType ?? w.dmgType ?? 'fire')} −${rider.dmg}/ход`);
@@ -300,15 +303,18 @@ export function describeWeapon(w: WeaponSpec): string {
   // тип урона оружия (план damage-types) — рядом с именем: по нему игрок
   // выбирает, чем бить эту броню
   const type = w.dmgType ? `, ${DAMAGE_TYPE_RU[w.dmgType]}` : '';
+  // ловкое оружие (MAP, план action-economy): им дешевле бить повторно —
+  // это часть выбора «чем бить», значит стоит в карточке рядом с типом
+  const agile = w.agile ? ', ловкое' : '';
   // кит приёмов (план weapon-moves): игрок видит виды атак оружия с числами
   if (w.moves && w.moves.length > 0) {
-    return `${w.name}${type} (${w.moves.map((m) => describeMove(w, m)).join('; ')})${aoe}`;
+    return `${w.name}${type}${agile} (${w.moves.map((m) => describeMove(w, m)).join('; ')})${aoe}`;
   }
   const range = w.range > 1 ? `, даль ${w.range}` : '';
   const rider = w.persist
     ? `, ${persistRu(w.persist.type ?? w.dmgType ?? 'fire')} −${w.persist.dmg}/ход`
     : '';
-  return `${w.name} (удар ${w.dmg}${range}${type}${rider})${aoe}`;
+  return `${w.name} (удар ${w.dmg}${range}${type}${agile}${rider})${aoe}`;
 }
 
 /**
@@ -395,6 +401,9 @@ export function describePassives(p: PassiveSpec): string {
   const parts: string[] = [];
   if (p.shieldwall) parts.push(`щит союзнику +${p.shieldwall.ac} к КБ`);
   if (p.markOnHit) parts.push('метит цель ударом');
+  // MAP мягче (план action-economy): без строки игрок не поймёт, почему у
+  // стрелка третий выстрел за ход ещё имеет смысл
+  if (p.flurry) parts.push('повторный удар даётся легче');
   if (p.steadfast) parts.push('глухая оборона за 2 очка');
   if (p.shadow) parts.push(`из тени урон ×${p.shadow.mult}`);
   if (p.sneak) parts.push(`фланг: −${p.sneak.offGuard} к КБ цели`);

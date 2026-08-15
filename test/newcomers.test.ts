@@ -150,14 +150,18 @@ describe('Веста: полымя (ритуал с пульсами)', () => {
 });
 
 describe('Юна: кулаки бури', () => {
-  it('слабый удар кулаками крепче общего: 0.55 против 0.45', () => {
-    // с китом приёмов (план weapon-moves) 0.55 живёт в «шквале»
+  it('«шквал» — парный приём: за очко хода два удара, вместе крепче общего быстрого', () => {
+    // волюм монахини переехал из повышенного weakMult в сам приём (MAP,
+    // план action-economy): множитель задан на удар, приём бьёт дважды
     const fists = heroArchetype('yuna').weapons[0]!;
-    expect(movesOf(fists).find((m) => m.slot === 'weakAttack')!.mult).toBe(0.55);
-    expect(attackMultFor('weakAttack', { name: 'меч', dmg: 7, range: 1 })).toBe(0.45);
+    const squall = movesOf(fists).find((m) => m.slot === 'weakAttack')!;
+    expect(squall.pair).toBe(true);
+    expect(squall.mult * 2).toBeGreaterThan(attackMultFor('weakAttack', { name: 'меч', dmg: 7, range: 1 }));
+    // кулаки — ловкое оружие: ступень MAP мягче
+    expect(fists.agile).toBe(true);
   });
 
-  it('в бою слабые удары Юны тяжелее таких же без weakMult (тот же сид)', () => {
+  it('канал weakMult жив: оружие с повышенным множителем бьёт слабым ударом крепче общего', () => {
     const sum = (weakMult: number | undefined): number => {
       const yuna: UnitSpec = {
         id: 'yuna', name: 'Юна', side: 'party', maxHp: 52,
@@ -176,10 +180,10 @@ describe('Юна: кулаки бури', () => {
         .slice(0, 6)
         .reduce((s, e) => s + e.dmg, 0);
     };
-    const fists = sum(0.55);
+    const heavy = sum(0.8);
     const plain = sum(undefined);
     expect(plain).toBeGreaterThan(0);
-    expect(fists).toBeGreaterThan(plain);
+    expect(heavy).toBeGreaterThan(plain);
   });
 });
 

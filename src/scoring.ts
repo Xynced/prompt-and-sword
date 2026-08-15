@@ -76,6 +76,7 @@ import {
   guardGain,
   guardMitigation,
   expectedDamage,
+  mapPenalty,
   persistTicks,
   persistTicksAssisted,
   expectedSaveMult,
@@ -233,6 +234,31 @@ export const saveOf = (u: CombatUnit, kind: SaveKind): number => u.defenses?.[ki
 
 /** Бонус атаки оружия. */
 export const attackBonusOf = (w: WeaponSpec): number => w.atkBonus ?? DEFAULT_ATK_BONUS;
+
+/**
+ * Штраф за множественные атаки на этом оружии (MAP, план action-economy):
+ * считается от уже сделанных за ход ударов, ступень — по ловкости оружия и
+ * пассиву «град стрел». Скоринг обязан видеть его так же, как бой, иначе
+ * второй удар за ход оценивался бы по цене первого.
+ */
+export const mapPenaltyOf = (
+  u: CombatUnit,
+  w: WeaponSpec,
+  stance?: Stance | CombatUnit['stance'],
+): number =>
+  mapPenalty(u.strikes ?? 0, {
+    agile: w.agile,
+    flurry: u.passives?.flurry,
+    // стойка «бить часто» — техника скорострельности: повтор ей дешевле
+    often: (stance ?? u.stance)?.often,
+  });
+
+/** Бонус атаки с учётом MAP — то, чем бой на самом деле бросает. */
+export const attackBonusAt = (
+  u: CombatUnit,
+  w: WeaponSpec,
+  stance?: Stance | CombatUnit['stance'],
+): number => attackBonusOf(w) - mapPenaltyOf(u, w, stance);
 
 /**
  * Каким спасброском отбиваются от урона этого типа: яд — Стойкостью, разум —
@@ -1324,11 +1350,16 @@ function expectedAttackDamage(
   // укрытие, и прикрытие входят в DC броска, а пирс приёма их режет
   const guard = stanceGuard(guardAgainst(target, units, ctx.coverAcFrom(from, target.pos)), move, stance);
   // бросок атаки (план damage-types): оценка обязана считать так же, как бой
-  // исполнит, — промахи и криты сидят в множителе ожидания
-  const odds = expectedAttackMult(attackBonusOf(weapon), acOf(target) + guard);
+  // исполнит, — промахи и криты сидят в множителе ожидания. MAP (волна 6
+  // плана action-economy): второй удар за ход оценивается по своему штрафу,
+  // иначе скоринг звал бы бить трижды по цене первого удара
+  const odds = expectedAttackMult(attackBonusAt(self, weapon, stance), acOf(target) + guard);
   const raw =
     expectedDamage(weapon.dmg) *
       odds *
+      // парный приём — два удара по одной цели в одном действии, оба по
+      // текущему MAP: цена действия одна, ударов два
+      (move.pair ? 2 : 1) *
       rageDmgMult(self) *
       blessMult(self) *
       (stanceAttackMult(move, stance) + gangBonus(move, self, target, units)) *
@@ -2311,7 +2342,7 @@ export function scoreCandidate(
     const gain = persistGain(persistOf(weapon, move), dmgTypeOf(weapon, move), target);
     if (gain > 0) {
       const value =
-        (Math.min(gain * expectedAttackMult(attackBonusOf(weapon), acOf(target)), target.hp) /
+        (Math.min(gain * expectedAttackMult(attackBonusAt(self, weapon, stance), acOf(target)), target.hp) /
           target.maxHp) *
         6 *
         PERSIST_DISCOUNT *

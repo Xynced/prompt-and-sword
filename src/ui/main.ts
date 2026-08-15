@@ -915,10 +915,13 @@ function buildFrames(
         const verb = e.move
           ? `бьёт («${e.move}»)`
           : e.action === 'weakAttack' ? 'бьёт слабо' : e.action === 'selflessAttack' ? 'бьёт отчаянно' : 'бьёт';
+        // штраф за повтор (MAP, план action-economy): без подписи второй
+        // промах за ход выглядит невезением, а он — цена третьего удара
+        const rep = e.map ? ` (повтор −${e.map})` : '';
         // исход броска и защиты цели (план damage-types): промах обязан
         // читаться промахом, иначе игрок спишет его на свою формулировку
         if (e.outcome === 'miss') {
-          pending?.parts.push(`${verb} ${nm(e.target)} — мимо`);
+          pending?.parts.push(`${verb} ${nm(e.target)} — мимо${rep}`);
           float(e.target, 'мимо', 'info');
           break;
         }
@@ -928,7 +931,7 @@ function buildFrames(
           : e.soak === 'weak' ? ' (в слабое место)'
           : '';
         const crit = e.outcome === 'crit' ? ' ✸' : '';
-        pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}${soak}${crit}`);
+        pending?.parts.push(`${verb} ${nm(e.target)}: −${e.dmg}${e.flank ? ' (фланг)' : ''}${soak}${crit}${rep}`);
         pending?.fx.push({ kind: 'cells', cells: [{ x: t.x, y: t.y }], form: 'hit' });
         float(e.target, `−${e.dmg}${e.flank ? ' ⚑' : ''}${crit}`, 'dmg');
         break;

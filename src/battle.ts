@@ -48,6 +48,7 @@ import {
   candMove,
   acOf,
   attackBonusOf,
+  mapPenaltyOf,
   castVictims,
   dmgTypeOf,
   gangBonus,
@@ -255,6 +256,8 @@ export type BattleEvent =
       soak?: DamageSoak;
       /** Бросок против КБ решил иначе: мимо или вдвое (план damage-types). */
       outcome?: AttackOutcome;
+      /** Штраф за множественные атаки на этом ударе (MAP); у первого за ход отсутствует. */
+      map?: number;
     }
   /** Оборона: бонус обстоятельств к КБ (план armor) себе или союзнику (`ally`); `from` — чем поставлен. */
   | { t: 'cover'; unit: string; bonus: number; ally?: string; from?: ActionKind }
@@ -732,6 +735,8 @@ export function runBattle(
       unit.blockUsed = false;
       unit.exposed = false;
       unit.interceptUsed = false;
+      // MAP считается от ударов **этого** хода (план action-economy, волна 6)
+      unit.strikes = 0;
 
       // поля дистанций считаем раз на ход: за ход этого юнита никто, кроме
       // него, не двигается, поэтому кэш ctx остаётся верным для всех действий.
@@ -860,10 +865,16 @@ export function runBattle(
               move,
               unit.stance,
             );
+            // MAP (план action-economy, волна 6): штраф считается от ударов,
+            // уже сделанных за этот ход, и один на всё действие — оба удара
+            // парного и сдвоенного приёмов уходят по нему (правило pf2e:
+            // штраф растёт только после приёма)
+            const mapPen = mapPenaltyOf(unit, weapon);
+            const atkBonus = attackBonusOf(weapon) - mapPen;
             const natural = d20(seed, unit.id, round, apAt, `atk:${target.id}:${move.id}`);
             const degree = degreeOf(
               natural,
-              natural + attackBonusOf(weapon),
+              natural + atkBonus,
               acOf(target) + guard - offGuard,
             );
             const swing = ATTACK_MULT[degree];
@@ -878,6 +889,7 @@ export function runBattle(
                 targetHp: target.hp,
                 ...(weapon.moves ? { move: move.name } : {}),
                 ...(dmgType ? { dmgType } : {}),
+                ...(mapPen ? { map: mapPen } : {}),
                 outcome: 'miss',
               });
             } else {
@@ -916,6 +928,7 @@ export function runBattle(
                 ...(weapon.moves ? { move: move.name } : {}),
                 ...(dmgType ? { dmgType } : {}),
                 ...(bite.soak ? { soak: bite.soak } : {}),
+                ...(mapPen ? { map: mapPen } : {}),
                 ...(degree === 'critSuccess' ? { outcome: 'crit' as const } : {}),
               });
               noteQuench(target, dmgType, dmg);
@@ -940,13 +953,20 @@ export function runBattle(
               const rider = persistOf(weapon, move);
               if (rider) addPersist(unit, target, rider, dmgType, degree === 'critSuccess');
             }
-            // сдвоенный приём (райдер twin): вторая стрела — в ближайшего
-            // другого врага в дальности; перехват телохранителя и метка
-            // достаются только основной цели, фланг стрелку не положен
-            if (move.twin) {
-              const second = twinVictim(unit, unit.pos, target, units, blocked, heightAt(unit.pos), mRange);
-              // у второй стрелы свой бросок против своей цели: промах по
-              // одному не отменяет попадания по другому (правило pf2e)
+            // второй удар одного действия: сдвоенный приём (райдер twin) бьёт
+            // ближайшего другого врага, парный (райдер pair, план
+            // action-economy) — ту же цель ещё раз. Перехват телохранителя и
+            // метка достаются только основной цели, фланг стрелку не положен;
+            // у парного цель та же, поэтому фланг и её оборона общие
+            if (move.twin || move.pair) {
+              const second = move.pair
+                ? target.alive
+                  ? target
+                  : null
+                : twinVictim(unit, unit.pos, target, units, blocked, heightAt(unit.pos), mRange);
+              // у второго удара свой бросок против своей цели: промах по
+              // одному не отменяет попадания по другому (правило pf2e), но
+              // штраф MAP на обоих один — тот, что был до приёма
               const guard2 = second
                 ? stanceGuard(
                     guardAgainst(second, units, ctx.coverAcFrom(unit.pos, second.pos)),
@@ -954,9 +974,10 @@ export function runBattle(
                     unit.stance,
                   )
                 : 0;
-              const natural2 = second ? d20(seed, unit.id, round, apAt, `atk:${second.id}:${move.id}`) : 0;
+              const flank2 = move.pair ? flank : false;
+              const natural2 = second ? d20(seed, unit.id, round, apAt, `atk2:${second.id}:${move.id}`) : 0;
               const degree2 = second
-                ? degreeOf(natural2, natural2 + attackBonusOf(weapon), acOf(second) + guard2)
+                ? degreeOf(natural2, natural2 + atkBonus, acOf(second) + guard2 - (move.pair ? offGuard : 0))
                 : 'fail';
               if (second && ATTACK_MULT[degree2] === 0) {
                 events.push({
@@ -965,10 +986,11 @@ export function runBattle(
                   action,
                   target: second.id,
                   dmg: 0,
-                  flank: false,
+                  flank: flank2,
                   targetHp: second.hp,
                   ...(weapon.moves ? { move: move.name } : {}),
                   ...(dmgType ? { dmgType } : {}),
+                  ...(mapPen ? { map: mapPen } : {}),
                   outcome: 'miss',
                 });
               } else if (second) {
@@ -1000,11 +1022,12 @@ export function runBattle(
                   action,
                   target: second.id,
                   dmg: dmg2,
-                  flank: false,
+                  flank: flank2,
                   targetHp: second.hp,
                   ...(weapon.moves ? { move: move.name } : {}),
                   ...(dmgType ? { dmgType } : {}),
                   ...(bite2.soak ? { soak: bite2.soak } : {}),
+                  ...(mapPen ? { map: mapPen } : {}),
                   ...(degree2 === 'critSuccess' ? { outcome: 'crit' as const } : {}),
                 });
                 noteQuench(second, dmgType, dmg2);
@@ -1017,6 +1040,10 @@ export function runBattle(
                 }
               }
             }
+            // удар засчитан в MAP — и промах тоже (правило pf2e); приём из
+            // двух ударов стоит двух: следующий за ним бьёт уже с третьей
+            // ступени штрафа
+            unit.strikes = (unit.strikes ?? 0) + (move.pair || move.twin ? 2 : 1);
             // рипост (план защиты): ближний удар по живому в глухой обороне
             // ранит бьющего — фиксированно, без rng (прецедент шипов).
             // Расчётливый удар (стойка «наверняка» или sure/pierce приёма)

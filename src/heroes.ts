@@ -66,7 +66,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         dmgType: 'slashing',
         atkBonus: 9,
         moves: [
-          { id: 'shieldJab', name: 'щитом в грудь', slot: 'weakAttack', mult: 0.4, push: true, dmgType: 'bludgeoning' },
+          { id: 'shieldJab', name: 'щитом в грудь', slot: 'weakAttack', mult: 0.55, push: true, dmgType: 'bludgeoning' },
           { id: 'guardCut', name: 'удар из-за щита', slot: 'attack', mult: 0.95, sure: true },
           { id: 'trueCut', name: 'верный рубящий', slot: 'attack', mult: 1 },
         ],
@@ -103,7 +103,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         dmgType: 'piercing',
         atkBonus: 9,
         moves: [
-          { id: 'quickShot', name: 'быстрый выстрел', slot: 'weakAttack', mult: 0.45 },
+          { id: 'quickShot', name: 'быстрый выстрел', slot: 'weakAttack', mult: 0.6 },
           { id: 'aimedShot', name: 'прицельный выстрел', slot: 'attack', mult: 1 },
           { id: 'splitShot', name: 'сдвоенный выстрел', slot: 'attack', mult: 0.45, twin: true },
           { id: 'partingShot', name: 'выстрел с отходом', slot: 'attack', mult: 0.7, stepBack: true },
@@ -114,8 +114,12 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     // метит добычу самим выстрелом: его цель — «помеченная» для всей партии.
-    // Актив «кого метить» не нужен: ответ уже в его атаках (решение шага 3)
-    passives: { markOnHit: true },
+    // Актив «кого метить» не нужен: ответ уже в его атаках (решение шага 3).
+    // «Град стрел» (план action-economy, волна 6) — hunter's edge flurry
+    // pf2e: лестница MAP мягче на две ступени, поэтому третий выстрел за ход
+    // у него ещё имеет смысл, а «сдвоенный» уходит двумя бросками по одному
+    // штрафу — стрелок-волюмщик против стрелка-снайпера Мары
+    passives: { markOnHit: true, flurry: true },
     ability: { name: 'Подранок', desc: 'не может не добить раненого — и метит добычу для своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 0.8, source: 'способность: Подранок' }),
@@ -146,7 +150,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
           ritual: { range: 6, mult: 1.2, usesPerBattle: 1, dmgType: 'fire' },
         },
         moves: [
-          { id: 'liaSpark', name: 'искра', slot: 'weakAttack', mult: 0.4 },
+          { id: 'liaSpark', name: 'искра', slot: 'weakAttack', mult: 0.55 },
           { id: 'liaRay', name: 'прицельный луч', slot: 'attack', mult: 1 },
           { id: 'liaBurn', name: 'прожигающий луч', slot: 'attack', mult: 0.8, pierce: 0.5, dmgType: 'fire' },
         ],
@@ -180,7 +184,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         atkBonus: 9,
         range: 1,
         moves: [
-          { id: 'skalaShove', name: 'толчок щитом', slot: 'weakAttack', mult: 0.3, push: true },
+          { id: 'skalaShove', name: 'толчок щитом', slot: 'weakAttack', mult: 0.4, push: true },
           { id: 'skalaEdge', name: 'удар кромкой', slot: 'attack', mult: 0.9, sure: true },
           { id: 'skalaLean', name: 'навалиться', slot: 'attack', mult: 1.1 },
           { id: 'skalaCrush', name: 'всем весом', slot: 'attack', mult: 1.9, ap: 3, push: true },
@@ -213,9 +217,10 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         dmgType: 'piercing',
         atkBonus: 9,
         range: 1,
+        agile: true,
         moves: [
-          { id: 'flurryJab', name: 'град уколов', slot: 'weakAttack', mult: 0.5, gang: 0.15 },
-          { id: 'knifeThrow', name: 'метнуть нож', slot: 'weakAttack', mult: 0.4, range: 3 },
+          { id: 'flurryJab', name: 'град уколов', slot: 'weakAttack', mult: 0.65, gang: 0.15 },
+          { id: 'knifeThrow', name: 'метнуть нож', slot: 'weakAttack', mult: 0.55, range: 3 },
           { id: 'liverStab', name: 'в печень', slot: 'attack', mult: 1 },
           // яд на клинке (волна 6): сам укол колющий, тлеет ядом — и
           // сопротивление яду гасит именно тление, а не удар
@@ -252,9 +257,11 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         range: 2,
         aoe: { line: { len: 4, mult: 0.75, dmgType: 'sonic' } },
         moves: [
-          { id: 'chiJab', name: 'укол ци', slot: 'weakAttack', mult: 0.45 },
+          // та же школа, что у Юны, но копьём и на две клетки: множитель на удар
+          // ниже (0.3 против 0.4) — за дистанцию платят уроном
+          { id: 'chiJab', name: 'укол ци', slot: 'weakAttack', mult: 0.3, pair: true },
           { id: 'lunge', name: 'выпад', slot: 'attack', mult: 1 },
-          { id: 'shaftPush', name: 'оттолкнуть древком', slot: 'weakAttack', mult: 0.3, push: true, range: 1, dmgType: 'bludgeoning' },
+          { id: 'shaftPush', name: 'оттолкнуть древком', slot: 'weakAttack', mult: 0.4, push: true, range: 1, dmgType: 'bludgeoning' },
           { id: 'pinThrust', name: 'пригвождающий', slot: 'selflessAttack', mult: 1.4, expose: true },
         ],
       },
@@ -284,8 +291,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         atkBonus: 9,
         range: 1,
         moves: [
-          { id: 'ulvJab', name: 'тычок обухом', slot: 'weakAttack', mult: 0.45, dmgType: 'bludgeoning' },
-          { id: 'ulvShove', name: 'отогнать плашмя', slot: 'weakAttack', mult: 0.3, push: true, dmgType: 'bludgeoning' },
+          { id: 'ulvJab', name: 'тычок обухом', slot: 'weakAttack', mult: 0.6, dmgType: 'bludgeoning' },
+          { id: 'ulvShove', name: 'отогнать плашмя', slot: 'weakAttack', mult: 0.4, push: true, dmgType: 'bludgeoning' },
           { id: 'ulvCut', name: 'рубящий', slot: 'attack', mult: 1 },
           { id: 'ulvAllOut', name: 'сплеча', slot: 'selflessAttack', mult: 1.6, expose: true },
         ],
@@ -329,11 +336,12 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
       {
         name: 'засапожный нож',
+        agile: true,
         dmg: 5,
         dmgType: 'piercing',
         atkBonus: 9,
         range: 1,
-        moves: [{ id: 'bootKnife', name: 'укол ножом', slot: 'weakAttack', mult: 0.45 }],
+        moves: [{ id: 'bootKnife', name: 'укол ножом', slot: 'weakAttack', mult: 0.6 }],
       },
     ],
     passives: { shadow: { mult: 1.25 } },
@@ -362,8 +370,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         atkBonus: 9,
         range: 3,
         moves: [
-          { id: 'ivaJab', name: 'тычок', slot: 'weakAttack', mult: 0.45, range: 1 },
-          { id: 'ivaPush', name: 'оттолкнуть', slot: 'weakAttack', mult: 0.3, push: true, range: 1 },
+          { id: 'ivaJab', name: 'тычок', slot: 'weakAttack', mult: 0.6, range: 1 },
+          { id: 'ivaPush', name: 'оттолкнуть', slot: 'weakAttack', mult: 0.4, push: true, range: 1 },
           { id: 'ivaStrike', name: 'удар посохом', slot: 'attack', mult: 1, range: 1 },
           { id: 'ivaLight', name: 'свет', slot: 'attack', mult: 0.8 },
         ],
@@ -462,8 +470,13 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         dmgType: 'piercing',
         atkBonus: 9,
         range: 1,
+        agile: true,
         moves: [
-          { id: 'twinSlash', name: 'двойной росчерк', slot: 'weakAttack', mult: 0.5, gang: 0.15 },
+          // парный приём (план action-economy, волна 6): два ножа — два
+          // удара в одном действии, оба по текущему MAP (pf2e Twin Feint).
+          // Райдер толпы снят: приём и так вдвое, а «град в окружении»
+          // остаётся почерком Тессы — пересечение в классе падает до одного
+          { id: 'twinSlash', name: 'двойной росчерк', slot: 'weakAttack', mult: 0.35, pair: true },
           { id: 'liverStab', name: 'в печень', slot: 'attack', mult: 1 },
           { id: 'legSweep', name: 'подсечка', slot: 'attack', mult: 0.6, push: true, dmgType: 'bludgeoning' },
           { id: 'hopSting', name: 'отскок с уколом', slot: 'attack', mult: 0.7, stepBack: true },
@@ -499,8 +512,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         range: 4,
         aoe: { ritual: { range: 5, mult: 0.8, cooldown: 4, pulses: 3, dmgType: 'fire' } },
         moves: [
-          { id: 'vestaSpark', name: 'искра', slot: 'weakAttack', mult: 0.4 },
-          { id: 'vestaRepel', name: 'отпугнуть жаром', slot: 'weakAttack', mult: 0.3, push: true, range: 2 },
+          { id: 'vestaSpark', name: 'искра', slot: 'weakAttack', mult: 0.55 },
+          { id: 'vestaRepel', name: 'отпугнуть жаром', slot: 'weakAttack', mult: 0.4, push: true, range: 2 },
           { id: 'vestaLash', name: 'жгучая плеть', slot: 'attack', mult: 0.9, range: 2 },
           // носитель горения (план damage-types, волна 6): удар слабее плети,
           // но оставляет огонь — и по уже горящему приём ничего не добавляет,
@@ -541,8 +554,13 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         dmgType: 'bludgeoning',
         atkBonus: 9,
         range: 1,
+        agile: true,
         moves: [
-          { id: 'squall', name: 'шквал', slot: 'weakAttack', mult: 0.55 },
+          // Flurry of Blows (план action-economy, волна 6): два удара за одно
+          // очко хода, оба по текущему MAP. Множитель — на удар, поэтому
+          // приём стоит 0.8 против общих 0.6 быстрого темпа: волюм монахини
+          // теперь в самом приёме, а не в повышенном weakMult
+          { id: 'squall', name: 'шквал', slot: 'weakAttack', mult: 0.4, pair: true },
           { id: 'stormEye', name: 'глаз бури', slot: 'selflessAttack', mult: 1.5, expose: true },
           { id: 'stormPalm', name: 'ладонь бури', slot: 'attack', mult: 0.65, push: true },
           { id: 'breathChain', name: 'серия дыхания', slot: 'attack', mult: 1.7, ap: 3 },
@@ -575,7 +593,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         atkBonus: 9,
         range: 1,
         moves: [
-          { id: 'zaryaJab', name: 'укол', slot: 'weakAttack', mult: 0.45, dmgType: 'piercing' },
+          { id: 'zaryaJab', name: 'укол', slot: 'weakAttack', mult: 0.6, dmgType: 'piercing' },
           { id: 'zaryaTrue', name: 'верный удар', slot: 'attack', mult: 1 },
           { id: 'zaryaLight', name: 'свет зари', slot: 'attack', mult: 0.7, range: 2 },
           { id: 'zaryaCleave', name: 'рассечь строй', slot: 'attack', mult: 0.85, gang: 0.1 },
@@ -608,7 +626,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         dmgType: 'piercing',
         atkBonus: 9,
         moves: [
-          { id: 'spearJab', name: 'укол копьём', slot: 'weakAttack', mult: 0.45 },
+          { id: 'spearJab', name: 'укол копьём', slot: 'weakAttack', mult: 0.6 },
           { id: 'spearSweep', name: 'отмах древком', slot: 'attack', mult: 0.9 },
         ],
       },
@@ -618,7 +636,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         range: 1,
         dmgType: 'slashing',
         atkBonus: 9,
-        moves: [{ id: 'swordFlurry', name: 'серия уколов', slot: 'weakAttack', mult: 0.5 }],
+        moves: [{ id: 'swordFlurry', name: 'серия уколов', slot: 'weakAttack', mult: 0.65 }],
       },
       {
         name: 'молот',
