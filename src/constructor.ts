@@ -86,6 +86,8 @@ export type PreferenceDraft =
   | { id: 'space.highGround' }
   | { id: 'space.behindCover' }
   | { id: 'space.avoidHazard' }
+  | { id: 'space.roughEdge' }
+  | { id: 'space.outflank' }
   | { id: 'act.shove' }
   | { id: 'space.spread' }
   | { id: 'act.barrage' }
@@ -286,6 +288,10 @@ function describeDraft(draft: PhraseDraft, names: Record<string, string> = {}): 
       ? 'держаться за укрытием'
       : p.id === 'space.avoidHazard'
       ? 'обходить опасное'
+      : p.id === 'space.roughEdge'
+      ? 'стеречь кромку'
+      : p.id === 'space.outflank'
+      ? 'обходить из-за спин'
       : p.id === 'act.shove'
       ? 'толкать'
       : p.id === 'space.spread'
@@ -446,6 +452,10 @@ export function compilePhrase(
       ? { kind: 'behindCover' }
       : p.id === 'space.avoidHazard'
       ? { kind: 'avoidHazard' }
+      : p.id === 'space.roughEdge'
+      ? { kind: 'roughEdge' }
+      : p.id === 'space.outflank'
+      ? { kind: 'outflank' }
       : p.id === 'act.shove'
       ? { kind: 'shove' }
       : p.id === 'space.spread'

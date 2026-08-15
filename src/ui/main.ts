@@ -593,6 +593,8 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
   if (has('space.highGround')) out.push({ value: { id: 'space.highGround' }, label: 'держать высоту' });
   if (has('space.behindCover')) out.push({ value: { id: 'space.behindCover' }, label: 'держаться за укрытием' });
   if (has('space.avoidHazard')) out.push({ value: { id: 'space.avoidHazard' }, label: 'обходить опасное' });
+  if (has('space.roughEdge')) out.push({ value: { id: 'space.roughEdge' }, label: 'стеречь кромку' });
+  if (has('space.outflank')) out.push({ value: { id: 'space.outflank' }, label: 'обходить из-за спин' });
   if (has('act.shove')) out.push({ value: { id: 'act.shove' }, label: 'толкать' });
   if (has('space.spread')) out.push({ value: { id: 'space.spread' }, label: 'держать интервал' });
   if (has('act.barrage')) out.push({ value: { id: 'act.barrage' }, label: 'накрыть скопление' });

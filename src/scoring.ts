@@ -509,6 +509,10 @@ export interface ScoreCtx {
   heightAt: (p: Pos) => number;
   /** Клетки с высотой > 0 — тяга «держать высоту» тянет к ближайшей. */
   highTiles: readonly Pos[];
+  /** Труднопроходимая клетка схемы (бурелом, болото). */
+  roughAt: (p: Pos) => boolean;
+  /** Клетки бурелома — тяга «стеречь кромку» ведёт к ближайшей. */
+  roughTiles: readonly Pos[];
   /**
    * Доля урона, снятая каменным укрытием цели при выстреле from → target
    * (0 — укрытия нет). Стрелок с высоты 2 бьёт поверх укрытия.
@@ -525,9 +529,11 @@ export interface ScoreCtx {
 export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN, tiles?: readonly Tile[][]): ScoreCtx {
   const fields = new Map<string, Map<string, number>>();
   const highTiles: Pos[] = [];
+  const roughTiles: Pos[] = [];
   tiles?.forEach((row, y) =>
     row.forEach((t, x) => {
       if ((t.height ?? 0) > 0) highTiles.push({ x, y });
+      if (t.rough) roughTiles.push({ x, y });
     }),
   );
   const heightAt = tiles ? (p: Pos): number => tiles[p.y]?.[p.x]?.height ?? 0 : FLAT;
@@ -541,6 +547,8 @@ export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN, tiles?: reado
     blocked,
     heightAt,
     highTiles,
+    roughAt: tiles ? (p): boolean => tiles[p.y]?.[p.x]?.rough === true : NO_TERRAIN,
+    roughTiles,
     coverFrom: (from, target) =>
       heightAt(from) === 2 ? 0 : hasTerrainCover(from, target, blocked) ? TERRAIN_COVER : 0,
     entryCost,
@@ -942,6 +950,21 @@ const LURE_SPREAD = 5;
  * снимает не долю урона, а весь выстрел.
  */
 const SCREEN_BLOCK_BONUS = 1.6;
+
+/**
+ * Премия «стеречь кромку» чистой клетке у труднопроходной земли со стороны
+ * врага (и штраф той же величины за клетку самого бурелома — слово велит не
+ * соваться в грязь). Уровень «за укрытием»: позиционный выигрыш той же
+ * природы — враг платит ходами, я стреляю.
+ */
+const ROUGH_EDGE_BONUS = 1.2;
+
+/** Премия «обходить из-за спин» за клетку бокового смещения и его предел. */
+const OUTFLANK_SIDE_BONUS = 0.3;
+const OUTFLANK_SPREAD = 4;
+
+/** Штраф обходящему за то, что он ближе всех наших к своей ближайшей угрозе. */
+const OUTFLANK_FRONT_PENALTY = 0.9;
 
 /** Премия «сомкнуть строй» за смежного своего и за своего через клетку. */
 const REGROUP_ADJ_BONUS = 0.9;
@@ -1410,6 +1433,62 @@ function scorePreference(
         return 1.5 * w;
       }
       return 0;
+    }
+    case 'roughEdge': {
+      // стеречь кромку: ждать у труднопроходной земли, НЕ ступая на неё, —
+      // пусть враг вязнет на подходе под выстрелами. На арене без бурелома
+      // слово молчит — паттерн «держать высоту» без высот
+      if (ctx.roughTiles.length === 0) return 0;
+      if (ctx.roughAt(cand.to)) return -ROUGH_EDGE_BONUS * w;
+      const nearest = resolveSelector('nearest', self, units);
+      if (nearest) {
+        // кромка — чистая клетка, у которой бурелом лежит со стороны врага:
+        // та же геометрия направлений, что у каменного укрытия
+        const v = { x: nearest.pos.x - cand.to.x, y: nearest.pos.y - cand.to.y };
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            if (dx === 0 && dy === 0) continue;
+            if (ctx.roughAt({ x: cand.to.x + dx, y: cand.to.y + dy }) && dx * v.x + dy * v.y > 0) {
+              return ROUGH_EDGE_BONUS * w;
+            }
+          }
+        }
+      }
+      // не на кромке — тяга к ближайшему бурелому: слово должно уметь занять
+      // позицию, а не только наградить занятую (урок фланг-манёвра)
+      const d = Math.min(...ctx.roughTiles.map((t) => dist(cand.to, t)));
+      return -0.25 * Math.min(d, MAX_DIST) * w;
+    }
+    case 'outflank': {
+      // обходить из-за спин: заходить врагу сбоку одной стороной, не выходя
+      // вперёд своих. Одному обходить не из-за кого — без живых своих молчит
+      const foes = enemiesOf(self, units) as Fighter[];
+      const mates = (alliesOf(self, units) as Fighter[]).filter((a) => a.id !== self.id);
+      if (foes.length === 0 || mates.length === 0) return 0;
+      const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+      const foeMid = { x: mean(foes.map((e) => e.pos.x)), y: mean(foes.map((e) => e.pos.y)) };
+      const mateMid = { x: mean(mates.map((a) => a.pos.x)), y: mean(mates.map((a) => a.pos.y)) };
+      const axis = { x: foeMid.x - mateMid.x, y: foeMid.y - mateMid.y };
+      const len = Math.hypot(axis.x, axis.y);
+      let s = 0;
+      if (len > 0) {
+        // боковое смещение от оси «наши → враги»; сторона обхода — та, где я
+        // уже стою (защёлкивается сама: сдвинулся вбок — туда и продолжаю),
+        // ровно на оси — детерминированно влево от строя
+        const lat = (p: Pos): number => (axis.x * (p.y - mateMid.y) - axis.y * (p.x - mateMid.x)) / len;
+        const side = lat(self.pos) >= 0 ? 1 : -1;
+        s += OUTFLANK_SIDE_BONUS * Math.min(Math.max(lat(cand.to) * side, 0), OUTFLANK_SPREAD);
+      }
+      // позади союзников: к своей ближайшей угрозе я не ближе всех из наших
+      const threat = foes.reduce((b, e) => {
+        const d = dist(e.pos, cand.to);
+        const bd = dist(b.pos, cand.to);
+        return d < bd || (d === bd && e.id < b.id) ? e : b;
+      });
+      if (mates.every((a) => dist(a.pos, threat.pos) > dist(cand.to, threat.pos))) {
+        s -= OUTFLANK_FRONT_PENALTY;
+      }
+      return s * w;
     }
     case 'shove': {
       // толкать: тем ценнее, чем опаснее клетка назначения. В шипы или в зону
