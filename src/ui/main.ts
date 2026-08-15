@@ -1,7 +1,15 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
 import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
-import { describeActive, describePassives, describeWeapons, driftQuip, lensQuip, understandingCard } from '../cards.js';
+import {
+  describeActive,
+  describeDefenses,
+  describePassives,
+  describeWeapons,
+  driftQuip,
+  lensQuip,
+  understandingCard,
+} from '../cards.js';
 import {
   ROLE_CONCEPT,
   type ConditionDraft,
@@ -380,7 +388,10 @@ function abilityLine(archetypeId: string): string {
   // осознанно, зная, есть ли в партии кому им махать
   const act = arch.active ? ` · актив: ${describeActive(arch.active)}` : '';
   const pas = arch.passives ? ` · ${describePassives(arch.passives)}` : '';
-  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${act}${pas}`;
+  // защиты своих (план damage-types) — тем же контрактом, что и разведка
+  // врага: игрок сравнивает КБ и спасброски, выбирая, кого куда ставить
+  const def = arch.defenses ? ` · защита: ${describeDefenses(arch.defenses)}` : '';
+  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${def}${act}${pas}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {
