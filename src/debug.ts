@@ -80,6 +80,8 @@ export interface DebugSetup {
   vocab?: ConceptId[];
   /** Метка фокус-огня: id врага. */
   marked?: string | null;
+  /** Нерв (план nerve): амплитуда разброса весов решения; 0/отсутствие — выключен. */
+  nerve?: number;
 }
 
 export const MAX_DEBUG_PARTY = PARTY_SPAWNS.length;
@@ -133,6 +135,7 @@ export function debugRun(setup: DebugSetup): RunState {
       phrases: [],
     })),
     marked: setup.marked ?? null,
+    ...(setup.nerve ? { nerve: setup.nerve } : {}),
     deploy: {},
     pendingReward: null,
     status: 'ongoing',

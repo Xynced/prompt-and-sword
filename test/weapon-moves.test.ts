@@ -258,19 +258,25 @@ describe('волна 2: райдер gang — в окружении больне
       id, name: id, side, maxHp: 600, atk: 1, range: 1, speed: 1, move: 0,
       lenses: ['literalist'], rules: [], spawn: { x, y },
     });
-    const specs: UnitSpec[] = [
+    const scene = (allies: [number, number][]): UnitSpec[] => [
       {
         id: 'fang', name: 'fang', side: 'party', maxHp: 60, weapons: PACK,
         speed: 9, move: 0, lenses: ['plain'],
         rules: [rule({ kind: 'attack', target: 'nearest' })], spawn: { x: 5, y: 8 },
       },
-      still('a1', 6, 7),
-      still('a2', 6, 9),
+      still('a1', allies[0]![0], allies[0]![1]),
+      still('a2', allies[1]![0], allies[1]![1]),
       still('tank', 6, 8, 'foe'),
     ];
-    const first = attacks(runBattle(5, specs).events, 'fang').find((a) => a.outcome !== 'miss')!;
-    expect(first.move).toBe('толпой');
-    expect(first.dmg).toBeGreaterThanOrEqual(12); // без gang потолок ~9
+    // бросок привязан к моменту боя (план damage-types), а не к порядку
+    // вызовов, поэтому у обоих прогонов один и тот же удар с одним и тем же
+    // броском — разница ровно в том, стоят свои у цели или в стороне
+    const landed = (allies: [number, number][]): Extract<BattleEvent, { t: 'attack' }> =>
+      attacks(runBattle(5, scene(allies)).events, 'fang').find((a) => a.outcome !== 'miss')!;
+    const crowd = landed([[6, 7], [6, 9]]);
+    const alone = landed([[1, 1], [1, 3]]);
+    expect(crowd.move).toBe('толпой');
+    expect(crowd.dmg).toBeGreaterThanOrEqual(alone.dmg * 2.5); // двое своих у цели — ×3
   });
 });
 

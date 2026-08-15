@@ -140,7 +140,7 @@ describe('ярость в бою', () => {
       let raged = false;
       for (const e of r.events) {
         if (e.t === 'rage') raged = true;
-        if (raged && e.t === 'attack' && e.unit === 'ulv') return e.dmg;
+        if (raged && e.t === 'attack' && e.unit === 'ulv' && e.outcome !== 'miss') return e.dmg;
       }
       return 0;
     };

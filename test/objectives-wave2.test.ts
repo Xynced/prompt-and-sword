@@ -170,7 +170,20 @@ describe('objective: carry (трофей)', () => {
     const specs = [
       // носильщик успевает поднять (громила ещё далеко), но медленный —
       // громила догоняет и убивает уже с ношей
-      dummy('frail', 'party', { rules: [carryRule], maxHp: 6, move: 1, speed: 9, spawn: { x: 8, y: 9 } }),
+      // КБ 5: громила по такой мишени не промахивается — тест про падение
+      // ноши, а не про броски (план damage-types)
+      dummy('frail', 'party', {
+        // приказ нести — с запасом веса: под накатом громилы обычный вес
+        // перебивается самосохранением, а тест здесь про падение ноши
+        rules: [r({ when: { kind: 'always' }, then: { kind: 'carry' }, weight: 3, source: 'нести трофей' })],
+        maxHp: 6,
+        move: 1,
+        speed: 9,
+        spawn: { x: 8, y: 9 },
+        // КБ 5: громила по такой мишени не промахивается — тест про ношу,
+        // а не про броски (план damage-types)
+        defenses: { ac: 5 },
+      }),
       dummy('grom', 'party', { rules: [hold], spawn: { x: 0, y: 0 } }),
       dummy('brute', 'foe', { atk: 30, move: 3, speed: 5, spawn: { x: 16, y: 9 } }),
     ];
@@ -537,7 +550,9 @@ describe('смоуки волны 2: наив vs контр', () => {
     const naive = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, NAIVE);
     const carryZ = smokeSweep({ kind: 'fight', layer: 4, slot: 3 }, [[atkNearest], [atkNearest], [carryRule, atkNearest]]);
     expect(carryZ.wins).toBeGreaterThanOrEqual(naive.wins);
-    expect(carryZ.rounds).toBeLessThan(naive.rounds - 2);
+    // запас сжался с 2 до 1.5 раундов: с бросками (план damage-types) резня
+    // идёт дольше, а доставка от них почти не зависит — но кончает бой раньше
+    expect(carryZ.rounds).toBeLessThan(naive.rounds - 1.5);
   });
 
   it('погоня: наив рубит волков и упускает гонца; «прорывающийся» перехватывает', () => {

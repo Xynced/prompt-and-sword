@@ -139,15 +139,21 @@ describe('защиты в бою', () => {
 
   it('слабость к дробящему бьёт больнее, сопротивление рубящему — слабее', () => {
     const yar = heroArchetype('yar');
-    const run = (defenses?: Defenses, weapon = 2): BattleEvent[] =>
-      runBattle(11, [
-        spec({ id: 'yar', side: 'party', weapons: [yar.weapons[weapon]!], spawn: { x: 8, y: 8 } }),
-        spec({ id: 'foe', side: 'foe', maxHp: 200, defenses, spawn: { x: 9, y: 8 } }),
-      ]).events;
-    const plainHammer = attacks(run(undefined, 2), 'yar');
-    const weakHammer = attacks(run(bones, 2), 'yar');
-    const plainSword = attacks(run(undefined, 1), 'yar');
-    const resistSword = attacks(run(bones, 1), 'yar');
+    // сравниваем дошедшие удары: у промаха урона нет вовсе, и защиты по типу
+    // на нём не видны. Бросок привязан к моменту боя, поэтому «тот же удар» в
+    // двух прогонах — это буквально тот же бросок, отличаются только защиты
+    const run = (defenses: Defenses | undefined, weapon: number): Extract<BattleEvent, { t: 'attack' }>[] =>
+      attacks(
+        runBattle(11, [
+          spec({ id: 'yar', side: 'party', weapons: [yar.weapons[weapon]!], spawn: { x: 8, y: 8 } }),
+          spec({ id: 'foe', side: 'foe', maxHp: 200, defenses, spawn: { x: 9, y: 8 } }),
+        ]).events,
+        'yar',
+      ).filter((a) => a.outcome !== 'miss');
+    const plainHammer = run(undefined, 2);
+    const weakHammer = run(bones, 2);
+    const plainSword = run(undefined, 1);
+    const resistSword = run(bones, 1);
     expect(weakHammer[0]!.dmg).toBe(plainHammer[0]!.dmg + 3);
     expect(weakHammer[0]!.soak).toBe('weak');
     expect(resistSword[0]!.dmg).toBe(plainSword[0]!.dmg - 3);

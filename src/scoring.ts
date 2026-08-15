@@ -11,6 +11,7 @@ import {
   resolveSelector,
 } from './ir.js';
 import { type CompiledBehavior, biasFor } from './lens.js';
+import { type NerveSpec, nervePressure, nerveRoll } from './nerve.js';
 import {
   type EntryCost,
   GRID_H,
@@ -41,6 +42,7 @@ import type {
 } from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
+  NERVE_FOCUS_CALM,
   APPEAL_FLOOR,
   WEAPON_AFFINITY_BONUS,
   AP_PER_TURN,
@@ -630,6 +632,8 @@ export interface ScoreCtx {
   prize?: { at: Pos | null; carrierId: string | null };
   /** Слабый фоновый инстинкт зонной задачи для решающего юнита (ZONE_BIAS). */
   zoneInstinct?: boolean;
+  /** Режим нерва (план nerve): seeded-разброс весов решения; без него счёт детерминирован. */
+  nerve?: NerveSpec;
 }
 
 /** Сценарная часть контекста решения (план objectives, волна 2). */
@@ -643,6 +647,7 @@ export function makeCtx(
   blocked: (p: Pos) => boolean = NO_TERRAIN,
   tiles?: readonly Tile[][],
   mission: MissionCtx = {},
+  nerve?: NerveSpec,
 ): ScoreCtx {
   const fields = new Map<string, Map<string, number>>();
   const highTiles: Pos[] = [];
@@ -662,6 +667,7 @@ export function makeCtx(
     : UNIT_COST;
   return {
     ...mission,
+    ...(nerve && nerve.amp > 0 ? { nerve } : {}),
     blocked,
     heightAt,
     highTiles,
@@ -2336,6 +2342,28 @@ function attackRestPos(self: Fighter, cand: Candidate, units: readonly Fighter[]
  *
  * Тайбрейк: меньше двигаться, потом дешевле, потом по порядку генерации.
  */
+/**
+ * Разброс весов решения (план nerve): один и тот же множитель на все слагаемые
+ * с одной меткой — перекос применяется ко **всем** кандидатам решения разом,
+ * поэтому боец последовательно действует по своей ошибке, а не дёргается.
+ * Множитель не уходит ниже нуля: опасность можно недооценить до нуля, но
+ * манить она не начинает.
+ */
+function sway(
+  factors: Factor[],
+  amp: number,
+  nerve: NerveSpec | undefined,
+  unitId: string,
+  round: number,
+  ap: number,
+): Factor[] {
+  if (!nerve || amp <= 0) return factors;
+  return factors.map((f) => ({
+    label: f.label,
+    value: f.value * Math.max(0, 1 + amp * nerveRoll(nerve.seed, unitId, round, ap, f.label)),
+  }));
+}
+
 export function decide(
   self: Fighter,
   units: readonly Fighter[],
@@ -2365,9 +2393,22 @@ export function decide(
   const candidates = generateCandidates(self, units, ctx, ap, round, fired);
   // доступность целей одна на всё решение: юнит стоит на месте, пока выбирает
   const appealMemo: AppealMemo = new Map();
+  // нерв (план nerve): давление считается раз на решение — пока боец выбирает,
+  // ни его раны, ни кольцо вокруг не меняются
+  const nerve = ctx.nerve;
+  // фокус игрока собирает бойца: приказ, за который держатся, гасит разброс
+  const calm = fired.some((r) => r.focus) ? NERVE_FOCUS_CALM : 1;
+  const amp = nerve ? nerve.amp * calm * nervePressure(self, units, fired.length) : 0;
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
-    const factors = scoreCandidate(cand, self, units, fired, ctx, round, appealMemo);
+    const factors = sway(
+      scoreCandidate(cand, self, units, fired, ctx, round, appealMemo),
+      amp,
+      nerve,
+      self.id,
+      round,
+      ap,
+    );
     const spent = cand.action === 'wait' ? ap : candApCost(cand, self);
     const score = factors.reduce((s, f) => s + f.value, 0) - spent * AP_VALUE;
     if (

@@ -75,6 +75,11 @@ export interface RunState {
    * обычные слова, элита — редкие. null — забран/нет.
    */
   pendingReward: ConceptId[][] | null;
+  /**
+   * Режим нерва (план nerve): амплитуда seeded-разброса весов решения в боях
+   * забега. Отсутствие или 0 — режим выключен (обычный детерминированный счёт).
+   */
+  nerve?: number;
   status: 'ongoing' | 'won' | 'lost';
   log: string[];
 }
@@ -400,7 +405,7 @@ export function playFight(state: RunState): BattleResult {
     // сторона партии, но не герои забега
     [...heroSpecs(state), ...(scenario?.allies?.() ?? []), ...foeSpecs(state)],
     arenaForNode(node),
-    scenario?.setup,
+    state.nerve ? { ...scenario?.setup, nerve: state.nerve } : scenario?.setup,
   );
 
   if (result.winner !== 'party') {

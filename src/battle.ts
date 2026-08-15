@@ -152,6 +152,11 @@ export interface BattleSetup {
   zone?: Zone;
   /** Клетка трофея задачи carry. */
   prize?: Pos;
+  /**
+   * Режим нерва (план nerve): амплитуда seeded-разброса весов решения.
+   * 0 или отсутствие — режим выключен, бой считается ровно как раньше.
+   */
+  nerve?: number;
 }
 
 /** Чем кончилась встреча урона с защитами цели (план damage-types). */
@@ -313,7 +318,15 @@ export function spawnPreview(seed: number, specs: readonly UnitSpec[]): { id: st
   return assignSpawns(specs, rng).map((pos, i) => ({ id: specs[i]!.id, pos: { ...pos } }));
 }
 
-function rollDamage(base: number, _rng: Rng): number {
+/**
+ * Урон дошедшего удара. Без собственного разброса: весь разброс боя живёт на
+ * броске атаки (план damage-types). Прежний джиттер ±15% после бросков стал
+ * вторым источником шума и ломал слова о выборе цели — «добивай раненых»
+ * против волчьей стаи проигрывал наиву, потому что «слабейший» скакал от
+ * дрожи урона; с одним источником разброса слово снова окупается (замер — в
+ * журнале плана).
+ */
+function strikeDamage(base: number): number {
   return Math.max(1, Math.round(expectedDamage(base)));
 }
 
@@ -465,6 +478,8 @@ export function runBattle(
     caster: Fighter,
     mult: number,
     victims: readonly Fighter[],
+    round: number,
+    form: 'blast' | 'line' | 'ritual',
     dmgType?: DamageType,
   ): void => {
     for (const v of victims) {
@@ -472,7 +487,7 @@ export function runBattle(
       // Волей, прочее — Реакцией; крит-успех спасает начисто, крит-провал
       // ловит вдвое. Здесь и кончилась «безрисковость» площадных: жертва
       // получает свой бросок, но зона по-прежнему бьёт всех
-      const natural = d20(rng);
+      const natural = d20(seed, v.id, round, 0, `save:${form}:${caster.id}`);
       const save = saveOf(v, saveKindFor(dmgType));
       const degree = degreeOf(natural, natural + save, SAVE_DC);
       const dmg = aoeDamage(caster, mult, v, units, dmgType, BASIC_SAVE_MULT[degree]);
@@ -542,7 +557,14 @@ export function runBattle(
           t: 'aoeCast', unit: unit.id, form: 'ritual', at: { ...at },
           ...(pulsesLeft > 0 ? { holds: true as const } : {}),
         });
-        applyAoe(unit, unit.aoe?.ritual?.mult ?? 1, aoeVictims(at, units, AOE_RITUAL_RADIUS), unit.aoe?.ritual?.dmgType);
+        applyAoe(
+          unit,
+          unit.aoe?.ritual?.mult ?? 1,
+          aoeVictims(at, units, AOE_RITUAL_RADIUS),
+          round,
+          'ritual',
+          unit.aoe?.ritual?.dmgType,
+        );
         const w = checkEnd(round);
         if (w) {
           events.push({ t: 'end', winner: w, rounds: round });
@@ -583,11 +605,17 @@ export function runBattle(
       const zoneInstinct =
         ((objective.kind === 'reachZone' || objective.kind === 'holdZone') && unit.side === 'party') ||
         (objective.kind === 'carry' && carrierId === unit.id);
-      const ctx = makeCtx(blocked, tiles, {
-        ...(zone ? { zone } : {}),
-        ...(objective.kind === 'carry' ? { prize: { at: prizeAt, carrierId } } : {}),
-        ...(zoneInstinct ? { zoneInstinct: true } : {}),
-      });
+      const ctx = makeCtx(
+        blocked,
+        tiles,
+        {
+          ...(zone ? { zone } : {}),
+          ...(objective.kind === 'carry' ? { prize: { at: prizeAt, carrierId } } : {}),
+          ...(zoneInstinct ? { zoneInstinct: true } : {}),
+        },
+        // разброс привязан к сиду боя: «те же кости» — тот же нерв
+        setup.nerve ? { amp: setup.nerve, seed } : undefined,
+      );
       let ap = AP_PER_TURN;
       let over = false;
 
@@ -683,7 +711,7 @@ export function runBattle(
             // (порядок pf2e: удвоение → иммунитет → слабость → сопротивление),
             // провал — промах: ни урона, ни райдеров, ни метки
             const dmgType = dmgTypeOf(weapon, move);
-            const natural = d20(rng);
+            const natural = d20(seed, unit.id, round, ap, `atk:${target.id}:${move.id}`);
             const degree = degreeOf(natural, natural + attackBonusOf(weapon), acOf(target));
             const swing = ATTACK_MULT[degree];
             if (swing === 0) {
@@ -700,7 +728,7 @@ export function runBattle(
                 outcome: 'miss',
               });
             } else {
-              const raw = rollDamage(
+              const raw = strikeDamage(
                 weapon.dmg *
                   rageDmgMult(unit) *
                   blessMult(unit) *
@@ -709,7 +737,6 @@ export function runBattle(
                   (stanceAttackMult(move, unit.stance) + gangBonus(move, unit, target, units)) *
                   flankMult *
                   swing,
-                rng,
               );
               // каменное укрытие цели не складывается с прикрытием — берётся максимум;
               // пирс приёма или стойки «наверняка» режет митигацию (сильнейший)
@@ -773,7 +800,7 @@ export function runBattle(
               const second = twinVictim(unit, unit.pos, target, units, blocked, heightAt(unit.pos), mRange);
               // у второй стрелы свой бросок против своей цели: промах по
               // одному не отменяет попадания по другому (правило pf2e)
-              const natural2 = second ? d20(rng) : 0;
+              const natural2 = second ? d20(seed, unit.id, round, ap, `atk:${second.id}:${move.id}`) : 0;
               const degree2 = second
                 ? degreeOf(natural2, natural2 + attackBonusOf(weapon), acOf(second))
                 : 'fail';
@@ -791,7 +818,7 @@ export function runBattle(
                   outcome: 'miss',
                 });
               } else if (second) {
-                const raw2 = rollDamage(
+                const raw2 = strikeDamage(
                   weapon.dmg *
                     rageDmgMult(unit) *
                     blessMult(unit) *
@@ -799,7 +826,6 @@ export function runBattle(
                     retributionMult(unit, second, units) *
                     stanceAttackMult(move, unit.stance) *
                     ATTACK_MULT[degree2],
-                  rng,
                 );
                 const mit2 = stanceMitigation(
                   Math.max(effectiveCover(second, units), ctx.coverFrom(unit.pos, second.pos)),
@@ -956,14 +982,14 @@ export function runBattle(
           if (blast && blastReady(unit) && dist(unit.pos, at) <= blast.range && hasLoS(unit.pos, at, blocked)) {
             unit.blastUses = (unit.blastUses ?? 0) + 1;
             events.push({ t: 'aoeCast', unit: unit.id, form: 'blast', at: { ...at } });
-            applyAoe(unit, blast.mult, aoeVictims(at, units), blast.dmgType);
+            applyAoe(unit, blast.mult, aoeVictims(at, units), round, 'blast', blast.dmgType);
           }
         } else if (action === 'aoeLine' && at) {
           // волна клинка: мгновенная полоса от себя, `at` — клетка-направление
           const line = unit.aoe?.line;
           if (line && dist(unit.pos, at) === 1) {
             events.push({ t: 'aoeCast', unit: unit.id, form: 'line', at: { ...at } });
-            applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked), line.dmgType);
+            applyAoe(unit, line.mult, castVictims('aoeLine', at, unit, units, blocked), round, 'line', line.dmgType);
           }
         } else if (action === 'rage') {
           // вход в ярость: статус до конца боя, второго входа нет по устройству
