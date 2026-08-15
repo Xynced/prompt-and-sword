@@ -337,11 +337,15 @@ export function effectiveCover(target: CombatUnit, units: readonly CombatUnit[])
 /** Стойки манер юнита из сработавших правил решения (план words + teamwork). */
 export function stanceOf(
   fired: readonly Rule[],
-): { often: boolean; hard: boolean; bait: boolean; taunt: boolean } {
+): { often: boolean; hard: boolean; bait: boolean; taunt: boolean; mark: boolean } {
   return {
     often: fired.some((r) => r.then.kind === 'strikeOften'),
     hard: fired.some((r) => r.then.kind === 'strikeHard'),
     bait: fired.some((r) => r.then.kind === 'bait'),
+    // Стойка метки (третья волна teamwork): пока горит «метить цель», мои
+    // удары вешают метку всей стороне — тот же тег и то же снятие прежней,
+    // что у пассивки охотника; читает её канал sel.marked
+    mark: fired.some((r) => r.then.kind === 'mark'),
     // Стойка провокации (план teamwork): держится до следующего решения, как
     // приманка, — внимание уведено и на чужих ходах. Ставит её ТОЛЬКО «вызывать
     // на себя»: когда стойку ставил и «уводить от X», второе слово поглощало
@@ -486,7 +490,7 @@ export interface Decision {
   /** Сколько правил сработало всего; 0 — решение целиком достроено инстинктами (план линз). */
   firedCount: number;
   /** Стойки манер решения (план words + teamwork) — бой вешает их на юнита до следующего решения. */
-  stance: { often: boolean; hard: boolean; bait: boolean; taunt: boolean };
+  stance: { often: boolean; hard: boolean; bait: boolean; taunt: boolean; mark: boolean };
 }
 
 const MAX_DIST = Math.max(GRID_W, GRID_H) - 1;
@@ -982,6 +986,33 @@ const SWAP_RULE_BONUS = 3;
  * главное, ради чего слово берут.
  */
 const SWAP_FULL_RELIEF = 0.4;
+
+/**
+ * Премия «отходить за спины» клетке, перед которой стоит свой (ближе к моей
+ * угрозе и с её стороны). Уровень «позади X» (2 × вес): та же геометрия, но
+ * заслоном служит любой из наших, а не названный якорь.
+ */
+const FALLBACK_COVERED_BONUS = 2;
+
+/**
+ * Штраф «не застить своим» за каждую пару «наш стрелок → его цель», линию
+ * которой рвёт моё тело на этой клетке (считается до двух). Ниже премии
+ * заслона (1.6): свой стрелок чаще может шагнуть и открыть линию сам, поэтому
+ * застить дешевле, чем заслонять врага, — при 1.6 ближник жертвовал боевой
+ * позицией ради чистоты линии и слово уходило в минус (аудит).
+ */
+const CLEARLINE_PENALTY = 1.0;
+
+/**
+ * Премия «связывать боем» за конец хода вплотную к врагу, которого не держит
+ * никто из своих. Премия ниже тяги явной атаки (3 × вес): слово выбирает,
+ * К КОМУ встать, а не запрещает бить. Штраф за толкучку у уже связанного
+ * пробовался (0.6) и убран по аудиту: он воевал с фокус-огнём — ядром меты —
+ * и делал слово вредным в среднем (−6пп наиву, худший −22пп на боссе);
+ * без него слово только тянет к свободному врагу, а бить всем одного
+ * по-прежнему можно.
+ */
+const PIN_BONUS = 1.5;
 
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units));
@@ -1704,6 +1735,84 @@ function scorePreference(
         }
       }
       return s;
+    }
+    case 'mark':
+      // метить цель: работает стойкой (её ставит решение) — сам удар вешает
+      // метку в battle. Кандидатов слово не двигает: кого бить, решает attack,
+      // а канал читают напарники со словом «помеченный»
+      return 0;
+    case 'fallback': {
+      // отходить за спины: отступать К своим, а не от врага в никуда. Тяга к
+      // ближайшему своему держит отход в партии (урок «отступать»: без якоря
+      // бегство кончается краем карты), премия — за своего между мной и моей
+      // ближайшей угрозой: та же геометрия «дальняя от угрозы сторона», что у
+      // «позади X», только заслоном служит любой из наших
+      const mates = (alliesOf(self, units) as Fighter[]).filter((a) => a.id !== self.id);
+      if (mates.length === 0) return 0;
+      const threat = resolveSelector('nearest', self, units);
+      const nearestMate = Math.min(...mates.map((a) => dist(cand.to, a.pos)));
+      let s = -0.35 * Math.max(Math.min(nearestMate, MAX_DIST) - 1, 0);
+      if (threat) {
+        const covered = mates.some((a) => {
+          const va = { x: a.pos.x - cand.to.x, y: a.pos.y - cand.to.y };
+          const vt = { x: threat.pos.x - cand.to.x, y: threat.pos.y - cand.to.y };
+          return (
+            dist(a.pos, threat.pos) < dist(cand.to, threat.pos) && va.x * vt.x + va.y * vt.y > 0
+          );
+        });
+        if (covered) s += FALLBACK_COVERED_BONUS;
+      }
+      return s * w;
+    }
+    case 'clearLine': {
+      // не застить своим: штраф клетке, из-за которой НАШ стрелок теряет цель
+      // из виду, — зеркало заслона со сменой стороны и знака. Тела рвут линию
+      // выстрела целиком (canAttackFrom), поэтому застить — отменять выстрел.
+      // Своих стрелков нет — слово молчит: дисциплина, а не привычка
+      const shooters = (alliesOf(self, units) as Fighter[]).filter(
+        (a) => a.id !== self.id && a.range > 1,
+      );
+      if (shooters.length === 0) return 0;
+      const foes = enemiesOf(self, units) as Fighter[];
+      let blocking = 0;
+      for (const sh of shooters) {
+        for (const e of foes) {
+          if (dist(sh.pos, e.pos) > rangeAt(sh, ctx.heightAt(sh.pos))) continue;
+          // камень, смежный с целью, — лишь укрытие; чужие тела глухие
+          const solid = (p: Pos): boolean =>
+            (ctx.blocked(p) && dist(p, e.pos) > 1) ||
+            units.some((u) => u.alive && u !== self && u !== sh && u !== e && posEq(u.pos, p));
+          if (
+            hasLoS(sh.pos, e.pos, solid) &&
+            !hasLoS(sh.pos, e.pos, (p) => posEq(p, cand.to) || solid(p))
+          ) {
+            blocking++;
+          }
+        }
+      }
+      return -CLEARLINE_PENALTY * Math.min(blocking, 2) * w;
+    }
+    case 'pin': {
+      // связывать боем: каждому по врагу. Премия за конец хода вплотную к
+      // врагу, которого не держит никто из своих (моё тело — его зона
+      // контроля), штраф за толкучку у уже связанного; издалека — тяга к
+      // ближайшему несвязанному, чтобы слово умело занять контакт, а не
+      // только наградить занятый (урок фланг-манёвра)
+      const foes = enemiesOf(self, units) as Fighter[];
+      if (foes.length === 0) return 0;
+      const mates = (alliesOf(self, units) as Fighter[]).filter((a) => a.id !== self.id);
+      const held = (e: Fighter): boolean => mates.some((a) => dist(a.pos, e.pos) === 1);
+      const adjacent = foes.filter((e) => dist(cand.to, e.pos) === 1);
+      let s = 0;
+      if (adjacent.some((e) => !held(e))) s += PIN_BONUS;
+      else {
+        const unheld = foes.filter((e) => !held(e));
+        if (unheld.length > 0) {
+          const d = Math.min(...unheld.map((e) => dist(cand.to, e.pos)));
+          s -= 0.25 * Math.max(Math.min(d, MAX_DIST) - 1, 0);
+        }
+      }
+      return s * w;
     }
   }
 }

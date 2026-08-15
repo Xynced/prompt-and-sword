@@ -473,6 +473,64 @@ export const AUDIT_ENTRIES: AuditEntry[] = [
       w2({ condition: always, preference: { id: 'space.flank' } }),
     ]),
   },
+  // — третья волна teamwork: канал метки, позиция относительно своих, разбор
+  //   толпы по одному, роли заклинателя/лекаря, «мы растянулись» —
+  {
+    word: 'act.mark',
+    label: 'метить цель без читателей (передовой)',
+    drafts: forRoles(['front'], () => [w2({ condition: always, preference: { id: 'act.mark' } })]),
+  },
+  {
+    word: 'act.mark',
+    label: 'комбо: передовой метит — остальные бьют помеченного',
+    extra: ['sel.marked'],
+    drafts: (hero) =>
+      hero.role === 'front'
+        ? [w2({ condition: always, preference: { id: 'act.mark' } })]
+        : [w2({ condition: always, preference: { id: 'act.attack', target: 'sel.marked' } })],
+  },
+  {
+    word: 'space.fallback',
+    label: 'hp ниже 40% → отходить за спины (все)',
+    extra: ['cond.hpBelow'],
+    drafts: everyone(() => [
+      w2({ condition: { id: 'cond.hpBelow', who: 'self', frac: 0.4 }, preference: { id: 'space.fallback' } }),
+    ]),
+  },
+  {
+    word: 'space.clearLine',
+    label: 'не застить своим (ближники)',
+    drafts: forRoles(['front', 'melee'], () => [w2({ condition: always, preference: { id: 'space.clearLine' } })]),
+  },
+  {
+    word: 'act.pin',
+    label: 'связывать боем (ближники)',
+    drafts: forRoles(['front', 'melee'], () => [w2({ condition: always, preference: { id: 'act.pin' } })]),
+  },
+  {
+    word: 'sel.allyCaster',
+    label: 'защищать нашего заклинателя (передовой)',
+    extra: ['act.protect'],
+    drafts: forRoles(['front'], () => [
+      w2({ condition: always, preference: { id: 'act.protect', ally: { role: 'caster' } } }),
+    ]),
+  },
+  {
+    word: 'sel.allyHealer',
+    label: 'защищать нашего лекаря (передовой)',
+    extra: ['act.protect'],
+    drafts: forRoles(['front'], () => [
+      w2({ condition: always, preference: { id: 'act.protect', ally: { role: 'healer' } } }),
+    ]),
+  },
+  {
+    word: 'cond.spreadThin',
+    label: 'мы растянулись → смыкать строй (все)',
+    extra: ['act.regroup'],
+    drafts: everyone(() => [
+      w2({ condition: { id: 'cond.spreadThin' }, preference: { id: 'act.regroup' } }),
+    ]),
+  },
 ];
 
 // ---- Сборка спеков и прогон ----

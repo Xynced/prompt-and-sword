@@ -499,9 +499,13 @@ export function runBattle(
             if (target.hp === 0) {
               target.alive = false;
               events.push({ t: 'die', unit: target.id });
-            } else if (unit.passives?.markOnHit && !target.tags.includes('marked')) {
-              // охотник метит добычу самим ударом: одна метка на стороне цели,
-              // прежняя снимается — стая идёт за охотником
+            } else if (
+              (unit.passives?.markOnHit || unit.stance?.mark) &&
+              !target.tags.includes('marked')
+            ) {
+              // охотник — пассивкой, носитель слова «метить цель» — стойкой
+              // (третья волна teamwork): метит добычу самим ударом; одна метка
+              // на стороне цели, прежняя снимается — стая идёт за метящим
               for (const u of units) {
                 if (u.side === target.side) u.tags = u.tags.filter((t) => t !== 'marked');
               }

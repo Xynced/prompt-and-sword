@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 19;
+export const PROMPT_VERSION = 20;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -126,6 +126,17 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
   'act.regroup': '{"id":"act.regroup"} — сомкнуть строй: держаться плечом к плечу со своими',
   'act.swap':
     '{"id":"act.swap","ally":"<id союзника>"} — меняться местами со смежным союзником: вытащить его из-под удара, встав на его клетку',
+  'act.mark':
+    '{"id":"act.mark"} — метить цель: мои удары вешают на цель метку для всей нашей стороны (напарники читают её селектором sel.marked); кого бить — отдельное правило act.attack',
+  'space.fallback':
+    '{"id":"space.fallback"} — отходить за спины: отступать К своим, за живой заслон, а не от врага в никуда; без живых союзников молчит',
+  'space.clearLine':
+    '{"id":"space.clearLine"} — не застить своим: не заканчивать ход на линии выстрела своих стрелков; без своих стрелков молчит',
+  'act.pin':
+    '{"id":"act.pin"} — связывать боем: держать контакт с врагом, которого не держит никто из своих, — каждому по врагу, в толкучку не лезть',
+  'sel.allyCaster': '{"role":"caster"} — ссылка на своего: наш носитель площадного оружия',
+  'sel.allyHealer': '{"role":"healer"} — ссылка на своего: наш целитель',
+  'cond.spreadThin': '{"id":"cond.spreadThin"} — условие: мы растянулись — кто-то из наших стоит без соседа-своего',
 };
 
 export interface PromptContext {

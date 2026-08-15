@@ -3,7 +3,7 @@ import { type PhraseDraft, compilePhrase } from './constructor.js';
 import { COMMON_WORDS, type ConceptId, RARE_WORDS, STARTING_VOCAB, UNLOCKABLE } from './vocab.js';
 import { type Rule } from './ir.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype, pickParty } from './heroes.js';
-import { archer, berserker, bonesetter, duelist, grunt, hunter, ogre, packLeader, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, warlord, wolf } from './foes.js';
+import { archer, berserker, bonesetter, duelist, grunt, heckler, hunter, ogre, packLeader, pyro, raider, rat, sergeant, shaman, slinger, soldier, thug, troll, warlord, wolf } from './foes.js';
 import { type Rng, mulberry32, shuffle } from './rng.js';
 import { scenarioForNode } from './objectives.js';
 import { LENS_POOL, rollLenses } from './lens.js';
@@ -166,7 +166,7 @@ export function foesForNode(node: MapNode): UnitSpec[] {
       if (node.layer <= 3)
         return node.slot === 0
           ? [wolf(1), wolf(2), wolf(3)] // стая: охота на хрупких
-          : [slinger(1), slinger(2), slinger(3), slinger(4)]; // застрельщики: камнем по раненым
+          : [heckler(), slinger(1), slinger(2), slinger(3)]; // задира + застрельщики: не бей крикуна — бей пращников
       return node.slot === 0
         ? [raider(1), raider(2), bonesetter('raider1')] // ближники + лекарь: добивание вязнет
         : [thug(), wolf(1), wolf(2)]; // засада: загонная охота на тыл

@@ -504,6 +504,7 @@ function conditionOptions(): Opt<ConditionDraft>[] {
   if (has('cond.guarded')) out.push({ value: { id: 'cond.guarded' }, label: 'если меня прикрывают' });
   if (has('cond.allySurrounded')) out.push({ value: { id: 'cond.allySurrounded' }, label: 'если нашего обступили' });
   if (has('cond.alliesFocusing')) out.push({ value: { id: 'cond.alliesFocusing' }, label: 'если наши навалились' });
+  if (has('cond.spreadThin')) out.push({ value: { id: 'cond.spreadThin' }, label: 'если мы растянулись' });
   return out;
 }
 
@@ -580,6 +581,10 @@ function preferenceOptions(heroId: string): Opt<PreferenceDraft>[] {
     }
   }
   if (has('act.regroup')) out.push({ value: { id: 'act.regroup' }, label: 'смыкать строй' });
+  if (has('act.mark')) out.push({ value: { id: 'act.mark' }, label: 'метить цель ударами' });
+  if (has('space.fallback')) out.push({ value: { id: 'space.fallback' }, label: 'отходить за спины своих' });
+  if (has('space.clearLine')) out.push({ value: { id: 'space.clearLine' }, label: 'не застить своим стрелкам' });
+  if (has('act.pin')) out.push({ value: { id: 'act.pin' }, label: 'связывать врагов боем' });
   if (has('act.holdPosition')) out.push({ value: { id: 'act.holdPosition' }, label: 'держать позицию' });
   if (has('act.wait')) out.push({ value: { id: 'act.wait' }, label: 'ждать' });
   if (has('act.retreat')) out.push({ value: { id: 'act.retreat' }, label: 'отступать' });

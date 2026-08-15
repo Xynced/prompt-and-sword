@@ -68,6 +68,7 @@ const PARAMLESS_CONDITIONS = [
   'cond.guarded',
   'cond.allySurrounded',
   'cond.alliesFocusing',
+  'cond.spreadThin',
 ] as const;
 const PARAMLESS_PREFERENCES = [
   'act.holdPosition',
@@ -102,6 +103,10 @@ const PARAMLESS_PREFERENCES = [
   'act.feint',
   'act.taunt',
   'act.regroup',
+  'act.mark',
+  'space.fallback',
+  'space.clearLine',
+  'act.pin',
 ] as const;
 
 /** Собирает JSON-схему инструмента под открытый словарь и живых союзников. */
