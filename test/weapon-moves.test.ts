@@ -143,7 +143,8 @@ describe('райдеры в бою: толчок и рисковый темп', 
       },
     ];
     const res = runBattle(5, specs);
-    const first = attacks(res.events, 'grom')[0]!;
+    // толчок — райдер попадания: у промаха отлёта нет (план damage-types)
+    const first = attacks(res.events, 'grom').find((a) => a.outcome !== 'miss')!;
     expect(first.move).toBe('щитом в грудь');
     const i = res.events.indexOf(first);
     const after = res.events.slice(i + 1, i + 3);
@@ -267,9 +268,9 @@ describe('волна 2: райдер gang — в окружении больне
       still('a2', 6, 9),
       still('tank', 6, 8, 'foe'),
     ];
-    const first = attacks(runBattle(5, specs).events, 'fang')[0]!;
+    const first = attacks(runBattle(5, specs).events, 'fang').find((a) => a.outcome !== 'miss')!;
     expect(first.move).toBe('толпой');
-    expect(first.dmg).toBeGreaterThanOrEqual(12); // без gang потолок ~7
+    expect(first.dmg).toBeGreaterThanOrEqual(12); // без gang потолок ~9
   });
 });
 

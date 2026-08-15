@@ -211,8 +211,9 @@ describe('уклонение от зоны замаха (канал опасно
   it('канал видит зону: урон суммируется по накрытым клеткам, вне зоны — ноль', () => {
     const caster = pendingCaster();
     const target = fighter('t', 'party', { x: 8, y: 8 });
-    expect(zoneDangerAt({ x: 8, y: 8 }, [caster, target], target)).toBe(16);
-    expect(zoneDangerAt({ x: 10, y: 10 }, [caster, target], target)).toBe(16); // край зоны
+    // число — ожидаемый урон зоны с учётом спасброска цели (план damage-types)
+    expect(zoneDangerAt({ x: 8, y: 8 }, [caster, target], target)).toBe(15);
+    expect(zoneDangerAt({ x: 10, y: 10 }, [caster, target], target)).toBe(15); // край зоны
     expect(zoneDangerAt({ x: 11, y: 8 }, [caster, target], target)).toBe(0);
   });
 

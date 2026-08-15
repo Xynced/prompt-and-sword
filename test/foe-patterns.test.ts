@@ -30,6 +30,7 @@ function hero(archId: string, slot: number, rules: Rule[]): UnitSpec {
     weapons: a.weapons,
     active: a.active,
     passives: a.passives,
+    defenses: a.defenses,
     spawn: { ...PARTY_SPAWNS[slot]! },
   };
 }

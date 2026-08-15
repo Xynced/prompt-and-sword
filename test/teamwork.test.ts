@@ -280,6 +280,7 @@ describe('смоук: «отвлекай врагов от Леи, уводи и
       weapons: a.weapons,
       active: a.active,
       passives: a.passives,
+      defenses: a.defenses,
       spawn: { ...PARTY_SPAWNS[slot]! },
     };
   };

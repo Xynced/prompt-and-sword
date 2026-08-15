@@ -5,6 +5,69 @@ export interface Pos {
   y: number;
 }
 
+/**
+ * Тип урона (план damage-types) — ядро pf2e: три физических, пять стихий,
+ * яд/разум/тлен. Точность (precision), сила (force) и жизнь (vitality) не
+ * взяты намеренно: носителя в контенте нет, а тип без носителя — мёртвый
+ * слой словаря.
+ */
+export type DamageType =
+  | 'bludgeoning'
+  | 'piercing'
+  | 'slashing'
+  | 'fire'
+  | 'cold'
+  | 'electricity'
+  | 'acid'
+  | 'sonic'
+  | 'poison'
+  | 'mental'
+  | 'void';
+
+export const DAMAGE_TYPE_RU: Record<DamageType, string> = {
+  bludgeoning: 'дробящий',
+  piercing: 'колющий',
+  slashing: 'рубящий',
+  fire: 'огонь',
+  cold: 'холод',
+  electricity: 'электричество',
+  acid: 'кислота',
+  sonic: 'звук',
+  poison: 'яд',
+  mental: 'разум',
+  void: 'тлен',
+};
+
+/** Спасбросок pf2e: Стойкость, Реакция, Воля. */
+export type SaveKind = 'fort' | 'ref' | 'will';
+
+/**
+ * Защиты юнита (план damage-types). Четыре защиты pf2e — КБ против ударов,
+ * три спасброска против эффектов — плюс плоские сопротивления, слабости и
+ * иммунитеты по типам; порядок их применения — `applyDefenses` в tuning.ts
+ * (иммунитет → слабость → сопротивление).
+ *
+ * Масштаб плоских чисел здесь свой: удар в этом симе — 2–7 hp, поэтому числа
+ * pf2e (5/10) были бы выключателем. Рабочий диапазон — сопротивление 1–3,
+ * слабость 2–4. Умолчания защит — `DEFAULT_AC` / `DEFAULT_SAVE` в tuning.ts.
+ */
+export interface Defenses {
+  /** КБ: против него бросается атака. */
+  ac?: number;
+  /** Стойкость — яд и прочее телесное. */
+  fort?: number;
+  /** Реакция — площадные касты. */
+  ref?: number;
+  /** Воля — воздействия на разум. */
+  will?: number;
+  /** −N урона этого типа. */
+  resist?: Partial<Record<DamageType, number>>;
+  /** +N урона этого типа. */
+  weak?: Partial<Record<DamageType, number>>;
+  /** Урон этого типа обнуляется целиком. */
+  immune?: DamageType[];
+}
+
 /** Прямоугольная зона задачи боя (план objectives, волна 2): рубеж, выход, берег. */
 export interface Zone {
   x1: number;
@@ -111,6 +174,12 @@ export interface WeaponMove {
   ap?: number;
   /** Дальность приёма, если отличается от range оружия («метнуть нож»). */
   range?: number;
+  /**
+   * Тип урона приёма, если отличается от оружейного (план damage-types):
+   * «щитом в грудь» — дробящий у рубящего меча. Так versatile-оружие pf2e
+   * выражается самим китом, без отдельного понятия.
+   */
+  dmgType?: DamageType;
   /** Открывает бьющего до его следующего хода (канал exposed). */
   expose?: boolean;
   /** Расчётливый приём: не напарывается на рипост (канал «наверняка»). */
@@ -142,6 +211,14 @@ export interface WeaponSpec {
   dmg: number;
   /** Дальность оружия — заменяет range юнита; 1 = ближний бой. */
   range: number;
+  /** Бонус атаки этого оружия (план damage-types); умолчание — `DEFAULT_ATK_BONUS`. */
+  atkBonus?: number;
+  /**
+   * Тип урона оружия (план damage-types) — умолчание для всех его приёмов.
+   * Без типа урон не задевают ни слабости, ни сопротивления (untyped pf2e):
+   * «голые» юниты тестов остаются как были.
+   */
+  dmgType?: DamageType;
   /** Родные (1) и чуждые (−1) манеры удара; отсутствие — нейтрально. */
   affinity?: Partial<Record<'weakAttack' | 'attack' | 'selflessAttack', 1 | -1>>;
   /** Множитель слабого удара этого оружия вместо общего WEAK_ATK_MULT (кулаки Юны). */
@@ -163,9 +240,9 @@ export interface WeaponSpec {
  */
 export interface AoeSpec {
   /** Залп: мгновенный взрыв 3×3 вокруг центра в дальности range; урон mult × ожидаемый удар, фиксированный. */
-  blast?: { range: number; mult: number; usesPerBattle?: number };
+  blast?: { range: number; mult: number; usesPerBattle?: number; dmgType?: DamageType };
   /** Линия («волна клинка»): мгновенная полоса 1×len от себя в одном из 8 направлений; камень обрывает взмах. */
-  line?: { len: number; mult: number };
+  line?: { len: number; mult: number; dmgType?: DamageType };
   /**
    * Ритуал: телеграфированная зона 5×5 — замах весь ход (3 AP), бьёт всех,
    * кто в зоне в начале **следующего** хода кастера; смерть кастера отменяет.
@@ -173,7 +250,14 @@ export interface AoeSpec {
    * pulses — залпов подряд (по одному на ход кастера): зона держится и жжёт,
    * пока пульсы не выйдут, — «полымя»-контроль Весты; по умолчанию 1.
    */
-  ritual?: { range: number; mult: number; cooldown?: number; usesPerBattle?: number; pulses?: number };
+  ritual?: {
+    range: number;
+    mult: number;
+    cooldown?: number;
+    usesPerBattle?: number;
+    pulses?: number;
+    dmgType?: DamageType;
+  };
 }
 
 export type LensId =
@@ -244,6 +328,8 @@ export interface CombatUnit {
   /** Благословлён: атаки ×множитель до конца боя (число — от спеки кастера). */
   blessedMult?: number;
   tags: string[];
+  /** Защиты по типам урона (план damage-types); у большинства отсутствуют. */
+  defenses?: Defenses;
   /** Линзы характера в порядке применения (1–3 у героев). */
   lenses: LensId[];
   /** Площадное оружие носителя АОЕ; у большинства юнитов отсутствует. */

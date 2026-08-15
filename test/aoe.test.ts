@@ -16,7 +16,7 @@ import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { dist, posKey } from '../src/grid.js';
 import { shaman } from '../src/foes.js';
 import { heroArchetype } from '../src/heroes.js';
-import { expectedDamage } from '../src/tuning.js';
+import { BASIC_SAVE_MULT, DEFAULT_SAVE, expectedDamage, expectedSaveMult } from '../src/tuning.js';
 import { compilePhrase } from '../src/constructor.js';
 import { CONCEPTS, COMMON_WORDS, RARE_WORDS, STARTING_VOCAB, type ConceptId } from '../src/vocab.js';
 import { describeAoe, understandingCard } from '../src/cards.js';
@@ -141,17 +141,30 @@ describe('выбор: залп против атаки', () => {
 });
 
 describe('урон залпа', () => {
-  it('фиксированный, прикрытие и открытость работают, минимум 1', () => {
+  it('прикрытие и открытость работают, минимум 1', () => {
     const caster = fighter('c', 'foe', { x: 0, y: 0 }, { atk: 6 });
-    const base = Math.round(expectedDamage(6) * 0.75); // 2.7 → 3
+    // без явного спасброска скоринг получает ожидание по всем 20 граням
+    // (план damage-types): «сколько зона снимет с такой Реакции в среднем»
+    const base = expectedDamage(6) * 0.75 * expectedSaveMult(DEFAULT_SAVE);
     const clean = fighter('t', 'party', { x: 1, y: 1 });
-    expect(aoeDamage(caster, 0.75, clean)).toBe(base);
+    expect(aoeDamage(caster, 0.75, clean)).toBe(Math.round(base));
     const covered = fighter('t2', 'party', { x: 1, y: 1 }, { coverLevel: 0.25 });
-    expect(aoeDamage(caster, 0.75, covered)).toBe(Math.round(2.7 * 0.75));
+    expect(aoeDamage(caster, 0.75, covered)).toBe(Math.round(base * 0.75));
     const exposed = fighter('t3', 'party', { x: 1, y: 1 }, { exposed: true });
-    expect(aoeDamage(caster, 0.75, exposed)).toBe(Math.round(2.7 * 1.35));
+    expect(aoeDamage(caster, 0.75, exposed)).toBe(Math.round(base * 1.35));
     const weak = fighter('c2', 'foe', { x: 0, y: 0 }, { atk: 1 });
     expect(aoeDamage(weak, 0.75, clean)).toBe(1);
+  });
+
+  it('спасбросок делит урон: увернулся начисто — ноль, поймал вдвое — вдвое', () => {
+    const caster = fighter('c', 'foe', { x: 0, y: 0 }, { atk: 6 });
+    const t = fighter('t', 'party', { x: 1, y: 1 });
+    const nominal = expectedDamage(6) * 0.75;
+    const at = (mult: number): number => aoeDamage(caster, 0.75, t, [caster, t], undefined, mult);
+    expect(at(BASIC_SAVE_MULT.critSuccess)).toBe(0);
+    expect(at(BASIC_SAVE_MULT.success)).toBe(Math.round(nominal / 2));
+    expect(at(BASIC_SAVE_MULT.fail)).toBe(Math.round(nominal));
+    expect(at(BASIC_SAVE_MULT.critFail)).toBe(Math.round(nominal * 2));
   });
 
   it('зона бьёт обе стороны — friendly fire включён', () => {
@@ -184,15 +197,20 @@ describe('залп в бою (гать, сид 4)', () => {
     const casts = castsIn(r.events);
     expect(casts.length).toBeGreaterThan(0);
     expect(casts[0]!.form).toBe('blast');
-    // первый залп — до первого хода манекенов: прикрытий ещё нет,
-    // урон обоим ровно по формуле, одно число в логе у всех накрытых
+    // первый залп — до первого хода манекенов: прикрытий ещё нет, и число
+    // в логе решает только спасбросок жертвы (план damage-types): у равных
+    // степеней — равный урон, у лучшей степени — не больше, чем у худшей
     const firstTwo = hitsIn(r.events).slice(0, 2);
     expect(firstTwo.map((h) => h.unit).sort()).toEqual(['d1', 'd2']);
-    const expected = Math.round(expectedDamage(4) * 0.75); // 1.8 → 2
+    const order = ['critFail', 'fail', 'success', 'critSuccess'] as const;
+    const [a, b] = firstTwo as [(typeof firstTwo)[0], (typeof firstTwo)[0]];
     for (const h of firstTwo) {
       expect(h.by).toBe('shaman');
-      expect(h.dmg).toBe(expected);
+      expect(h.save).toBeDefined();
+      expect(h.dmg).toBe(Math.round(expectedDamage(4) * 0.75 * BASIC_SAVE_MULT[h.save!]));
     }
+    if (a.save === b.save) expect(a.dmg).toBe(b.dmg);
+    else expect(order.indexOf(a.save!) < order.indexOf(b.save!)).toBe(a.dmg >= b.dmg);
     expect(r.winner).toBe('foe');
   });
 

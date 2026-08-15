@@ -328,10 +328,10 @@ describe('характер выбирает действие', () => {
    * `ally` добавляет в партию хилого союзника под ударом — иначе прикрыть
    * собой некого и тяга наседки не проявляется.
    */
-  function actionMix(lenses: LensId[], ally = false): Record<string, number> {
+  function actionMix(lenses: LensId[], ally = false, seeds = 30): Record<string, number> {
     const counts = new Map<string, number>();
     let total = 0;
-    for (let seed = 1; seed <= 30; seed++) {
+    for (let seed = 1; seed <= seeds; seed++) {
       const hero: UnitSpec = {
         id: 'h', name: 'Боец', side: 'party', maxHp: 60, atk: 8, range: 1,
         speed: 5, move: 2, lenses, rules: [attack()], spawn: { x: 4, y: 5 },
@@ -370,7 +370,12 @@ describe('характер выбирает действие', () => {
 
   it('горячка бьёт вполсилы чаще, дуэлянт — реже', () => {
     expect(actionMix(['hothead']).weakAttack ?? 0).toBeGreaterThan(plain.weakAttack ?? 0);
-    expect(actionMix(['duelist']).weakAttack ?? 0).toBeLessThan(plain.weakAttack ?? 0);
+    // брезгливость дуэлянта — это постоянное слагаемое тяги (0.85), и после
+    // бросков атаки (план damage-types) оно тонет в шуме на 30 сидах: сама
+    // тенденция цела, но видна только на широкой выборке
+    expect(actionMix(['duelist'], false, 120).weakAttack ?? 0).toBeLessThan(
+      actionMix(['plain'], false, 120).weakAttack ?? 0,
+    );
   });
 
   it('наседка закрывает союзника собой, обычный боец — нет', () => {

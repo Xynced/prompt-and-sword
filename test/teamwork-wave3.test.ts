@@ -104,9 +104,13 @@ describe('метить цель', () => {
       expect(mark.unit).toBe('leader');
       expect(mark.target).toBe('boss');
     }
-    // напарник после метки бьёт именно помеченного
+    // напарник после метки бьёт именно помеченного — пока тот жив: со
+    // смертью главаря метка уходит с ним, и напарник честно берётся за шавку
     const idx = res.events.findIndex((e) => e.t === 'mark');
-    const mateHits = res.events.slice(idx).filter((e) => e.t === 'attack' && e.unit === 'mate');
+    const bossDown = res.events.findIndex((e) => e.t === 'die' && e.unit === 'boss');
+    const mateHits = res.events
+      .slice(idx, bossDown < 0 ? undefined : bossDown)
+      .filter((e) => e.t === 'attack' && e.unit === 'mate');
     expect(mateHits.length).toBeGreaterThan(0);
     expect(mateHits.every((e) => e.t === 'attack' && e.target === 'boss')).toBe(true);
   });

@@ -29,7 +29,16 @@ import {
   zoneDist,
 } from './grid.js';
 import type { HazardKind, Tile } from './terrain.js';
-import type { ActionKind, CombatUnit, Pos, WeaponMove, WeaponSpec, Zone } from './types.js';
+import type {
+  ActionKind,
+  CombatUnit,
+  DamageType,
+  Pos,
+  SaveKind,
+  WeaponMove,
+  WeaponSpec,
+  Zone,
+} from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
   APPEAL_FLOOR,
@@ -55,7 +64,13 @@ import {
   TERRAIN_COVER,
   WEAK_ATK_MULT,
   ZONE_BIAS,
+  DEFAULT_AC,
+  DEFAULT_ATK_BONUS,
+  DEFAULT_SAVE,
+  applyDefenses,
+  expectedAttackMult,
   expectedDamage,
+  expectedSaveMult,
 } from './tuning.js';
 
 export interface Fighter extends CombatUnit {
@@ -187,6 +202,30 @@ export function movesOf(w: WeaponSpec): WeaponMove[] {
     DEFAULT_MOVES.set(w, d);
   }
   return d;
+}
+
+/** КБ цели (план damage-types): против него бросается атака. */
+export const acOf = (u: CombatUnit): number => u.defenses?.ac ?? DEFAULT_AC;
+
+/** Спасбросок юнита нужного вида. */
+export const saveOf = (u: CombatUnit, kind: SaveKind): number => u.defenses?.[kind] ?? DEFAULT_SAVE;
+
+/** Бонус атаки оружия. */
+export const attackBonusOf = (w: WeaponSpec): number => w.atkBonus ?? DEFAULT_ATK_BONUS;
+
+/**
+ * Каким спасброском отбиваются от урона этого типа: яд — Стойкостью, разум —
+ * Волей, всё остальное (взрывы, полосы, зоны) — Реакцией.
+ */
+export const saveKindFor = (t?: DamageType): SaveKind =>
+  t === 'poison' ? 'fort' : t === 'mental' ? 'will' : 'ref';
+
+/**
+ * Тип урона удара (план damage-types): приём перебивает оружие. Общая для
+ * скоринга и боя — оценка и исполнение обязаны говорить об одном типе.
+ */
+export function dmgTypeOf(weapon: WeaponSpec, move: WeaponMove): DamageType | undefined {
+  return move.dmgType ?? weapon.dmgType;
 }
 
 /** Клетка, куда толчок сдвигает цель: ровно на 1 строго от толкающего. */
@@ -418,17 +457,22 @@ export function aoeDamage(
   mult: number,
   target: CombatUnit,
   units: readonly CombatUnit[] = [target],
+  dmgType?: DamageType,
+  /**
+   * Доля урона по спасброску цели (план damage-types): бой передаёт брошенную
+   * (0 / ½ / 1 / 2), скоринг молчит и получает ожидание по всем 20 граням.
+   */
+  saveMult: number = expectedSaveMult(saveOf(target, saveKindFor(dmgType))),
 ): number {
-  return Math.max(
-    1,
-    Math.round(
-      expectedDamage(caster.atk) *
-        mult *
-        (1 - effectiveCover(target, units)) *
-        (target.exposed ? SELFLESS_VULN_MULT : 1) *
-        rageVulnMult(target),
-    ),
-  );
+  const base =
+    expectedDamage(caster.atk) *
+    mult *
+    (1 - effectiveCover(target, units)) *
+    (target.exposed ? SELFLESS_VULN_MULT : 1) *
+    rageVulnMult(target) *
+    saveMult;
+  // увернулся начисто — ноль, а не общий пол «минимум 1»
+  return applyDefenses(saveMult === 0 ? 0 : Math.max(1, Math.round(base)), dmgType, target.defenses).dmg;
 }
 
 /**
@@ -1150,16 +1194,22 @@ function expectedAttackDamage(
     move,
     stance,
   );
-  return (
+  // бросок атаки (план damage-types): оценка обязана считать так же, как бой
+  // исполнит, — промахи и криты сидят в множителе ожидания
+  const odds = expectedAttackMult(attackBonusOf(weapon), acOf(target));
+  const raw =
     expectedDamage(weapon.dmg) *
+      odds *
       rageDmgMult(self) *
       blessMult(self) *
       (stanceAttackMult(move, stance) + gangBonus(move, self, target, units)) *
       (1 - mitigation) *
       (target.exposed ? SELFLESS_VULN_MULT : 1) *
       rageVulnMult(target) +
-    heightDmgBonus(self, ctx.heightAt(from), move.range ?? weapon.range)
-  );
+    heightDmgBonus(self, ctx.heightAt(from), move.range ?? weapon.range);
+  // защиты цели по типу урона (план damage-types) — здесь и решается, каким
+  // оружием и каким приёмом бить именно этого врага
+  return applyDefenses(raw, dmgTypeOf(weapon, move), target.defenses).dmg;
 }
 
 /** Оружие кандидата-атаки; у не-атак и одиночного оружия — первое. */

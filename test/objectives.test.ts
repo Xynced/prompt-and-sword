@@ -50,6 +50,7 @@ function hero(archId: string, slot: number, rules: Rule[], spawn = PARTY_SPAWNS[
     weapons: a.weapons,
     active: a.active,
     passives: a.passives,
+    defenses: a.defenses,
     spawn: { ...spawn },
   };
 }

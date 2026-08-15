@@ -257,6 +257,7 @@ function heroSpec(archId: string, slot: number): UnitSpec {
     weapons: a.weapons,
     active: a.active,
     passives: a.passives,
+    defenses: a.defenses,
     spawn: { ...PARTY_SPAWNS[slot]! },
   };
 }

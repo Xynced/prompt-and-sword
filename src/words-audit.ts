@@ -643,6 +643,7 @@ function heroSpec(arch: HeroArchetype, slot: number, drafts: PhraseDraft[], ctx:
     weapons: arch.weapons,
     ...(arch.active ? { active: arch.active } : {}),
     ...(arch.passives ? { passives: arch.passives } : {}),
+    ...(arch.defenses ? { defenses: arch.defenses } : {}),
     spawn: { ...PARTY_SPAWNS[slot]! },
   };
 }
