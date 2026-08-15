@@ -6,6 +6,8 @@ import {
   describeDefenses,
   describeShield,
   describePassives,
+  describeReaction,
+  REACTION_RU,
   describeWeapons,
   driftQuip,
   lensQuip,
@@ -394,7 +396,8 @@ function abilityLine(archetypeId: string): string {
   // врага: игрок сравнивает КБ и спасброски, выбирая, кого куда ставить
   const def = arch.defenses ? ` · защита: ${describeDefenses(arch.defenses)}` : '';
   const sh = arch.shield ? ` · ${describeShield(arch.shield)}` : '';
-  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${def}${sh}${act}${pas}`;
+  const rc = arch.reaction ? ` · ${describeReaction(arch.reaction)}` : '';
+  return `${a.name} — ${a.desc} · оружие: ${describeWeapons(arch.weapons)}${def}${sh}${rc}${act}${pas}`;
 }
 
 const LENS_HINT: Record<LensId, string> = {
@@ -1110,6 +1113,38 @@ function buildFrames(
         u.hp = e.hp;
         pending?.parts.push(`напарывается на рипост ${nm(e.by)}: −${e.dmg}`);
         float(e.unit, `−${e.dmg} рипост`, 'dmg');
+        break;
+      }
+      case 'reactGuard':
+        pending?.parts.push(`${nm(e.unit)} встречает удар: ${REACTION_RU[e.kind]} (+${e.ac} к КБ)`);
+        float(e.unit, REACTION_RU[e.kind], 'buff');
+        break;
+      case 'reactHeal': {
+        const ally = units.get(e.target)!;
+        ally.hp = e.hp;
+        pending?.parts.push(`${nm(e.unit)} заступается — ${nm(e.target)}: +${e.amount}`);
+        float(e.target, `+${e.amount}`, 'heal');
+        break;
+      }
+      case 'reactStep': {
+        const chaser = units.get(e.unit)!;
+        chaser.x = e.to.x;
+        chaser.y = e.to.y;
+        pending?.parts.push(`${nm(e.unit)} шагает следом — ${nm(e.target)} не уйдёт`);
+        float(e.unit, 'не уйдёшь', 'buff');
+        break;
+      }
+      case 'reactStrike': {
+        // ответный удар случается в чужой ход, поэтому строка называет обоих:
+        // без имени бьющего игрок читает её как урон из ниоткуда
+        const victim = units.get(e.target)!;
+        victim.hp = e.targetHp;
+        pending?.parts.push(
+          e.dmg === 0
+            ? `${nm(e.unit)} бьёт вслед — ${nm(e.target)}: мимо`
+            : `${nm(e.unit)} бьёт вслед уходящему — ${nm(e.target)}: −${e.dmg}`,
+        );
+        float(e.target, e.dmg === 0 ? 'вслед — мимо' : `−${e.dmg} вслед`, e.dmg === 0 ? 'buff' : 'dmg');
         break;
       }
       case 'shieldBlock':

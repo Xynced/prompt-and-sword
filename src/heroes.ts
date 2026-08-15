@@ -1,6 +1,14 @@
 import type { Rule } from './ir.js';
 import type { PhraseDraft } from './constructor.js';
-import type { ActiveSpec, Defenses, PassiveSpec, Pos, ShieldSpec, WeaponSpec } from './types.js';
+import type {
+  ActiveSpec,
+  Defenses,
+  PassiveSpec,
+  Pos,
+  ReactionKind,
+  ShieldSpec,
+  WeaponSpec,
+} from './types.js';
 import { type Rng, shuffle } from './rng.js';
 
 /**
@@ -40,6 +48,8 @@ export interface HeroArchetype {
   defenses?: Defenses;
   /** Щит варианта класса (план armor): бонус к КБ на подъёме и блок по твёрдости. */
   shield?: ShieldSpec;
+  /** Реакция класса (план reactions): что герой делает в чужой ход; одна на раунд. */
+  reaction?: ReactionKind;
   ability: { name: string; desc: string };
   /** Врождённые правила способности; в source — префикс «способность:». */
   innate: Rule[];
@@ -79,6 +89,8 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // щит (план armor): поднятый даёт +2 к КБ и гасит 3 урона раз в раунд;
     // 10 вмятин — и щит разваливается, дальше Гром воюет одним мечом
     shield: { ac: 2, hardness: 3, hp: 10 },
+    // реакция воина (план reactions): уходящий из-под щита ловит удар
+    reaction: 'reactiveStrike',
     ability: { name: 'Оплот', desc: 'сам встаёт между врагом и самым раненым из своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'coverRetreat' }, weight: 0.9, source: 'способность: Оплот' }),
@@ -120,6 +132,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     // у него ещё имеет смысл, а «сдвоенный» уходит двумя бросками по одному
     // штрафу — стрелок-волюмщик против стрелка-снайпера Мары
     passives: { markOnHit: true, flurry: true },
+    reaction: 'disruptPrey',
     ability: { name: 'Подранок', desc: 'не может не добить раненого — и метит добычу для своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'weakest' }, weight: 0.8, source: 'способность: Подранок' }),
@@ -156,6 +169,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         ],
       },
     ],
+    reaction: 'arcaneShield',
     ability: { name: 'Чутьё', desc: 'отходит сама, когда дело пахнет жареным' },
     innate: [
       r({
@@ -194,6 +208,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
     passives: { steadfast: true },
     // щит-башня: гасит больше и держится дольше — на нём бастион и стоит
     shield: { ac: 2, hardness: 4, hp: 14 },
+    reaction: 'retributiveStrike',
     ability: { name: 'Глыба', desc: 'где поставили — там и стоит; глухая оборона даётся дёшево' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'holdPosition' }, weight: 0.8, source: 'способность: Глыба' }),
@@ -231,6 +246,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     passives: { sneak: { offGuard: 3 } },
+    reaction: 'nimbleDodge',
     ability: { name: 'Из-за спины', desc: 'заходит сбоку и бьёт вдвоём — в спину больнее прочих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'flank' }, weight: 1.2, source: 'способность: Из-за спины' }),
@@ -266,6 +282,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         ],
       },
     ],
+    reaction: 'deflectArrow',
     ability: { name: 'Выпад', desc: 'колет в размен, когда укол того стоит' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 0.9, source: 'способность: Выпад' }),
@@ -299,6 +316,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     active: { rage: { dmgMult: 1.3, vulnMult: 1.2 } },
+    reaction: 'noEscape',
     ability: { name: 'Ярость', desc: 'если бой затянулся — впадает в ярость' },
     innate: [
       r({
@@ -345,6 +363,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     passives: { shadow: { mult: 1.25 } },
+    reaction: 'disruptPrey',
     ability: { name: 'Скрадывание', desc: 'не выходит на линию вражеского выстрела — и бьёт из тени больнее' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'avoidLineOfFire' }, weight: 1, source: 'способность: Скрадывание' }),
@@ -378,6 +397,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     active: { heal: { amount: 10, range: 4, usesPerBattle: 2 } },
+    reaction: 'succor',
     ability: { name: 'Милосердие', desc: 'не бросит раненого — лечит, кому хуже всех' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'heal' }, weight: 1.2, source: 'способность: Милосердие' }),
@@ -411,6 +431,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     active: { bless: { dmgMult: 1.25, range: 3, usesPerBattle: 1 } },
+    reaction: 'succor',
     ability: { name: 'Благовест', desc: 'благословляет самого ударного из своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'bless' }, weight: 1.2, source: 'способность: Благовест' }),
@@ -445,6 +466,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         ],
       },
     ],
+    reaction: 'noEscape',
     ability: { name: 'Росчерк', desc: 'широкий взмах достаёт двоих, вставших в линию' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'trade' }, weight: 0.9, source: 'способность: Росчерк' }),
@@ -484,6 +506,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     active: { feint: {} },
+    reaction: 'nimbleDodge',
     ability: { name: 'Трюк', desc: 'обманным выпадом открывает врага под удары своих' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'feint' }, weight: 1.2, source: 'способность: Трюк' }),
@@ -523,6 +546,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         ],
       },
     ],
+    reaction: 'arcaneShield',
     ability: { name: 'Полымя', desc: 'выжигает зону, которая горит три хода подряд' },
     innate: [
       r({
@@ -568,6 +592,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         ],
       },
     ],
+    reaction: 'deflectArrow',
     ability: { name: 'Шквал', desc: 'град быстрых ударов вместо одного тяжёлого' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'strikeOften' }, weight: 1.2, source: 'способность: Шквал' }),
@@ -602,6 +627,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
       },
     ],
     passives: { retribution: { mult: 1.25 } },
+    reaction: 'retributiveStrike',
     ability: { name: 'Кара', desc: 'обидчик своих получает сполна' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'attacker' }, weight: 0.9, source: 'способность: Кара' }),
@@ -650,6 +676,7 @@ export const HERO_POOL: readonly HeroArchetype[] = [
         ],
       },
     ],
+    reaction: 'reactiveStrike',
     ability: { name: 'Вызов', desc: 'признаёт только самого опасного противника' },
     innate: [
       r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'mostDangerous' }, weight: 0.9, source: 'способность: Вызов' }),
