@@ -49,7 +49,8 @@ function firstDivergence(a: readonly BattleEvent[], b: readonly BattleEvent[]): 
 }
 
 function casualties(r: BattleResult): string[] {
-  return r.units.filter((u) => u.side === 'party' && !u.alive).map((u) => u.name);
+  // ушедший с поля (задача прорыва) жив — не потеря
+  return r.units.filter((u) => u.side === 'party' && !u.alive && !u.fled).map((u) => u.name);
 }
 
 export function sparring(

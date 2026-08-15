@@ -2,9 +2,9 @@ import { type Rng, mulberry32, shuffle } from './rng.js';
 import { AP_PER_TURN, COVER, FULL_COVER, HAZARD_DMG, RIPOSTE_DMG, SELFLESS_VULN_MULT, expectedDamage } from './tuning.js';
 import { applyLens } from './lens.js';
 import { type Rule, evalCondition, resolveAlly } from './ir.js';
-import { dist, hasLoS, inBounds, isFlanking, posEq } from './grid.js';
+import { dist, hasLoS, inBounds, isFlanking, posEq, posInZone } from './grid.js';
 import { type ArenaTag, type HazardKind, type Tile, pickTerrain } from './terrain.js';
-import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, Pos, Side, WeaponSpec } from './types.js';
+import type { ActiveSpec, AoeSpec, LensId, PassiveSpec, Pos, Side, WeaponSpec, Zone } from './types.js';
 import {
   type ActionKind,
   type Decision,
@@ -69,6 +69,8 @@ export interface UnitSpec {
   passives?: PassiveSpec;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
+  /** Неодушевлённый объект задачи (обоз, тотем): хода не получает, телом блокирует клетку. */
+  inert?: true;
 }
 
 /**
@@ -76,12 +78,29 @@ export interface UnitSpec {
  * killTarget — смерть цели решает бой мгновенно, остальных можно не трогать;
  * killBefore — то же, но если цель жива к началу раунда round, бой проигран;
  * survive — партия жива к концу раунда rounds = победа, врагов можно не бить.
+ *
+ * Волна 2 — задачи про место и подопечных (зона и трофей живут в BattleSetup):
+ * holdZone — удержать зону до конца раунда rounds; враг, стоящий в конце
+ *   раунда в зоне без единого нашего там же, закрепился = поражение;
+ * reachZone — count наших, закончивших движение в зоне, уходят с поля = победа;
+ * protect — смерть подопечного wardId = поражение; с rounds победа по таймеру
+ *   (дожил — выстояли), без rounds — обычная («перебей всех, сберёгши»);
+ * escort — подопечный wardId дошёл до зоны = победа, его смерть = поражение;
+ * carry — трофей (setup.prize) поднят и донесён носильщиком в зону = победа;
+ * intercept — цель targetId убита = победа (как killTarget), но добежала до
+ *   зоны = поражение.
  */
 export type Objective =
   | { kind: 'eliminate' }
   | { kind: 'killTarget'; targetId: string }
   | { kind: 'killBefore'; targetId: string; round: number }
-  | { kind: 'survive'; rounds: number };
+  | { kind: 'survive'; rounds: number }
+  | { kind: 'holdZone'; rounds: number }
+  | { kind: 'reachZone'; count: number }
+  | { kind: 'protect'; wardId: string; rounds?: number }
+  | { kind: 'escort'; wardId: string }
+  | { kind: 'carry' }
+  | { kind: 'intercept'; targetId: string };
 
 /** Волна подкреплений: выходит на поле в начале раунда и действует в нём же. */
 export interface Wave {
@@ -92,6 +111,10 @@ export interface Wave {
 export interface BattleSetup {
   objective?: Objective;
   waves?: Wave[];
+  /** Зона задачи: рубеж, выход, берег — смысл задаёт objective. */
+  zone?: Zone;
+  /** Клетка трофея задачи carry. */
+  prize?: Pos;
 }
 
 export type BattleEvent =
@@ -145,6 +168,12 @@ export type BattleEvent =
     }
   | { t: 'cover'; unit: string; level: number; ally?: string }
   | { t: 'wait'; unit: string }
+  /** Ушёл с поля через зону выхода (задача reachZone): жив, но боя для него больше нет. */
+  | { t: 'flee'; unit: string }
+  /** Поднял трофей задачи carry — стал носильщиком (тег carrier). */
+  | { t: 'pickup'; unit: string; at: Pos }
+  /** Носильщик пал — трофей падает на его клетку. */
+  | { t: 'drop'; unit: string; at: Pos }
   | { t: 'die'; unit: string }
   | { t: 'end'; winner: Side | 'draw'; rounds: number };
 
@@ -188,6 +217,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     aoe: spec.aoe ?? weapons?.find((w) => w.aoe)?.aoe,
     active: spec.active,
     passives: spec.passives,
+    ...(spec.inert ? { inert: true as const } : {}),
     compiled: applyLens(spec.lenses, spec.rules),
   };
 }
@@ -201,7 +231,15 @@ function assignSpawns(specs: readonly UnitSpec[], rng: Rng): Pos[] {
 
 function placeUnits(specs: readonly UnitSpec[], rng: Rng): Fighter[] {
   const spawns = assignSpawns(specs, rng);
-  return specs.map((s, i) => makeFighter(s, spawns[i]!));
+  // столкновение точек спавна (герой поставлен на клетку NPC сценария) —
+  // ближайшая свободная по кольцам, детерминированно
+  const placed: Fighter[] = [];
+  for (const [i, s] of specs.entries()) {
+    const want = spawns[i]!;
+    const pos = placed.some((u) => posEq(u.pos, want)) ? freeSpawnNear(want, placed, () => false) : want;
+    placed.push(makeFighter(s, pos));
+  }
+  return placed;
 }
 
 /**
@@ -244,18 +282,57 @@ export function runBattle(
   const units = placeUnits(specs, rng);
   const objective: Objective = setup.objective ?? { kind: 'eliminate' };
   const waves = setup.waves ?? [];
+  const zone = setup.zone;
   // цель kill-задачи помечается тегом quarry: слабый фоновый инстинкт в
-  // скоринге тянет к ней без слов (рамка плана objectives)
+  // скоринге тянет к ней без слов (рамка плана objectives); гонец intercept —
+  // та же жертва: убил — победа
   const quarryId =
-    objective.kind === 'killTarget' || objective.kind === 'killBefore' ? objective.targetId : undefined;
+    objective.kind === 'killTarget' || objective.kind === 'killBefore' || objective.kind === 'intercept'
+      ? objective.targetId
+      : undefined;
+  // подопечный задачи (обоз, чтец, старейшина): тег ward читают роль
+  // «подопечный задачи» и вражеский селектор «бить подопечного»
+  const wardId =
+    objective.kind === 'protect' || objective.kind === 'escort' ? objective.wardId : undefined;
   const tagQuarry = (u: Fighter): void => {
     if (u.id === quarryId && !u.tags.includes('quarry')) u.tags.push('quarry');
+    if (u.id === wardId && !u.tags.includes('ward')) u.tags.push('ward');
   };
   for (const u of units) tagQuarry(u);
+  // трофей задачи carry: лежит на клетке или едет на носильщике (тег carrier)
+  let prizeAt: Pos | null = objective.kind === 'carry' && setup.prize ? { ...setup.prize } : null;
+  let carrierId: string | null = null;
+  // раунд-дедлайн задачи — для условия «время на исходе»
+  const deadline =
+    objective.kind === 'killBefore' ? objective.round
+    : objective.kind === 'survive' ? objective.rounds
+    : objective.kind === 'holdZone' ? objective.rounds
+    : objective.kind === 'protect' ? objective.rounds
+    : undefined;
 
   // конец боя: смерть цели kill-задачи решает мгновенно; сторона без живых
-  // тел не проиграла, пока её волны ещё в пути
+  // тел не проиграла, пока её волны ещё в пути. Побочно (идемпотентно):
+  // павший носильщик роняет трофей — проверка стоит на каждом пути урона
   const checkEnd = (round: number): Side | undefined => {
+    if (carrierId) {
+      const carrier = units.find((u) => u.id === carrierId)!;
+      if (!carrier.alive) {
+        carrierId = null;
+        prizeAt = { ...carrier.pos };
+        carrier.tags = carrier.tags.filter((t) => t !== 'carrier');
+        events.push({ t: 'drop', unit: carrier.id, at: { ...carrier.pos } });
+      }
+    }
+    // смерть подопечного задачи — поражение, даже если врагов уже нет
+    if (wardId) {
+      const ward = units.find((u) => u.id === wardId);
+      if (ward && !ward.alive) return 'foe';
+    }
+    // прорыв: нужное число ушедших — победа (проверяется раньше «партия пала»:
+    // последний герой, шагнувший в зону, выигрывает, а не проигрывает)
+    if (objective.kind === 'reachZone' && units.filter((u) => u.fled).length >= objective.count) {
+      return 'party';
+    }
     if (!units.some((u) => u.alive && u.side === 'party')) return 'foe';
     if (quarryId) {
       const quarry = units.find((u) => u.id === quarryId);
@@ -265,6 +342,31 @@ export function runBattle(
     if (units.some((u) => u.alive && u.side === 'foe') || wavesPending) return undefined;
     return 'party';
   };
+
+  // сдвиг юнита на новую клетку (шаг, толчок, обмен) — сценарные последствия:
+  // подобрать трофей, уйти с поля через зону, довести подопечного, добежать
+  // гонцом. Возвращает победителя, если сдвиг решил бой
+  const afterMove = (u: Fighter): Side | undefined => {
+    if (!u.alive || u.inert) return undefined;
+    if (prizeAt && u.side === 'party' && posEq(u.pos, prizeAt)) {
+      prizeAt = null;
+      carrierId = u.id;
+      u.tags.push('carrier');
+      events.push({ t: 'pickup', unit: u.id, at: { ...u.pos } });
+    }
+    if (!zone || !posInZone(u.pos, zone)) return undefined;
+    if (objective.kind === 'reachZone' && u.side === 'party') {
+      // уход с поля: жив, но боя для него больше нет — alive=false без смерти
+      u.alive = false;
+      u.fled = true;
+      events.push({ t: 'flee', unit: u.id });
+      return undefined; // победу решит checkEnd по числу ушедших
+    }
+    if (objective.kind === 'carry' && carrierId === u.id) return 'party';
+    if (objective.kind === 'escort' && objective.wardId === u.id) return 'party';
+    if (objective.kind === 'intercept' && objective.targetId === u.id) return 'foe';
+    return undefined;
+  };
   // рабочая копия схемы; камни, совпавшие с чьей-то точкой спавна, убираем
   // (кастомные спавны тестов/сценариев)
   const layout = pickTerrain(seed, arena);
@@ -273,11 +375,22 @@ export function runBattle(
     const t = tiles[u.pos.y]?.[u.pos.x];
     if (t?.blocked) t.blocked = false;
   }
+  // клетка трофея — как точка спавна: камень схемы уступает сценарию
+  if (prizeAt) {
+    const t = tiles[prizeAt.y]?.[prizeAt.x];
+    if (t?.blocked) t.blocked = false;
+  }
   const terrain = { name: layout.name, scenario: layout.scenario, tiles };
   const blocked = (p: Pos): boolean => tiles[p.y]?.[p.x]?.blocked === true;
   const heightAt = (p: Pos): number => tiles[p.y]?.[p.x]?.height ?? 0;
-  // вид на землю для условий рельефа («я на высоте», «меня прижали»)
-  const ground = { heightAt, blocked };
+  // вид на бой для условий рельефа («я на высоте», «меня прижали») и задач
+  // («я на рубеже», «время на исходе»)
+  const ground = {
+    heightAt,
+    blocked,
+    ...(zone ? { zone } : {}),
+    ...(deadline !== undefined ? { deadline } : {}),
+  };
   const events: BattleEvent[] = [];
   for (const u of units) {
     events.push({ t: 'spawn', unit: u.id, name: u.name, side: u.side, pos: { ...u.pos }, maxHp: u.maxHp });
@@ -328,6 +441,9 @@ export function runBattle(
 
     for (const unit of order) {
       if (!unit.alive) continue;
+      // объект задачи (обоз, тотем) хода не получает: телом блокирует клетку,
+      // бьётся как юнит, но не действует
+      if (unit.inert) continue;
 
       // висящая зона ритуала бьёт в начале хода кастера — ДО сброса прикрытий:
       // «не могу выйти — прикрываюсь» работает, прикрытия жертв ещё активны.
@@ -376,8 +492,18 @@ export function runBattle(
       unit.interceptUsed = false;
 
       // поля дистанций считаем раз на ход: за ход этого юнита никто, кроме
-      // него, не двигается, поэтому кэш ctx остаётся верным для всех действий
-      const ctx = makeCtx(blocked, tiles);
+      // него, не двигается, поэтому кэш ctx остаётся верным для всех действий.
+      // Сценарная часть: зона и трофей — всем (слова читают их у обеих
+      // сторон), слабый инстинкт зоны — тем, кто «в курсе» задачи по рамке
+      // плана: партия в зонных задачах, носильщик с ношей
+      const zoneInstinct =
+        ((objective.kind === 'reachZone' || objective.kind === 'holdZone') && unit.side === 'party') ||
+        (objective.kind === 'carry' && carrierId === unit.id);
+      const ctx = makeCtx(blocked, tiles, {
+        ...(zone ? { zone } : {}),
+        ...(objective.kind === 'carry' ? { prize: { at: prizeAt, carrierId } } : {}),
+        ...(zoneInstinct ? { zoneInstinct: true } : {}),
+      });
       let ap = AP_PER_TURN;
       let over = false;
 
@@ -415,6 +541,11 @@ export function runBattle(
               unit.alive = false;
               events.push({ t: 'die', unit: unit.id });
             }
+          }
+          const aw = afterMove(unit);
+          if (aw) {
+            events.push({ t: 'end', winner: aw, rounds: round });
+            return { winner: aw, rounds: round, events, units, terrain };
           }
         } else if (isAttack(action) && targetId) {
           if (action === 'selflessAttack') unit.exposed = true;
@@ -555,6 +686,11 @@ export function runBattle(
                 events.push({ t: 'die', unit: target.id });
               }
             }
+            const aw = afterMove(target);
+            if (aw) {
+              events.push({ t: 'end', winner: aw, rounds: round });
+              return { winner: aw, rounds: round, events, units, terrain };
+            }
           }
         } else if (action === 'aoeRitual' && at) {
           // замах: зона объявлена, урон — в начале следующего хода кастера.
@@ -668,6 +804,13 @@ export function runBattle(
                 events.push({ t: 'die', unit: u.id });
               }
             }
+            for (const u of [unit, ally]) {
+              const aw = afterMove(u);
+              if (aw) {
+                events.push({ t: 'end', winner: aw, rounds: round });
+                return { winner: aw, rounds: round, events, units, terrain };
+              }
+            }
           }
         } else if (coverLevelOf(action) > 0) {
           unit.coverLevel = Math.max(unit.coverLevel, coverLevelOf(action));
@@ -687,6 +830,26 @@ export function runBattle(
 
     // задача «выстоять»: партия дожила до конца раунда rounds — победа
     if (objective.kind === 'survive' && round >= objective.rounds) {
+      events.push({ t: 'end', winner: 'party', rounds: round });
+      return { winner: 'party', rounds: round, events, units, terrain };
+    }
+    // задача «удержать зону»: враг, оставшийся в конце раунда в зоне без
+    // единого нашего там же, закрепился — поражение; дожили до раунда rounds
+    // с чистым (или спорным) рубежом — победа
+    if (objective.kind === 'holdZone' && zone) {
+      const foeIn = units.some((u) => u.alive && u.side === 'foe' && posInZone(u.pos, zone));
+      const partyIn = units.some((u) => u.alive && u.side === 'party' && posInZone(u.pos, zone));
+      if (foeIn && !partyIn) {
+        events.push({ t: 'end', winner: 'foe', rounds: round });
+        return { winner: 'foe', rounds: round, events, units, terrain };
+      }
+      if (round >= objective.rounds) {
+        events.push({ t: 'end', winner: 'party', rounds: round });
+        return { winner: 'party', rounds: round, events, units, terrain };
+      }
+    }
+    // задача «сберечь до раунда N»: подопечный дожил — выстояли
+    if (objective.kind === 'protect' && objective.rounds !== undefined && round >= objective.rounds) {
       events.push({ t: 'end', winner: 'party', rounds: round });
       return { winner: 'party', rounds: round, events, units, terrain };
     }

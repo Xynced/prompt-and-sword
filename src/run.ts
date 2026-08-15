@@ -392,11 +392,14 @@ export function playFight(state: RunState): BattleResult {
     }
     state.log.push('Канун битвы: лагерь и перевязка — в бой со свежими силами');
   }
+  const scenario = scenarioForNode(node);
   const result = runBattle(
     battleSeed(state),
-    [...heroSpecs(state), ...foeSpecs(state)],
+    // NPC сценария (обоз, чтец, старейшина) — между героями и врагами:
+    // сторона партии, но не герои забега
+    [...heroSpecs(state), ...(scenario?.allies?.() ?? []), ...foeSpecs(state)],
     arenaForNode(node),
-    scenarioForNode(node)?.setup,
+    scenario?.setup,
   );
 
   if (result.winner !== 'party') {
@@ -425,12 +428,15 @@ export function playFight(state: RunState): BattleResult {
 
   for (const u of result.units) {
     if (u.side !== 'party') continue;
-    const hero = state.heroes.find((h) => h.id === u.id)!;
-    if (!u.alive) {
+    // NPC сценария (обоз, чтец) — не герой забега: судьбы за пределами боя нет
+    const hero = state.heroes.find((h) => h.id === u.id);
+    if (!hero) continue;
+    if (!u.alive && !u.fled) {
       hero.alive = false;
       hero.hp = 0;
       state.log.push(`✝ ${hero.name} погибает (узел ${state.at})`);
     } else {
+      // ушедший с поля (задача прорыва) жив: hp на момент ухода + перевязка
       hero.hp = Math.min(u.hp + Math.ceil(hero.stats.maxHp * PATCH_UP), hero.stats.maxHp);
     }
   }

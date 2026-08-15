@@ -22,11 +22,14 @@ import {
   inBounds,
   isFlanking,
   posEq,
+  posInZone,
   posKey,
   reachableTiles,
+  zoneAnchor,
+  zoneDist,
 } from './grid.js';
 import type { HazardKind, Tile } from './terrain.js';
-import type { ActionKind, CombatUnit, Pos, WeaponSpec } from './types.js';
+import type { ActionKind, CombatUnit, Pos, WeaponSpec, Zone } from './types.js';
 import {
   ACTION_BIAS_WEIGHT,
   APPEAL_FLOOR,
@@ -51,6 +54,7 @@ import {
   TAUNT_PULL,
   TERRAIN_COVER,
   WEAK_ATK_MULT,
+  ZONE_BIAS,
   expectedDamage,
 } from './tuning.js';
 
@@ -528,9 +532,26 @@ export interface ScoreCtx {
   hazardAt: (p: Pos) => HazardKind | undefined;
   /** Путевая дистанция p → target по проходимым клеткам (кэш по цели). */
   distTo: (target: Pos, p: Pos) => number;
+  /** Зона задачи боя (план objectives, волна 2); без неё зонные слова молчат. */
+  zone?: Zone;
+  /** Трофей задачи: где лежит (at) или кто несёт (carrierId); только у задачи carry. */
+  prize?: { at: Pos | null; carrierId: string | null };
+  /** Слабый фоновый инстинкт зонной задачи для решающего юнита (ZONE_BIAS). */
+  zoneInstinct?: boolean;
 }
 
-export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN, tiles?: readonly Tile[][]): ScoreCtx {
+/** Сценарная часть контекста решения (план objectives, волна 2). */
+export interface MissionCtx {
+  zone?: Zone;
+  prize?: { at: Pos | null; carrierId: string | null };
+  zoneInstinct?: boolean;
+}
+
+export function makeCtx(
+  blocked: (p: Pos) => boolean = NO_TERRAIN,
+  tiles?: readonly Tile[][],
+  mission: MissionCtx = {},
+): ScoreCtx {
   const fields = new Map<string, Map<string, number>>();
   const highTiles: Pos[] = [];
   const roughTiles: Pos[] = [];
@@ -548,6 +569,7 @@ export function makeCtx(blocked: (p: Pos) => boolean = NO_TERRAIN, tiles?: reado
       }
     : UNIT_COST;
   return {
+    ...mission,
     blocked,
     heightAt,
     highTiles,
@@ -1014,6 +1036,37 @@ const CLEARLINE_PENALTY = 1.0;
  */
 const PIN_BONUS = 1.5;
 
+/**
+ * Премия «держать рубеж» клетке в зоне задачи (план objectives, волна 2).
+ * Уровень «держать высоту»: тот же позиционный вкус — стоять там, где велено,
+ * и не отдавать место; тяга снаружи мягче атакующей (0.35 < 0.6), чтобы
+ * защитник не бросал начатый размен на полпути к зоне.
+ */
+const HOLD_LINE_BONUS = 1.2;
+
+/**
+ * Тяга «уходить к выходу» за клетку путевой дистанции до зоны и премия уже
+ * дошедшему. Тяга равна атакующей (0.6): прорыв конкурирует с приказом «бей X»
+ * на равных весах, и что перевесит — решает игрок весом слова. Носильщик
+ * трофея несёт ношу той же тягой.
+ */
+const EVACUATE_PULL = 0.6;
+const EVACUATE_IN_BONUS = 1.5;
+
+/**
+ * Премия «нести трофей» шагу, поднимающему ношу (конец шага на её клетке).
+ * Уровень премии добивания: поднять трофей — событие боя, ради которого слово
+ * и берут; тяга к лежащей ноше чуть мягче атакующей — по дороге можно драться.
+ */
+const CARRY_PICKUP_BONUS = 2.5;
+const CARRY_PULL = 0.5;
+
+/** Путевая дистанция клетки до зоны задачи (0 — внутри); якорь — ближайшая клетка зоны. */
+function zonePathDist(z: Zone, self: Fighter, p: Pos, ctx: ScoreCtx): number {
+  if (posInZone(p, z)) return 0;
+  return Math.min(ctx.distTo(zoneAnchor(self.pos, z), p), MAX_DIST);
+}
+
 function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
   const risk = threatAt(ally.pos, ally, units) * (1 - effectiveCover(ally, units));
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
@@ -1178,7 +1231,7 @@ function ruleTarget(
   round: number,
   memo?: AppealMemo,
 ): { target: Fighter; appeal: number } | undefined {
-  const aimed = resolveSelector(sel, self, units) as Fighter | undefined;
+  const aimed = resolveSelector(sel, self, units, ctx) as Fighter | undefined;
   if (!aimed) return undefined;
   const aimedAppeal = targetAppeal(aimed, self, units, ctx, round, memo);
   let best = { target: aimed, appeal: aimedAppeal, prio: aimedAppeal };
@@ -1814,6 +1867,43 @@ function scorePreference(
       }
       return s * w;
     }
+    case 'holdLine': {
+      // держать рубеж: премия клетке в зоне задачи, тяга к зоне снаружи.
+      // Без зоны слово молчит — паттерн «держать высоту» на плоской арене
+      const z = ctx.zone;
+      if (!z) return 0;
+      const d = zonePathDist(z, self, cand.to, ctx);
+      if (d === 0) return HOLD_LINE_BONUS * w;
+      return -0.35 * d * w;
+    }
+    case 'evacuate': {
+      // уходить к выходу: пробиваться в зону задачи — тяга атакующей силы,
+      // бой по дороге не запрещён (подошедшего бьют, но крюков не делают)
+      const z = ctx.zone;
+      if (!z) return 0;
+      const d = zonePathDist(z, self, cand.to, ctx);
+      return (d === 0 ? EVACUATE_IN_BONUS : -EVACUATE_PULL * d) * w;
+    }
+    case 'carry': {
+      // нести трофей: ноша лежит — идти к ней и поднять (конец шага на её
+      // клетке); несу сам — тащить к зоне; несёт другой — слово молчит
+      // (охрану носильщика выражают другие слова)
+      const p = ctx.prize;
+      if (!p) return 0;
+      if (p.carrierId === self.id) {
+        const z = ctx.zone;
+        if (!z) return 0;
+        const d = zonePathDist(z, self, cand.to, ctx);
+        return (d === 0 ? EVACUATE_IN_BONUS : -EVACUATE_PULL * d) * w;
+      }
+      if (p.at) {
+        const d = Math.min(ctx.distTo(p.at, cand.to), MAX_DIST);
+        let s = -CARRY_PULL * d;
+        if (isMovement(cand.action) && posEq(cand.to, p.at)) s += CARRY_PICKUP_BONUS;
+        return s * w;
+      }
+      return 0;
+    }
   }
 }
 
@@ -1923,6 +2013,16 @@ export function scoreCandidate(
     }
   }
 
+  // зонная задача боя (план objectives, волна 2): слабый фон — премия клетке
+  // в зоне и мягкий градиент к ней; любое слово игрока перебивает (ZONE_BIAS)
+  if (ctx.zoneInstinct && ctx.zone) {
+    const d = zoneDist(cand.to, ctx.zone);
+    factors.push({
+      label: 'инстинкт:задача',
+      value: d === 0 ? ZONE_BIAS : (-ZONE_BIAS * Math.min(d, MAX_DIST)) / MAX_DIST,
+    });
+  }
+
   const hpFrac = self.hp / self.maxHp;
   const threat = threatAt(cand.to, self, units);
   if (threat > 0) {
@@ -1990,7 +2090,7 @@ export function scoreCandidate(
     // приказом «бей слабейшего» бьёт кого-то другого (план teamwork)
     let label = `правило:${rule.source}`;
     if (rule.then.kind === 'attack') {
-      const aimed = resolveSelector(rule.then.target, self, units);
+      const aimed = resolveSelector(rule.then.target, self, units, ctx);
       const aim = ruleTarget(rule.then.target, self, units, ctx, round, memo);
       if (aimed && aim && aim.target.id !== aimed.id) label += ` → ${aim.target.name} (кто доступен)`;
     }

@@ -5,6 +5,14 @@ export interface Pos {
   y: number;
 }
 
+/** Прямоугольная зона задачи боя (план objectives, волна 2): рубеж, выход, берег. */
+export interface Zone {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
 /** Что юнит может сделать за очко хода. Цены — `AP_COST`/`apCostFor` в scoring.ts. */
 export type ActionKind =
   | 'move'
@@ -208,4 +216,14 @@ export interface CombatUnit {
   lastAttackerId?: string;
   /** Телохранитель уже перехватил удар — до своего следующего хода (план защиты). */
   interceptUsed?: boolean;
+  /**
+   * Неодушевлённый объект задачи (план objectives, волна 2): обоз, тотем.
+   * Хода не получает вовсе; телом блокирует клетку, бьётся как юнит.
+   */
+  inert?: true;
+  /**
+   * Ушёл с поля через зону выхода (задачи reachZone): жив, но в бою больше
+   * не участвует — alive=false без события смерти, для итогов не потеря.
+   */
+  fled?: boolean;
 }
