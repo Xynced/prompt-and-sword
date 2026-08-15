@@ -36,7 +36,11 @@ export type SimpleConditionDraft =
   | { id: 'cond.guarded' }
   | { id: 'cond.allySurrounded' }
   | { id: 'cond.alliesFocusing' }
-  | { id: 'cond.spreadThin' };
+  | { id: 'cond.spreadThin' }
+  | { id: 'cond.lull' }
+  | { id: 'cond.onHighGround' }
+  | { id: 'cond.cornered' }
+  | { id: 'cond.inFormation' };
 
 /**
  * Условие фразы: простое — или один комбинатор (глубокие чипсы): «и» (and,
@@ -63,7 +67,9 @@ export type SelectorDraft =
   | 'sel.healer'
   | 'sel.caster'
   | 'sel.straggler'
-  | 'sel.tormentor';
+  | 'sel.tormentor'
+  | 'sel.heckler'
+  | 'sel.unengaged';
 
 export type PreferenceDraft =
   | { id: 'act.attack'; target: SelectorDraft }
@@ -137,6 +143,8 @@ const SELECTOR_MAP: Record<SelectorDraft, Selector> = {
   'sel.caster': 'caster',
   'sel.straggler': 'straggler',
   'sel.tormentor': 'tormentor',
+  'sel.heckler': 'heckler',
+  'sel.unengaged': 'unengaged',
 };
 
 /** Слово-роль за ссылкой на своего; имя героя слова не стоит. */
@@ -251,6 +259,14 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
       return 'если наши навалились: ';
     case 'cond.spreadThin':
       return 'если мы растянулись: ';
+    case 'cond.lull':
+      return 'пока затишье: ';
+    case 'cond.onHighGround':
+      return 'пока я на высоте: ';
+    case 'cond.cornered':
+      return 'если меня прижали: ';
+    case 'cond.inFormation':
+      return 'пока строй сомкнут: ';
     case 'and':
       return c.conds.map((s) => condText(s, nm)).join('');
     case 'or':
@@ -418,6 +434,14 @@ function compileCondition(c: ConditionDraft): Condition {
       return { kind: 'alliesFocusing' };
     case 'cond.spreadThin':
       return { kind: 'spreadThin' };
+    case 'cond.lull':
+      return { kind: 'lull' };
+    case 'cond.onHighGround':
+      return { kind: 'onHighGround' };
+    case 'cond.cornered':
+      return { kind: 'cornered' };
+    case 'cond.inFormation':
+      return { kind: 'inFormation' };
     case 'and':
       return { kind: 'and', conds: c.conds.map((s) => compileCondition(s)) };
     case 'or':

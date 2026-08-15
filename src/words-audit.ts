@@ -531,6 +531,73 @@ export const AUDIT_ENTRIES: AuditEntry[] = [
       w2({ condition: { id: 'cond.spreadThin' }, preference: { id: 'act.regroup' } }),
     ]),
   },
+  // ---- четвёртая партия слов: «чтение боя» ----
+  {
+    word: 'cond.lull',
+    label: 'затишье → лечить (носитель исцеления)',
+    extra: ['act.heal'],
+    carrier: 'heal',
+    drafts: everyone(() => [w2({ condition: { id: 'cond.lull' }, preference: { id: 'act.heal' } })]),
+  },
+  {
+    word: 'cond.lull',
+    label: 'затишье → смыкать строй (все)',
+    extra: ['act.regroup'],
+    drafts: everyone(() => [w2({ condition: { id: 'cond.lull' }, preference: { id: 'act.regroup' } })]),
+  },
+  {
+    word: 'cond.onHighGround',
+    label: 'высота + на высоте → бить наверняка (стрелки)',
+    extra: ['space.highGround', 'act.strikeHard'],
+    drafts: forRoles(['ranged'], () => [
+      w2({ condition: always, preference: { id: 'space.highGround' } }),
+      w2({ condition: { id: 'cond.onHighGround' }, preference: { id: 'act.strikeHard' } }),
+    ]),
+  },
+  {
+    word: 'cond.cornered',
+    label: 'прижали → бить отчаянно (все)',
+    extra: ['act.strikeDesperate'],
+    drafts: everyone(() => [
+      w2({ condition: { id: 'cond.cornered' }, preference: { id: 'act.strikeDesperate' } }),
+    ]),
+  },
+  {
+    word: 'cond.cornered',
+    label: 'прижали → глухая оборона (все)',
+    extra: ['act.brace'],
+    drafts: everyone(() => [w2({ condition: { id: 'cond.cornered' }, preference: { id: 'act.brace' } })]),
+  },
+  {
+    word: 'cond.inFormation',
+    label: 'строй сомкнут → размен (ближники)',
+    extra: ['act.trade'],
+    drafts: forRoles(['front', 'melee'], () => [
+      w2({ condition: { id: 'cond.inFormation' }, preference: { id: 'act.trade' } }),
+    ]),
+  },
+  {
+    word: 'cond.inFormation',
+    label: 'комбо: смыкать строй + строй сомкнут → размен (ближники)',
+    extra: ['act.regroup', 'act.trade'],
+    drafts: forRoles(['front', 'melee'], () => [
+      w2({ condition: always, preference: { id: 'act.regroup' } }),
+      w2({ condition: { id: 'cond.inFormation' }, preference: { id: 'act.trade' } }),
+    ]),
+  },
+  // в составах аудита крикунов нет — селектор читается как «ближайший»;
+  // ценность слова меряется смоуком узла задиры (test/words-reading.test.ts)
+  { word: 'sel.heckler', label: 'бить крикуна (все)', drafts: everyone(() => [atk('sel.heckler')]) },
+  { word: 'sel.unengaged', label: 'стрелкам — бить свободного', drafts: forRoles(['ranged'], () => [atk('sel.unengaged')]) },
+  {
+    word: 'sel.unengaged',
+    label: 'комбо: ближники связывают, стрелки бьют свободного',
+    extra: ['act.pin'],
+    drafts: (hero) =>
+      hero.role === 'ranged'
+        ? [atk('sel.unengaged')]
+        : [w2({ condition: always, preference: { id: 'act.pin' } })],
+  },
 ];
 
 // ---- Сборка спеков и прогон ----

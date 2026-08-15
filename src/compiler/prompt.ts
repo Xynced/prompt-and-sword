@@ -8,7 +8,7 @@ import type { LensId } from '../types.js';
  */
 
 /** Версия промпта — входит в ключ кэша: правка промпта инвалидирует кэш. */
-export const PROMPT_VERSION = 20;
+export const PROMPT_VERSION = 21;
 
 const CONCEPT_SPECS: Record<ConceptId, string> = {
   'cond.hpBelow':
@@ -137,6 +137,15 @@ const CONCEPT_SPECS: Record<ConceptId, string> = {
   'sel.allyCaster': '{"role":"caster"} — ссылка на своего: наш носитель площадного оружия',
   'sel.allyHealer': '{"role":"healer"} — ссылка на своего: наш целитель',
   'cond.spreadThin': '{"id":"cond.spreadThin"} — условие: мы растянулись — кто-то из наших стоит без соседа-своего',
+  'cond.lull':
+    '{"id":"cond.lull"} — условие: затишье — ни один враг не дотянется до меня за свой ход (окно для лечения, замаха, перестроения); отрицание cond.underCharge',
+  'cond.onHighGround': '{"id":"cond.onHighGround"} — условие: я стою на высоте (холм); на плоской арене всегда ложно',
+  'cond.cornered':
+    '{"id":"cond.cornered"} — условие: меня прижали — свободных смежных клеток почти не осталось (границы, камень, тела)',
+  'cond.inFormation': '{"id":"cond.inFormation"} — условие: строй сомкнут — каждый из наших стоит с соседом-своим (зеркало cond.spreadThin)',
+  'sel.heckler': '"sel.heckler" — селектор врага: вражеский крикун — кто вызывает наших на себя (или ближайший, если такого нет)',
+  'sel.unengaged':
+    '"sel.unengaged" — селектор врага: свободный — которого не держит вплотную никто из наших, кроме меня (или ближайший, если все разобраны)',
 };
 
 export interface PromptContext {
