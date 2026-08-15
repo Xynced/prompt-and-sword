@@ -69,10 +69,10 @@ describe('цена дороги: доступность цели', () => {
     expect(targetAppeal(grom, foe, units, ctx)).toBe(1);
   });
 
-  it('заслон снят: страж уже перехватывал или его правило не горит', () => {
+  it('заслон снят: страж уже потратил реакцию или его правило не горит', () => {
     const foe = fighter('foe', 'foe', { x: 5, y: 5 }, {}, [atkWeakest]);
     const lia = fighter('lia', 'party', { x: 7, y: 5 }, { hp: 10 });
-    const spent = fighter('grom', 'party', { x: 7, y: 6 }, { interceptUsed: true }, [protectLia]);
+    const spent = fighter('grom', 'party', { x: 7, y: 6 }, { reactionUsed: true }, [protectLia]);
     expect(targetAppeal(lia, foe, [foe, lia, spent], ctx)).toBe(1);
     // условное «прикрывай, пока цел» при hp ниже порога не горит — заслона нет
     const hurt = fighter(

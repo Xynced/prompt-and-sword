@@ -491,14 +491,18 @@ describe('смоуки волны 2: наив vs контр', () => {
   });
 
   it('до рассвета: наив тонет в волнах, строй с обороной выстаивает', () => {
-    const naive = smokeSweep({ kind: 'fight', layer: 2, slot: 3 }, NAIVE);
+    // выборка шире обычной: с единой реакцией (план reactions) глухая оборона
+    // рипостит раз в раунд, а не каждому подошедшему, и на 20 сидах запас
+    // съедает шум. На 60 сидах разрыв прежний по смыслу: 23 победы наива
+    // против 48 у строя (было 60 — оборона косила всю волну сразу)
+    const naive = smokeSweep({ kind: 'fight', layer: 2, slot: 3 }, NAIVE, 60);
     const wallP = smokeSweep({ kind: 'fight', layer: 2, slot: 3 }, [
       [regroup, braceSurrounded, atkNearest],
       [regroup, atkNearest],
       [regroup, braceSurrounded, atkNearest],
-    ]);
-    expect(naive.wins).toBeLessThanOrEqual(12);
-    expect(wallP.wins).toBeGreaterThanOrEqual(17);
+    ], 60);
+    expect(naive.wins).toBeLessThanOrEqual(30);
+    expect(wallP.wins).toBeGreaterThanOrEqual(45);
     expect(wallP.deaths).toBeLessThan(naive.deaths);
   });
 

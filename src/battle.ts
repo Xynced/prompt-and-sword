@@ -12,6 +12,11 @@ import {
   RIPOSTE_DMG,
   SAVE_DC,
   SELFLESS_VULN_MULT,
+  ARCANE_SHIELD_AC,
+  ARCANE_SHIELD_SOAK,
+  DEFLECT_AC,
+  DODGE_AC,
+  SUCCOR_HEAL,
   applyDefenses,
   d20,
   degreeOf,
@@ -31,6 +36,7 @@ import type {
   Persist,
   PersistSpec,
   Pos,
+  ReactionKind,
   ShieldSpec,
   Side,
   WeaponSpec,
@@ -70,6 +76,7 @@ import {
   isAttack,
   isMovement,
   makeCtx,
+  movesOf,
   stanceAttackMult,
   stanceGuard,
   blessMult,
@@ -117,6 +124,8 @@ export interface UnitSpec {
   defenses?: Defenses;
   /** Щит (план armor): «поднять щит» и блок по твёрдости — снаряжение танков. */
   shield?: ShieldSpec;
+  /** Реакция (план reactions): что юнит делает в чужой ход; одна на раунд. */
+  reaction?: ReactionKind;
   /** Фиксированная точка спавна; у врагов без неё слот выбирается по сиду. */
   spawn?: Pos;
   /** Неодушевлённый объект задачи (обоз, тотем): хода не получает, телом блокирует клетку. */
@@ -227,6 +236,27 @@ export type BattleEvent =
   | { t: 'shieldBreak'; unit: string }
   /** Рипост: ближний удар по глухой обороне ранит бьющего (`unit`); by — оборонявшийся. */
   | { t: 'riposte'; unit: string; by: string; dmg: number; hp: number }
+  /** Защитная реакция (план reactions): `unit` уворачивается/отбивает/ставит щит против удара `by`. */
+  | { t: 'reactGuard'; unit: string; by: string; kind: ReactionKind; ac: number }
+  /** Заступление жреца (план reactions): `unit` вливает `amount` hp своему `target` прямо в чужой ход. */
+  | { t: 'reactHeal'; unit: string; target: string; amount: number; hp: number }
+  /** «Не уйдёшь» (план reactions): `unit` шагает следом за уходящим `target`, держа контакт. */
+  | { t: 'reactStep'; unit: string; target: string; to: Pos }
+  /**
+   * Ответный удар (план reactions): `unit` бьёт `target`, который уходил
+   * бегом из-под его носа. Тратит реакцию бьющего; промах — `dmg: 0`.
+   */
+  | {
+      t: 'reactStrike';
+      unit: string;
+      target: string;
+      dmg: number;
+      targetHp: number;
+      move?: string;
+      dmgType?: DamageType;
+      soak?: DamageSoak;
+      outcome?: AttackOutcome;
+    }
   | {
       t: 'aoeHit';
       unit: string;
@@ -313,6 +343,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     passives: spec.passives,
     ...(spec.defenses ? { defenses: spec.defenses } : {}),
     ...(spec.shield ? { shield: spec.shield } : {}),
+    ...(spec.reaction ? { reaction: spec.reaction } : {}),
     ...(spec.inert ? { inert: true as const } : {}),
     compiled: applyLens(spec.lenses, spec.rules),
   };
@@ -378,15 +409,16 @@ function freeSpawnNear(want: Pos, units: readonly Fighter[], blocked: (p: Pos) =
 /** Детерминированный бой: тот же seed + те же принципы = тот же лог событий. */
 /**
  * Щит-блок (план armor): пока щит поднят и цел, прошедший удар гасится на его
- * твёрдость — раз в раунд (в pf2e это реакция, у нас — тот же флаг, что у
- * перехвата). Погашенное копится вмятинами: набрав запас, щит разваливается,
- * и танк доигрывает бой без бонуса и без блока. Возвращает урон после блока.
+ * твёрдость. В pf2e это реакция — с плана reactions она и списывается с общей
+ * реакции юнита, поэтому блок спорит за неё с перехватом и рипостом.
+ * Погашенное копится вмятинами: набрав запас, щит разваливается, и танк
+ * доигрывает бой без бонуса и без блока. Возвращает урон после блока.
  */
 function shieldBlock(target: Fighter, attackerId: string, dmg: number, events: BattleEvent[]): number {
-  if (dmg <= 0 || target.blockUsed || !shieldRaised(target)) return dmg;
+  if (dmg <= 0 || target.reactionUsed || !shieldRaised(target)) return dmg;
   const shield = target.shield!;
   const absorbed = Math.min(shield.hardness, dmg);
-  target.blockUsed = true;
+  target.reactionUsed = true;
   target.shieldDents = (target.shieldDents ?? 0) + absorbed;
   events.push({ t: 'shieldBlock', unit: target.id, by: attackerId, absorbed });
   if (target.shieldDents >= shield.hp) {
@@ -548,6 +580,195 @@ export function runBattle(
     if (current) current.dmg = dmg;
     else (target.persist ??= []).push({ type, dmg });
     events.push({ t: 'persistStart', unit: by.id, target: target.id, dmgType: type, dmg });
+  };
+
+  /**
+   * Защитная реакция цели (план reactions): уворот плутовки, «отбить стрелу»
+   * монаха, «щит» волшебницы. Тратится на **первый** удар, который цель
+   * встречает с целой реакцией: гадать «поберечь ли» сим не умеет и не
+   * должен — в pf2e решение тоже принимается до броска, вслепую.
+   *
+   * Возвращает бонус к КБ против этого броска и сколько урона снимется, если
+   * удар всё же дойдёт. Бонус обстоятельств, поэтому с укрытием и щитом
+   * складываться не может — вызывающий берёт высший.
+   */
+  const defensiveReaction = (
+    target: Fighter,
+    by: Fighter,
+    ranged: boolean,
+  ): { ac: number; soak: number } => {
+    const none = { ac: 0, soak: 0 };
+    if (!target.alive || target.inert || target.reactionUsed) return none;
+    const kind = target.reaction;
+    let ac = 0;
+    let soak = 0;
+    if (kind === 'nimbleDodge') ac = DODGE_AC;
+    else if (kind === 'deflectArrow' && ranged) ac = DEFLECT_AC;
+    else if (kind === 'arcaneShield' && !target.arcaneShieldSpent) {
+      ac = ARCANE_SHIELD_AC;
+      soak = ARCANE_SHIELD_SOAK;
+      target.arcaneShieldSpent = true;
+    }
+    if (ac === 0) return none;
+    target.reactionUsed = true;
+    events.push({ t: 'reactGuard', unit: target.id, by: by.id, kind: kind!, ac });
+    return { ac, soak };
+  };
+
+  /**
+   * Кто вступается за раненого (план reactions): паладин бьёт обидчика
+   * смежного своего, жрец штопает пострадавшего. Обе реакции срабатывают
+   * после того, как удар дошёл, — ответить есть на что.
+   */
+  const avengeAlly = (victim: Fighter, attacker: Fighter, round: number, apAt: number): void => {
+    const helpers = units
+      .filter(
+        (u) =>
+          u.alive &&
+          !u.inert &&
+          u !== victim &&
+          u.side === victim.side &&
+          !u.reactionUsed &&
+          (u.reaction === 'retributiveStrike' || u.reaction === 'succor'),
+      )
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    for (const h of helpers) {
+      if (h.reaction === 'retributiveStrike') {
+        // воздаяние достаёт только того, до кого паладин дотягивается сам:
+        // он стоит плечом к плечу с раненым и в досягаемости обидчика
+        if (dist(h.pos, victim.pos) !== 1 || !attacker.alive) continue;
+        if (dist(h.pos, attacker.pos) > h.range) continue;
+        reactiveStrike(h, attacker, round, apAt);
+        return;
+      }
+      // заступление: лечить нечего, если рана уже смертельна или её нет
+      if (!victim.alive || victim.hp >= victim.maxHp) continue;
+      if (dist(h.pos, victim.pos) > h.range) continue;
+      h.reactionUsed = true;
+      const amount = Math.min(SUCCOR_HEAL, victim.maxHp - victim.hp);
+      victim.hp += amount;
+      events.push({ t: 'reactHeal', unit: h.id, target: victim.id, amount, hp: victim.hp });
+      return;
+    }
+  };
+
+  /**
+   * Ответный удар (план reactions): носитель `reactiveStrike` бьёт того, кто
+   * уходит бегом из-под его носа. Тратит реакцию — по одному удару на
+   * реагирующего.
+   *
+   * Удар намеренно простой: один бросок ближним приёмом полного темпа, без
+   * райдеров (ни толчка, ни отскока, ни второй цели, ни тления) и **без MAP**
+   * — в pf2e штраф обнуляется к чужому ходу, поэтому реакция и не считается
+   * в `strikes`. Бросок берётся тем же хешем ключа ситуации, что и обычные
+   * удары: последовательность rng бой не сдвигает.
+   */
+  const reactiveStrike = (
+    by: Fighter,
+    victim: Fighter,
+    round: number,
+    apAt: number,
+    prefer: 'melee' | 'ranged' = 'melee',
+  ): void => {
+    by.reactionUsed = true;
+    const weapon =
+      prefer === 'ranged'
+        ? weaponsOf(by).find((w) => w.range > 1) ?? weaponsOf(by)[0]!
+        : weaponsOf(by).find((w) => w.range === 1) ?? weaponsOf(by)[0]!;
+    const moves = movesOf(weapon);
+    const move = moves.find((m) => m.slot === 'attack' && !m.ap) ?? moves[0]!;
+    const dmgType = dmgTypeOf(weapon, move);
+    // смежный удар — каменного укрытия между клетками быть не может, поэтому
+    // оборона цели считается без террейнового канала; своей защитной реакцией
+    // жертва вправе закрыться и здесь, если та ещё цела
+    const react = defensiveReaction(victim, by, (move.range ?? weapon.range) > 1);
+    const guard = Math.max(guardAgainst(victim, units, 0), react.ac);
+    const natural = d20(seed, by.id, round, apAt, `react:${victim.id}`);
+    const degree = degreeOf(natural, natural + attackBonusOf(weapon), acOf(victim) + guard);
+    const swing = ATTACK_MULT[degree];
+    if (swing === 0) {
+      events.push({
+        t: 'reactStrike',
+        unit: by.id,
+        target: victim.id,
+        dmg: 0,
+        targetHp: victim.hp,
+        ...(weapon.moves ? { move: move.name } : {}),
+        ...(dmgType ? { dmgType } : {}),
+        outcome: 'miss',
+      });
+      return;
+    }
+    const raw = strikeDamage(weapon.dmg * rageDmgMult(by) * blessMult(by) * move.mult * swing);
+    const bite = applyDefenses(
+      Math.max(1, Math.round(raw * (victim.exposed ? SELFLESS_VULN_MULT : 1) * rageVulnMult(victim))),
+      dmgType,
+      victim.defenses,
+    );
+    // жертва вправе закрыться своей реакцией — щитом (правило pf2e: блок
+    // работает и в чужой ход, если реакция цела)
+    const dmg = shieldBlock(victim, by.id, Math.max(0, bite.dmg - react.soak), events);
+    victim.hp = Math.max(0, victim.hp - dmg);
+    victim.lastAttackerId = by.id;
+    events.push({
+      t: 'reactStrike',
+      unit: by.id,
+      target: victim.id,
+      dmg,
+      targetHp: victim.hp,
+      ...(weapon.moves ? { move: move.name } : {}),
+      ...(dmgType ? { dmgType } : {}),
+      ...(bite.soak ? { soak: bite.soak } : {}),
+      ...(degree === 'critSuccess' ? { outcome: 'crit' as const } : {}),
+    });
+    noteQuench(victim, dmgType, dmg);
+    if (victim.hp === 0) {
+      victim.alive = false;
+      events.push({ t: 'die', unit: victim.id });
+    }
+  };
+
+  /**
+   * Кто реагирует на уход бегом (план reactions). Три семейства читают один
+   * триггер по-разному: воин и варвар — из-под своего носа (смежность
+   * потеряна), следопыт — по помеченной добыче, уходящей в его дальности.
+   * Порядок по id: спор реагирующих обязан быть детерминированным.
+   */
+  const provokedBy = (mover: Fighter, to: Pos): Fighter[] =>
+    units
+      .filter((u) => {
+        if (!u.alive || u.inert || u.side === mover.side || u.reactionUsed) return false;
+        const left = dist(u.pos, mover.pos) === 1 && dist(u.pos, to) > 1;
+        if (u.reaction === 'reactiveStrike' || u.reaction === 'noEscape') return left;
+        if (u.reaction !== 'disruptPrey') return false;
+        // «сорвать добычу»: своя помеченная цель уходит дальше — выстрел вслед,
+        // пока она в дальности и на виду
+        return (
+          mover.tags.includes('marked') &&
+          dist(u.pos, to) > dist(u.pos, mover.pos) &&
+          dist(u.pos, mover.pos) <= rangeAt(u, heightAt(u.pos)) &&
+          hasLoS(u.pos, mover.pos, blocked)
+        );
+      })
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+
+  /**
+   * «Не уйдёшь» (варвар): вместо удара — шаг следом. Именно шаг, а не бросок
+   * во всю прыть: полноценный Stride в чужой ход перевернул бы позиционную
+   * игру и обошёл бы экономику движения целиком. Занятая, каменная или уже
+   * бессмысленная клетка — реакция не тратится.
+   */
+  const followRunner = (by: Fighter, runner: Fighter): boolean => {
+    const step = {
+      x: by.pos.x + Math.sign(runner.pos.x - by.pos.x),
+      y: by.pos.y + Math.sign(runner.pos.y - by.pos.y),
+    };
+    if (posEq(step, by.pos) || !inBounds(step) || blocked(step)) return false;
+    if (units.some((u) => u.alive && posEq(u.pos, step))) return false;
+    by.reactionUsed = true;
+    by.pos = { ...step };
+    events.push({ t: 'reactStep', unit: by.id, target: runner.id, to: { ...step } });
+    return true;
   };
 
   // тик тления в конце хода жертвы и флэт-чек гашения — порядок pf2e.
@@ -732,9 +953,10 @@ export function runBattle(
       unit.guard = 0;
       unit.guardFrom = undefined;
       unit.guardedBy = undefined;
-      unit.blockUsed = false;
       unit.exposed = false;
-      unit.interceptUsed = false;
+      // одна реакция между своими ходами (план reactions): её тратят блок
+      // щита, перехват телохранителя и рипост глухой обороны
+      unit.reactionUsed = false;
       // MAP считается от ударов **этого** хода (план action-economy, волна 6)
       unit.strikes = 0;
 
@@ -759,6 +981,8 @@ export function runBattle(
       );
       let ap = AP_PER_TURN;
       let over = false;
+      // варвары, догоняющие беглеца: собираются до сдвига, шагают после
+      let pendingChase: Fighter[] = [];
 
       while (ap > 0 && !over && unit.alive) {
         const decision = decide(unit, units, round, blocked, ap, ctx);
@@ -786,8 +1010,37 @@ export function runBattle(
         ap -= candApCost(decision.chosen, unit);
 
         if (isMovement(action)) {
+          // ответный удар (план reactions): бегом из-под носа ближника —
+          // под удар. Шаг (`carefulStep`, pf2e Step), обмен местами и отлёт
+          // от толчка не провоцируют: уходить можно, но медленно или дорого.
+          // Удар разрешается ДО сдвига — павший остаётся там, где его застали
+          if (action === 'move') {
+            // ударные реакции разрешаются ДО сдвига (павший остаётся там, где
+            // его застали), а погоня варвара — ПОСЛЕ: пока беглец не сошёл с
+            // клетки, шагать за ним некуда
+            const chasers: Fighter[] = [];
+            for (const foe of provokedBy(unit, to)) {
+              if (foe.reaction === 'noEscape') {
+                chasers.push(foe);
+                continue;
+              }
+              reactiveStrike(foe, unit, round, apAt, foe.reaction === 'disruptPrey' ? 'ranged' : 'melee');
+              if (!unit.alive) break;
+            }
+            pendingChase = unit.alive ? chasers : [];
+            if (!unit.alive) {
+              const w = checkEnd(round);
+              if (w) {
+                events.push({ t: 'end', winner: w, rounds: round });
+                return { winner: w, rounds: round, events, units, terrain };
+              }
+              continue;
+            }
+          }
           events.push({ t: 'move', unit: unit.id, from: { ...unit.pos }, to: { ...to } });
           unit.pos = { ...to };
+          for (const chaser of pendingChase) followRunner(chaser, unit);
+          pendingChase = [];
           // опасная клетка бьёт закончившего на ней шаг; осторожный шаг не
           // будит опасность, проход насквозь безопасен. Без rng — фиксированный
           const hz = action === 'move' ? tiles[to.y]?.[to.x]?.hazard : undefined;
@@ -825,7 +1078,7 @@ export function runBattle(
                   g.alive &&
                   g !== aimed &&
                   g.side === aimed.side &&
-                  !g.interceptUsed &&
+                  !g.reactionUsed &&
                   dist(g.pos, aimed.pos) === 1 &&
                   g.compiled.rules.some(
                     (rl) =>
@@ -837,7 +1090,7 @@ export function runBattle(
               .sort((a, b) => (a.id < b.id ? -1 : 1))[0];
             const target = guardian ?? aimed;
             if (guardian) {
-              guardian.interceptUsed = true;
+              guardian.reactionUsed = true;
               events.push({ t: 'intercept', unit: guardian.id, target: aimed.id });
             }
             const allyPositions = units
@@ -860,10 +1113,18 @@ export function runBattle(
             // оборона цели (план armor) — бонус обстоятельств к её КБ: прикрытие,
             // глухая оборона, щит союзника и каменное укрытие в одной валюте
             // (высший, не сумма), пирс приёма его режет
-            const guard = stanceGuard(
-              guardAgainst(target, units, ctx.coverAcFrom(unit.pos, target.pos)),
-              move,
-              unit.stance,
+            // защитная реакция цели (план reactions) — уворот, отбитая стрела,
+            // щит волшебницы: бонус обстоятельств, поэтому не складывается с
+            // укрытием и щитом (берётся высший), и пирс приёма его не режет —
+            // нырок не пробивают тем, чем пробивают камень
+            const react = defensiveReaction(target, unit, mRange > 1);
+            const guard = Math.max(
+              stanceGuard(
+                guardAgainst(target, units, ctx.coverAcFrom(unit.pos, target.pos)),
+                move,
+                unit.stance,
+              ),
+              react.ac,
             );
             // MAP (план action-economy, волна 6): штраф считается от ударов,
             // уже сделанных за этот ход, и один на всё действие — оба удара
@@ -914,7 +1175,8 @@ export function runBattle(
                 dmgType,
                 target.defenses,
               );
-              const dmg = shieldBlock(target, unit.id, bite.dmg, events);
+              // щит волшебницы гасит сверх бонуса — как твёрдость щита танка
+              const dmg = shieldBlock(target, unit.id, Math.max(0, bite.dmg - react.soak), events);
               target.hp = Math.max(0, target.hp - dmg);
               target.lastAttackerId = unit.id;
               events.push({
@@ -932,6 +1194,9 @@ export function runBattle(
                 ...(degree === 'critSuccess' ? { outcome: 'crit' as const } : {}),
               });
               noteQuench(target, dmgType, dmg);
+              // вступиться за своего (план reactions): паладин бьёт обидчика,
+              // жрец штопает раненого — и то и другое стоит их реакции
+              if (dmg > 0) avengeAlly(target, unit, round, apAt);
               if (target.hp === 0) {
                 target.alive = false;
                 events.push({ t: 'die', unit: target.id });
@@ -1047,13 +1312,16 @@ export function runBattle(
             // рипост (план защиты): ближний удар по живому в глухой обороне
             // ранит бьющего — фиксированно, без rng (прецедент шипов).
             // Расчётливый удар (стойка «наверняка» или sure/pierce приёма)
-            // рипоста не ловит
+            // рипоста не ловит. С плана reactions рипост стоит реакции: второй
+            // за раунд ближник по той же обороне уходит безнаказанным
             if (
               mRange === 1 &&
               target.alive &&
               target.guardFrom === 'fullCover' &&
+              !target.reactionUsed &&
               !isSureStrike(move, unit.stance)
             ) {
+              target.reactionUsed = true;
               unit.hp = Math.max(0, unit.hp - RIPOSTE_DMG);
               unit.lastAttackerId = target.id;
               events.push({ t: 'riposte', unit: unit.id, by: target.id, dmg: RIPOSTE_DMG, hp: unit.hp });

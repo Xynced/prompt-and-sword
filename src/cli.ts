@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { type BattleEvent, type BattleResult, runBattle } from './battle.js';
 import { type IrSet, makeFoes, makeIrSets, makeRushVariant } from './scenarios.js';
-import { persistRu, understandingCard } from './cards.js';
+import { REACTION_RU, persistRu, understandingCard } from './cards.js';
 import { describeDraft } from './constructor.js';
 import { type CompileRequest, anthropicModelCall, compileFreeText, type ModelCall } from './compiler/compile.js';
 import { fileCache } from './compiler/cache-node.js';
@@ -244,6 +244,22 @@ function printBattleLog(r: BattleResult, names: Map<string, string>): void {
         break;
       case 'riposte':
         console.log(`  ${nm(e.unit)} напарывается на рипост ${nm(e.by)}: −${e.dmg}, hp=${e.hp}`);
+        break;
+      case 'reactGuard':
+        console.log(`  ${nm(e.unit)} встречает удар ${nm(e.by)}: ${REACTION_RU[e.kind]} (+${e.ac} к КБ)`);
+        break;
+      case 'reactHeal':
+        console.log(`  ${nm(e.unit)} заступается — ${nm(e.target)}: +${e.amount}, hp=${e.hp}`);
+        break;
+      case 'reactStep':
+        console.log(`  ${nm(e.unit)} шагает следом — ${nm(e.target)} не уйдёт`);
+        break;
+      case 'reactStrike':
+        console.log(
+          e.dmg === 0
+            ? `  ${nm(e.unit)} бьёт вслед — ${nm(e.target)}: мимо`
+            : `  ${nm(e.unit)} бьёт вслед уходящему — ${nm(e.target)}: −${e.dmg}, hp=${e.targetHp}`,
+        );
         break;
       case 'die':
         console.log(`  ✝ ${nm(e.unit)} погибает`);

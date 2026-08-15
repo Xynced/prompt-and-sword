@@ -893,13 +893,22 @@ export function generateCandidates(
   }
 
   // осторожный шаг: ровно одна клетка, опасность не срабатывает. Предлагается
-  // только на опасные клетки — на чистых он ничем не лучше обычного шага
+  // на опасные клетки — и на любые, когда рядом стоит носитель ответного
+  // удара (план reactions): шаг это pf2e Step, единственный безопасный выход
+  // из ближнего боя, и без кандидата боец о нём не узнает
   if (ap >= apCostFor('carefulStep', self) && allowed('carefulStep')) {
+    const held = (enemiesOf(self, units) as Fighter[]).some(
+      (e) =>
+        (e.reaction === 'reactiveStrike' || e.reaction === 'noEscape') &&
+        !e.reactionUsed &&
+        dist(e.pos, here) === 1,
+    );
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         if (dx === 0 && dy === 0) continue;
         const to = { x: here.x + dx, y: here.y + dy };
-        if (ctx.hazardAt(to) && !occupied(to)) out.push({ to, action: 'carefulStep' });
+        if (!inBounds(to) || occupied(to)) continue;
+        if (ctx.hazardAt(to) || held) out.push({ to, action: 'carefulStep' });
       }
     }
   }
@@ -1506,7 +1515,7 @@ function computeAppeal(
         g.alive &&
         g !== target &&
         g.side === target.side &&
-        !g.interceptUsed &&
+        !g.reactionUsed &&
         dist(g.pos, target.pos) === 1 &&
         g.compiled.rules.some(
           (rl) =>
@@ -2264,6 +2273,30 @@ function pressureAt(p: Pos, self: Fighter, units: readonly Fighter[]): number {
     .reduce((sum, e) => sum + expectedDamage(e.atk), 0);
 }
 
+/**
+ * Чем обойдётся уход бегом с текущей клетки на `to` (план reactions): сумма
+ * ожидаемых ответных ударов тех, из-под чьего носа боец выбегает. Условие
+ * зеркалит `provokedBy` в бою — скоринг обязан считать то же, что бой
+ * исполнит.
+ */
+function reactionThreat(self: Fighter, to: Pos, units: readonly Fighter[]): number {
+  return (enemiesOf(self, units) as Fighter[])
+    .filter((e) => {
+      if (e.reactionUsed) return false;
+      if (e.reaction === 'reactiveStrike') return dist(e.pos, self.pos) === 1 && dist(e.pos, to) > 1;
+      // выстрел вслед достаёт и издали, но только помеченного (план reactions)
+      if (e.reaction === 'disruptPrey') {
+        return (
+          self.tags.includes('marked') &&
+          dist(e.pos, to) > dist(e.pos, self.pos) &&
+          dist(e.pos, self.pos) <= e.range
+        );
+      }
+      return false;
+    })
+    .reduce((sum, e) => sum + expectedDamage(e.atk), 0);
+}
+
 function threatAt(p: Pos, self: Fighter, units: readonly Fighter[]): number {
   return (enemiesOf(self, units) as Fighter[])
     .filter((e) => dist(e.pos, p) <= strikeReach(e))
@@ -2439,6 +2472,22 @@ export function scoreCandidate(
   }
   if (!instincts.ignoreZoC && zocOf(self, units)(restPos)) {
     factors.push({ label: 'инстинкт:зона контроля', value: -1.5 * instincts.survival });
+  }
+  // цена ухода бегом (план reactions): у зоны контроля появились зубы, и
+  // бегство из-под носа носителя ответного удара стоит удара. Считается той
+  // же валютой, что агрессия (доля maxHp × 6), — иначе выбор «уйти или
+  // остаться» решали бы не обстоятельства, а несопоставимые коэффициенты.
+  // Шаг (`carefulStep`) этой цены не платит: в том и смысл медленного выхода.
+  // Фанатик её не видит вовсе — ответный удар и есть зубы зоны контроля,
+  // которую он по своему инстинкту (`ignoreZoC`) не считает угрозой
+  if (cand.action === 'move' && !instincts.ignoreZoC) {
+    const provoked = reactionThreat(self, cand.to, units);
+    if (provoked > 0) {
+      factors.push({
+        label: 'инстинкт:ответный удар',
+        value: -(provoked / self.maxHp) * 6 * instincts.survival,
+      });
+    }
   }
 
   // Защитные действия и отчаянный удар оцениваются в той же валюте, что и

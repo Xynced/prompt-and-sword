@@ -7,6 +7,7 @@ import {
   describeDefenses,
   describeShield,
   describePassives,
+  describeReaction,
   describeWeapons,
   ruleRu,
 } from './cards.js';
@@ -34,6 +35,7 @@ export function foeIntel(specs: readonly UnitSpec[]): { name: string; lines: str
     else if (s.aoe) lines.push(`оружие: ${describeAoe(s.aoe)}`);
     if (s.defenses) lines.push(`защита: ${describeDefenses(s.defenses)}`);
     if (s.shield) lines.push(describeShield(s.shield));
+    if (s.reaction) lines.push(describeReaction(s.reaction));
     if (s.active) lines.push(`актив: ${describeActive(s.active)}`);
     if (s.passives) lines.push(`пассив: ${describePassives(s.passives)}`);
     return { name: s.name, lines };
@@ -134,6 +136,8 @@ export function shaman(behindId: string): UnitSpec {
     }],
     speed: 5,
     move: 1,
+    // щит заклинателя (план reactions): раз за бой встречает удар бонусом к КБ
+    reaction: 'arcaneShield',
     lenses: ['plain'],
     rules: [
       rule({
@@ -155,6 +159,7 @@ export function berserker(n: number): UnitSpec {
     maxHp: 44,
     defenses: { ac: 15, fort: 10, ref: 7, will: 4 },
     weapons: [{ name: 'шипастый цеп', dmg: 8, range: 1, dmgType: 'bludgeoning', atkBonus: 9 }],
+    reaction: 'noEscape',
     speed: 6,
     move: 3,
     lenses: ['fanatic'],
@@ -173,6 +178,7 @@ export function hunter(n: number): UnitSpec {
     maxHp: 30,
     defenses: { ac: 15, fort: 7, ref: 10, will: 7 },
     weapons: [{ name: 'костяной лук', dmg: 6, range: 5, dmgType: 'piercing', atkBonus: 9 }],
+    reaction: 'disruptPrey',
     speed: 6,
     move: 2,
     lenses: ['plain'],
@@ -345,6 +351,8 @@ export function sergeant(): UnitSpec {
     defenses: { ac: 17, fort: 10, ref: 5, will: 8, resist: { slashing: 2 } },
     shield: { ac: 2, hardness: 2, hp: 8 },
     weapons: [{ name: 'палаш', dmg: 7, range: 1, dmgType: 'slashing', atkBonus: 9 }],
+    // выучка сержанта: и щит, и ответный удар — но реакция одна на раунд
+    reaction: 'reactiveStrike',
     speed: 5,
     move: 2,
     tags: ['leader'],
@@ -382,6 +390,8 @@ export function wolf(n: number): UnitSpec {
     maxHp: 32,
     defenses: { ac: 15, fort: 8, ref: 9, will: 5 },
     weapons: [{ name: 'клыки', dmg: 5, range: 1, dmgType: 'piercing', atkBonus: 9 }],
+    // стая не отпускает: вырваться из клыков бегом не выйдет (план reactions)
+    reaction: 'noEscape',
     speed: 7,
     move: 3,
     lenses: ['plain'],
@@ -435,6 +445,9 @@ export function bonesetter(behindId: string): UnitSpec {
     side: 'foe',
     maxHp: 30,
     defenses: { ac: 14, fort: 7, ref: 7, will: 10 },
+    // реакции у костоправа намеренно нет (план reactions): лечение — уже его
+    // действие, и второй канал того же ломает пропорцию паттерна «ближники +
+    // лекарь» (замер: «руби ближайшего» переставал бить «добивай слабого»)
     weapons: [{ name: 'кривой посох', dmg: 4, range: 3, dmgType: 'bludgeoning' }],
     speed: 5,
     move: 2,
@@ -466,6 +479,8 @@ export function ogre(): UnitSpec {
     maxHp: 90,
     defenses: { ac: 15, fort: 12, ref: 4, will: 4 },
     weapons: [{ name: 'дубина-бревно', dmg: 10, range: 1, dmgType: 'bludgeoning', atkBonus: 10 }],
+    // огр держит проход не только тушей: мимо него не пробежать (план reactions)
+    reaction: 'reactiveStrike',
     speed: 2,
     move: 1,
     lenses: ['plain'],
@@ -526,6 +541,7 @@ export function ritualist(behindId: string): UnitSpec {
     maxHp: 34,
     defenses: { ac: 14, fort: 6, ref: 7, will: 11 },
     weapons: [{ name: 'жертвенный серп', dmg: 4, range: 1, dmgType: 'slashing' }],
+    reaction: 'arcaneShield',
     speed: 6,
     move: 2,
     tags: ['leader'],
@@ -555,6 +571,7 @@ export function thug(): UnitSpec {
     maxHp: 44,
     defenses: { ac: 16, fort: 9, ref: 7, will: 6 },
     weapons: [{ name: 'шипастая дубина', dmg: 7, range: 1, dmgType: 'bludgeoning', atkBonus: 9 }],
+    reaction: 'nimbleDodge',
     speed: 6,
     move: 3,
     lenses: ['plain'],
@@ -580,6 +597,7 @@ export function troll(): UnitSpec {
     maxHp: 72,
     defenses: { ac: 16, fort: 12, ref: 6, will: 5, weak: { fire: 3, acid: 3 } },
     weapons: [{ name: 'когтистые лапы', dmg: 8, range: 1, dmgType: 'slashing', atkBonus: 10 }],
+    reaction: 'reactiveStrike',
     speed: 4,
     move: 2,
     lenses: ['fanatic'],
@@ -610,6 +628,10 @@ export function duelist(): UnitSpec {
     ],
     speed: 5,
     move: 2,
+    // уворот, а не ответный удар (план reactions): из дуэли с ним никто не
+    // убегает, поэтому реакция «на уход» у него молчала бы весь бой, а
+    // нырок под клинок — ровно его характер
+    reaction: 'nimbleDodge',
     lenses: ['duelist'],
     rules: [
       rule({ when: { kind: 'always' }, then: { kind: 'attack', target: 'mostDangerous' }, weight: 2, source: 'поединщик: вызвать опаснейшего' }),
@@ -645,6 +667,7 @@ export function warlord(): UnitSpec {
     }],
     speed: 6,
     move: 2,
+    reaction: 'reactiveStrike',
     tags: ['leader'],
     lenses: ['fanatic'],
     rules: [

@@ -1,7 +1,25 @@
 import { ALLY_ROLE_RU, type AllyRef, type Condition, type LensMark, type Preference, type Rule } from './ir.js';
 import { applyLens } from './lens.js';
 import { DAMAGE_TYPE_RU } from './types.js';
-import type { ActiveSpec, AoeSpec, DamageType, Defenses, LensId, PassiveSpec, ShieldSpec, WeaponMove, WeaponSpec } from './types.js';
+import {
+  ARCANE_SHIELD_AC,
+  ARCANE_SHIELD_SOAK,
+  DEFLECT_AC,
+  DODGE_AC,
+  SUCCOR_HEAL,
+} from './tuning.js';
+import type {
+  ActiveSpec,
+  AoeSpec,
+  DamageType,
+  Defenses,
+  LensId,
+  PassiveSpec,
+  ReactionKind,
+  ShieldSpec,
+  WeaponMove,
+  WeaponSpec,
+} from './types.js';
 
 /**
  * Карточка «Как понял Гром»: шаблонный обратный перевод IR ПОСЛЕ линз.
@@ -365,6 +383,37 @@ export function describeDefenses(d: Defenses): string {
  */
 export function describeShield(sh: ShieldSpec): string {
   return `щит +${sh.ac} к КБ · гасит ${sh.hardness} (раз в раунд) · запас ${sh.hp}`;
+}
+
+/** Короткое имя реакции — для лога боя и всплывающих подписей. */
+export const REACTION_RU: Record<ReactionKind, string> = {
+  reactiveStrike: 'ответный удар',
+  noEscape: 'не уйдёшь',
+  disruptPrey: 'сорвать добычу',
+  retributiveStrike: 'воздаяние',
+  succor: 'заступление',
+  nimbleDodge: 'уворот',
+  deflectArrow: 'отбить стрелу',
+  arcaneShield: 'щит',
+};
+
+/**
+ * Строка реакции (план reactions) — её игрок обязан знать заранее: и свою
+ * (чтобы понимать, почему воин держит фланг), и вражескую (иначе правило
+ * узнаётся смертью героя). Реакция одна на раунд, и строка об этом говорит.
+ */
+export function describeReaction(r: ReactionKind): string {
+  const RU: Record<ReactionKind, string> = {
+    reactiveStrike: 'ответный удар: кто уходит бегом из-под носа — получает удар',
+    noEscape: 'не уйдёшь: уходящий бегом не отрывается — шаг следом',
+    disruptPrey: 'сорвать добычу: помеченный, уходящий бегом, ловит выстрел вслед',
+    retributiveStrike: 'воздаяние: ударившему смежного своего прилетает в ответ',
+    succor: `заступление: раненому своему рядом сразу +${SUCCOR_HEAL} hp`,
+    nimbleDodge: `уворот: первый удар по мне идёт против +${DODGE_AC} к КБ`,
+    deflectArrow: `отбить стрелу: первый выстрел по мне идёт против +${DEFLECT_AC} к КБ`,
+    arcaneShield: `щит: раз за бой — +${ARCANE_SHIELD_AC} к КБ и −${ARCANE_SHIELD_SOAK} урона с удара`,
+  };
+  return `реакция (одна в раунд) — ${RU[r]}`;
 }
 
 /** Строка оружейного набора: у мастера несколько — через «;». */
