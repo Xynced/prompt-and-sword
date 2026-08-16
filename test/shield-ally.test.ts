@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyLens } from '../src/lens.js';
-import { type Fighter, attackMult, effectiveGuard, generateCandidates } from '../src/scoring.js';
+import { type Fighter, attackMult, effectiveGuard, generateCandidates, shieldsFrom } from '../src/scoring.js';
 import { type BattleEvent, type UnitSpec, runBattle } from '../src/battle.js';
 import { BRACE_AC, COVER_AC, expectedDamage } from '../src/tuning.js';
 import type { CombatUnit, Pos, Side } from '../src/types.js';
@@ -166,7 +166,12 @@ describe('в бою: толчок уводит подопечного из-по�
 
   it('смоук: под щитом по подопечному промахиваются чаще', () => {
     // цена щита теперь в бросках, а не в уроне: сравниваем долю промахов
-    // ударника по подопечному со щитоносцем-наседкой и без него
+    // ударника по подопечному со щитоносцем-наседкой и без него.
+    // Щитоносец стоит МЕЖДУ ударником и подопечным: прикрытие направленное
+    // (глобальный багфикс защиты), из-за спины подопечного щита нет. Оттого он
+    // смежен и с ударником — «ближайшего» между ними не выбрать, поэтому
+    // ударник бьёт по опасному (у подопечного atk 7, у щитоносца 1)
+    const atkDangerous = r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'mostDangerous' }, weight: 2, source: 'бей опасного' });
     const missShare = (guarded: boolean): number => {
       let swings = 0;
       let misses = 0;
@@ -174,11 +179,11 @@ describe('в бою: толчок уводит подопечного из-по�
         const res = runBattle(seed * 101, [
           // без щита — тот же щитоносец, но за полем: подопечный дерётся сам
           spec({
-            id: 'tank', side: 'party', spawn: guarded ? { x: 4, y: 2 } : { x: 1, y: 12 }, speed: 9,
+            id: 'tank', side: 'party', spawn: guarded ? { x: 4, y: 3 } : { x: 1, y: 12 }, speed: 9, atk: 1,
             lenses: ['guardian'], passives: { shieldwall: { ac: 3 } },
           }),
           spec({ id: 'ward', side: 'party', spawn: { x: 5, y: 3 }, maxHp: 400, speed: 6, rules: [atkNearest] }),
-          spec({ id: 'striker', side: 'foe', spawn: { x: 5, y: 4 }, maxHp: 400, atk: 8, speed: 7, rules: [atkNearest] }),
+          spec({ id: 'striker', side: 'foe', spawn: { x: 5, y: 4 }, maxHp: 400, atk: 8, speed: 7, rules: [atkDangerous] }),
         ]);
         for (const e of attacksIn(res.events)) {
           if (e.unit !== 'striker' || e.target !== 'ward') continue;
@@ -190,5 +195,45 @@ describe('в бою: толчок уводит подопечного из-по�
       return misses / swings;
     };
     expect(missShare(true)).toBeGreaterThan(missShare(false) + 0.05);
+  });
+});
+
+/**
+ * Направленность прикрытия (глобальный багфикс защиты): тело закрывает от того,
+ * к кому повёрнуто. Формально — защитник не дальше от бьющего, чем прикрытый;
+ * в ближнем бою это ровно «защитник смежен и с врагом тоже».
+ */
+describe('чужой щит направленный', () => {
+  it('кроет от врага со своей стороны и не кроет от зашедшего за спину', () => {
+    const ward = fighter('ward', 'party', { x: 5, y: 5 });
+    const tank = fighter('tank', 'party', { x: 4, y: 5 });
+    ward.guardedBy = { id: 'tank', bonus: COVER_AC };
+    const units = [ward, tank];
+    // враг заходит со стороны щитоносца — щит в деле
+    expect(effectiveGuard(ward, units, { x: 3, y: 5 })).toBe(COVER_AC);
+    // враг встал вплотную с другой стороны: щитоносец от него дальше самого
+    // подопечного, закрывать нечем
+    expect(effectiveGuard(ward, units, { x: 6, y: 5 })).toBe(0);
+    // клетку бьющего не назвали (общая оценка угрозы, а не конкретный удар) —
+    // щит считается как был, иначе скоринг перестал бы видеть его вовсе
+    expect(effectiveGuard(ward, units)).toBe(COVER_AC);
+  });
+
+  it('в ближнем бою правило читается как «защитник смежен и с врагом»', () => {
+    const ward = { x: 5, y: 5 };
+    const tank = { x: 4, y: 5 };
+    // враг вплотную к подопечному: щит держит ровно те клетки, что смежны и щиту
+    expect(shieldsFrom(tank, ward, { x: 4, y: 4 })).toBe(true);
+    expect(shieldsFrom(tank, ward, { x: 5, y: 4 })).toBe(true);
+    expect(shieldsFrom(tank, ward, { x: 6, y: 6 })).toBe(false);
+    // стрелку хватает и того, что щитоносец не за спиной
+    expect(shieldsFrom(tank, ward, { x: 1, y: 5 })).toBe(true);
+    expect(shieldsFrom(tank, ward, { x: 9, y: 5 })).toBe(false);
+  });
+
+  it('своя оборона стороной не ограничена — направлен только чужой щит', () => {
+    const me = fighter('me', 'party', { x: 5, y: 5 }, { guard: BRACE_AC, guardFrom: 'fullCover' });
+    expect(effectiveGuard(me, [me], { x: 6, y: 5 })).toBe(BRACE_AC);
+    expect(effectiveGuard(me, [me], { x: 4, y: 5 })).toBe(BRACE_AC);
   });
 });

@@ -483,19 +483,43 @@ export function aoeVictims<T extends CombatUnit>(
 }
 
 /**
+ * Своя оборона цели: действие хода и стойка приманки. Чужого щита здесь нет —
+ * он направленный, см. `shieldsFrom`.
+ */
+export const ownGuard = (u: CombatUnit): number =>
+  // стойка приманки (план words): готов нырнуть — плавающий бонус к КБ
+  Math.max(u.guard, u.stance?.bait ? BAIT_AC : 0);
+
+/**
+ * Прикрытие союзником направленно: щит помогает только против того, к кому
+ * щитоносец повёрнут — он не дальше от бьющего, чем сам прикрытый. В ближнем
+ * бою это ровно «защитник смежен с врагом» (враг вплотную к прикрытому ⇒
+ * dist(защитник, враг) ≤ 1), у стрелка — «щитоносец стоит со стороны стрелка,
+ * а не за спиной». Тело, которое кроет от всех сразу, было главной поблажкой
+ * обороны: щит держали раз, а работал он по всему полю.
+ */
+export const shieldsFrom = (protector: Pos, target: Pos, from: Pos): boolean =>
+  dist(protector, from) <= dist(target, from);
+
+/**
  * Действующий бонус обстоятельств цели к КБ: своё действие плюс выданное
  * союзником — второе живо, только пока защитник жив и смежен с прикрытым.
  * Проверка в момент чтения (как у перехвата): уведённый толчком подопечный или
  * ушедший/павший щитоносец гасят чужое прикрытие сами собой, своё остаётся.
+ * `from` — клетка бьющего: с ней чужой щит ещё и направленный (`shieldsFrom`).
+ * Без неё (общая оценка угрозы, без конкретного врага) щит считается как был.
  * Бонусы обстоятельств не складываются (pf2e) — берётся высший.
  */
-export function effectiveGuard(target: CombatUnit, units: readonly CombatUnit[]): number {
-  // стойка приманки (план words): готов нырнуть — плавающий бонус к КБ
-  const own = Math.max(target.guard, target.stance?.bait ? BAIT_AC : 0);
+export function effectiveGuard(target: CombatUnit, units: readonly CombatUnit[], from?: Pos): number {
+  const own = ownGuard(target);
   const g = target.guardedBy;
   if (!g) return own;
   const protector = units.find((u) => u.id === g.id);
-  const held = protector !== undefined && protector.alive && dist(protector.pos, target.pos) <= 1;
+  const held =
+    protector !== undefined &&
+    protector.alive &&
+    dist(protector.pos, target.pos) <= 1 &&
+    (from === undefined || shieldsFrom(protector.pos, target.pos, from));
   return Math.max(own, held ? g.bonus : 0);
 }
 
@@ -552,21 +576,22 @@ export function isSureStrike(move: WeaponMove, stance?: Stance | CombatUnit['sta
  * Урон площадного каста по цели: фиксированный, строго без rng (прецедент
  * шипов — новый вызов rng() сдвинул бы последовательность боя и переписал
  * фикстуры; и одно число в логе у всех накрытых читается лучше). Каменное
- * укрытие от взрыва не спасает (это не выстрел), а вот прикрытие от действий
+ * укрытие от взрыва не спасает (это не выстрел), а вот СВОЯ оборона
  * прибавляется к спасброску (правило pf2e: бонус обстоятельств идёт и в
- * Реакцию против площадных); открытость работает как прежде.
+ * Реакцию против площадных); открытость работает как прежде. Чужой щит в
+ * спасбросок не идёт: он направленный, а у взрыва направления нет — тело
+ * союзника закрывает от удара, но не от полымя.
  */
 export function aoeDamage(
   caster: CombatUnit,
   mult: number,
   target: CombatUnit,
-  units: readonly CombatUnit[] = [target],
   dmgType?: DamageType,
   /**
    * Доля урона по спасброску цели (план damage-types): бой передаёт брошенную
    * (0 / ½ / 1 / 2), скоринг молчит и получает ожидание по всем 20 граням.
    */
-  saveMult: number = expectedSaveMult(saveOf(target, saveKindFor(dmgType)) + effectiveGuard(target, units)),
+  saveMult: number = expectedSaveMult(saveOf(target, saveKindFor(dmgType)) + ownGuard(target)),
 ): number {
   const base =
     expectedDamage(caster.atk) *
@@ -620,7 +645,7 @@ export function zoneDangerAt(p: Pos, units: readonly CombatUnit[], target: Comba
   let dmg = 0;
   for (const u of units) {
     if (!u.alive || !u.pendingRitual || !u.aoe?.ritual) continue;
-    if (dist(u.pendingRitual.at, p) <= AOE_RITUAL_RADIUS) dmg += aoeDamage(u, u.aoe.ritual.mult, target, units);
+    if (dist(u.pendingRitual.at, p) <= AOE_RITUAL_RADIUS) dmg += aoeDamage(u, u.aoe.ritual.mult, target);
   }
   return dmg;
 }
@@ -654,8 +679,13 @@ export const shieldReady = (u: CombatUnit): boolean => !!u.shield && !u.shieldBr
  * ход на оборону, поднимается ступенью выше — камень плюс решение сильнее
  * всего, что есть в игре поодиночке.
  */
-export function guardAgainst(target: CombatUnit, units: readonly CombatUnit[], coverAc: number): number {
-  const own = effectiveGuard(target, units);
+export function guardAgainst(
+  target: CombatUnit,
+  units: readonly CombatUnit[],
+  coverAc: number,
+  from?: Pos,
+): number {
+  const own = effectiveGuard(target, units, from);
   const tookCover = target.guardFrom === 'cover' || target.guardFrom === 'fullCover';
   const promoted = coverAc > 0 && tookCover ? BRACE_AC : 0;
   return Math.max(own, coverAc, promoted);
@@ -1333,9 +1363,11 @@ function zonePathDist(z: Zone, self: Fighter, p: Pos, ctx: ScoreCtx): number {
   return Math.min(ctx.distTo(zoneAnchor(self.pos, z), p), MAX_DIST);
 }
 
-function shieldNeed(ally: Fighter, units: readonly Fighter[]): number {
+/** Насколько союзнику нужен щит из клетки `from`: угроза, от которой он закроет. */
+function shieldNeed(ally: Fighter, units: readonly Fighter[], from: Pos): number {
   const risk =
-    threatAt(ally.pos, ally, units) * (1 - guardMitigation(effectiveGuard(ally, units), acOf(ally)));
+    threatAt(ally.pos, ally, units, from) *
+    (1 - guardMitigation(effectiveGuard(ally, units), acOf(ally)));
   return Math.min(risk / ally.maxHp / SHIELD_FULL_RISK, 1);
 }
 
@@ -1357,7 +1389,11 @@ function expectedAttackDamage(
 ): number {
   // оборона цели — бонус к её КБ (план armor), а не доля снятого урона: и
   // укрытие, и прикрытие входят в DC броска, а пирс приёма их режет
-  const guard = stanceGuard(guardAgainst(target, units, ctx.coverAcFrom(from, target.pos)), move, stance);
+  const guard = stanceGuard(
+    guardAgainst(target, units, ctx.coverAcFrom(from, target.pos), from),
+    move,
+    stance,
+  );
   // бросок атаки (план damage-types): оценка обязана считать так же, как бой
   // исполнит, — промахи и криты сидят в множителе ожидания. MAP (волна 6
   // плана action-economy): второй удар за ход оценивается по своему штрафу,
@@ -1517,6 +1553,9 @@ function computeAppeal(
         g.side === target.side &&
         !g.reactionUsed &&
         dist(g.pos, target.pos) === 1 &&
+        // заслон направленный, как и щит: страж, оставшийся за спиной
+        // подопечного, удар с моей стороны не перехватит
+        shieldsFrom(g.pos, target.pos, self.pos) &&
         g.compiled.rules.some(
           (rl) =>
             rl.then.kind === 'protect' &&
@@ -1643,11 +1682,11 @@ function scorePreference(
       const ally = resolveAlly(pref.ally, self, units) as Fighter | undefined;
       if (!ally) return 0;
       if (cand.action === 'shieldAlly' && cand.targetId === ally.id) {
-        return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units);
+        return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units, self.pos);
       }
       // стена исполняет «защищать», если подопечный в её накрытии
       if (cand.action === 'wall' && dist(self.pos, ally.pos) <= 1) {
-        return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units);
+        return SHIELD_RULE_BONUS * w * shieldNeed(ally as Fighter, units, self.pos);
       }
       let s = -0.4 * dist(cand.to, ally.pos) * w;
       const threat = resolveSelector('nearest', ally as Fighter, units);
@@ -1724,10 +1763,10 @@ function scorePreference(
         );
       if (!wounded) return 0;
       if (cand.action === 'shieldAlly' && cand.targetId === wounded.id) {
-        return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units);
+        return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units, self.pos);
       }
       if (cand.action === 'wall' && dist(self.pos, wounded.pos) <= 1) {
-        return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units);
+        return SHIELD_RULE_BONUS * w * shieldNeed(wounded, units, self.pos);
       }
       const threat = resolveSelector('nearest', wounded, units);
       let s = -0.3 * dist(cand.to, wounded.pos) * w;
@@ -2297,9 +2336,16 @@ function reactionThreat(self: Fighter, to: Pos, units: readonly Fighter[]): numb
     .reduce((sum, e) => sum + expectedDamage(e.atk), 0);
 }
 
-function threatAt(p: Pos, self: Fighter, units: readonly Fighter[]): number {
+/**
+ * Ожидаемый входящий урон по клетке `p`. `shieldedFrom` — клетка щитоносца:
+ * тогда считается только та угроза, от которой его щит и правда кроет
+ * (`shieldsFrom`), иначе скоринг платил бы за прикрытие спины полной ценой
+ * фронта и танк крыл бы своего не с той стороны.
+ */
+function threatAt(p: Pos, self: Fighter, units: readonly Fighter[], shieldedFrom?: Pos): number {
   return (enemiesOf(self, units) as Fighter[])
     .filter((e) => dist(e.pos, p) <= strikeReach(e))
+    .filter((e) => shieldedFrom === undefined || shieldsFrom(shieldedFrom, p, e.pos))
     .reduce((sum, e) => sum + expectedDamage(e.atk), 0);
 }
 
@@ -2417,7 +2463,7 @@ export function scoreCandidate(
     let foes = 0;
     let own = 0;
     for (const v of castVictims(cand.action, cand.at, self, units, ctx.blocked)) {
-      const dmg = Math.min(aoeDamage(self, aoeForm.mult, v, units), v.hp);
+      const dmg = Math.min(aoeDamage(self, aoeForm.mult, v), v.hp);
       let val = (dmg / v.maxHp) * 6 + (dmg >= v.hp ? 4 : 0);
       // ритуал бьёт через ход: жертва у края зоны выйдет одним шагом, из
       // середины — не успеет. Глубина в зоне — ожидаемая доля попадания;
@@ -2516,7 +2562,8 @@ export function scoreCandidate(
       // щитоносец («стена щита» Грома) кроет союзника сильнее общего COVER_AC
       const bonus = self.passives?.shieldwall?.ac ?? COVER_AC;
       const spared =
-        threatAt(ally.pos, ally, units) * guardGain(effectiveGuard(ally, units), bonus, acOf(ally));
+        threatAt(ally.pos, ally, units, self.pos) *
+        guardGain(effectiveGuard(ally, units), bonus, acOf(ally));
       const v = (spared / ally.maxHp) * 6 * instincts.survival;
       if (v !== 0) factors.push({ label: 'инстинкт:прикрыть своего', value: v });
     }
@@ -2537,7 +2584,7 @@ export function scoreCandidate(
     for (const a of alliesOf(self, units)) {
       if (a.id !== self.id && dist(a.pos, self.pos) > 1) continue;
       v +=
-        (threatAt(a.pos, a as Fighter, units) *
+        (threatAt(a.pos, a as Fighter, units, self.pos) *
           guardGain(effectiveGuard(a, units), COVER_AC, acOf(a))) /
         a.maxHp;
     }

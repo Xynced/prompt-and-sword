@@ -116,11 +116,17 @@ describe('строй ломает фланги', () => {
 
 describe('перехват телохранителя', () => {
   const protectWard = r({ when: { kind: 'always' }, then: { kind: 'protect', ally: 'ward' }, weight: 2, source: 'защищай подопечного' });
+  // Заслон направленный (глобальный багфикс защиты): страж обязан стоять между
+  // подопечным и врагом — а значит он смежен с врагом и сам, и «ближайший»
+  // между ним и подопечным не выбирает. Поэтому враг здесь буквалист с «бей
+  // опасного»: цель названа однозначно (atk 5 против 1) и цены дороги он не
+  // считает — сцена меряет перехват, а не выбор цели
+  const atkDangerous = r({ when: { kind: 'always' }, then: { kind: 'attack', target: 'mostDangerous' }, weight: 1, source: 'бей опасного' });
   const scene = (guardRules: Rule[], guardLenses: UnitSpec['lenses'] = ['plain']): UnitSpec[] => [
     // толстые тела и move 0: сцена меряет перехват, не исход
     { id: 'ward', name: 'ward', side: 'party', maxHp: 600, atk: 5, range: 1, speed: 4, move: 0, lenses: ['plain'], rules: [atkNearest], spawn: { x: 5, y: 8 } },
-    { id: 'guard', name: 'guard', side: 'party', maxHp: 600, atk: 5, range: 1, speed: 3, move: 0, lenses: guardLenses, rules: guardRules, spawn: { x: 5, y: 7 } },
-    { id: 'foe1', name: 'foe1', side: 'foe', maxHp: 600, atk: 6, range: 1, speed: 7, move: 0, lenses: ['plain'], rules: [atkNearest], spawn: { x: 6, y: 9 } },
+    { id: 'guard', name: 'guard', side: 'party', maxHp: 600, atk: 1, range: 1, speed: 3, move: 0, lenses: guardLenses, rules: guardRules, spawn: { x: 6, y: 8 } },
+    { id: 'foe1', name: 'foe1', side: 'foe', maxHp: 600, atk: 6, range: 1, speed: 7, move: 0, lenses: ['literalist'], rules: [atkDangerous], spawn: { x: 6, y: 9 } },
   ];
   const firstRound = (events: readonly BattleEvent[]): BattleEvent[] => {
     const out: BattleEvent[] = [];
@@ -139,6 +145,16 @@ describe('перехват телохранителя', () => {
     expect(r1.some((e) => e.t === 'intercept' && e.unit === 'guard' && e.target === 'ward')).toBe(true);
     expect(foeHits[0]!.target).toBe('guard'); // первый удар перехвачен
     expect(foeHits.slice(1).some((e) => e.target === 'ward')).toBe(true); // перехват один в раунд
+  });
+
+  it('страж из-за спины подопечного не перехватывает: заслон направленный', () => {
+    // страж смежен с подопечным, но враг зашёл с другой стороны — закрывать
+    // собой нечего (глобальный багфикс защиты). Раньше заслон срабатывал с
+    // любой стороны, и телохранитель ловил стрелы через спину подопечного
+    const specs = scene([protectWard]);
+    specs[1] = { ...specs[1]!, spawn: { x: 4, y: 7 } };
+    const res = runBattle(5, specs);
+    expect(res.events.some((e) => e.t === 'intercept')).toBe(false);
   });
 
   it('правило на другого подопечного не перехватывает', () => {

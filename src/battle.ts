@@ -68,6 +68,8 @@ import {
   guardAgainst,
   guardFor,
   guardOf,
+  ownGuard,
+  shieldsFrom,
   shieldRaised,
   isSureStrike,
   decide,
@@ -682,7 +684,7 @@ export function runBattle(
     // оборона цели считается без террейнового канала; своей защитной реакцией
     // жертва вправе закрыться и здесь, если та ещё цела
     const react = defensiveReaction(victim, by, (move.range ?? weapon.range) > 1);
-    const guard = Math.max(guardAgainst(victim, units, 0), react.ac);
+    const guard = Math.max(guardAgainst(victim, units, 0, by.pos), react.ac);
     const natural = d20(seed, by.id, round, apAt, `react:${victim.id}`);
     const degree = degreeOf(natural, natural + attackBonusOf(weapon), acOf(victim) + guard);
     const swing = ATTACK_MULT[degree];
@@ -828,9 +830,12 @@ export function runBattle(
       // ловит вдвое. Здесь и кончилась «безрисковость» площадных: жертва
       // получает свой бросок, но зона по-прежнему бьёт всех
       const natural = d20(seed, v.id, round, 0, `save:${form}:${caster.id}`);
-      const save = saveOf(v, saveKindFor(dmgType));
+      // своя оборона идёт бонусом в спасбросок (правило pf2e и премиса
+      // плана armor) — до этого её считал только скоринг, а бой бросал
+      // голой Реакцией: «прикрылся» под залпом не стоил ничего
+      const save = saveOf(v, saveKindFor(dmgType)) + ownGuard(v);
       const degree = degreeOf(natural, natural + save, SAVE_DC);
-      const dmg = aoeDamage(caster, mult, v, units, dmgType, BASIC_SAVE_MULT[degree]);
+      const dmg = aoeDamage(caster, mult, v, dmgType, BASIC_SAVE_MULT[degree]);
       const soak = applyDefenses(1, dmgType, v.defenses).soak;
       v.hp = Math.max(0, v.hp - dmg);
       v.lastAttackerId = caster.id;
@@ -1080,6 +1085,10 @@ export function runBattle(
                   g.side === aimed.side &&
                   !g.reactionUsed &&
                   dist(g.pos, aimed.pos) === 1 &&
+                  // заслон, как и щит, направленный: страж закрывает собой
+                  // ту сторону, на которой стоит сам, — оставшийся за спиной
+                  // подопечного удар с другого края поля не перехватывает
+                  shieldsFrom(g.pos, aimed.pos, unit.pos) &&
                   g.compiled.rules.some(
                     (rl) =>
                       rl.then.kind === 'protect' &&
@@ -1120,7 +1129,7 @@ export function runBattle(
             const react = defensiveReaction(target, unit, mRange > 1);
             const guard = Math.max(
               stanceGuard(
-                guardAgainst(target, units, ctx.coverAcFrom(unit.pos, target.pos)),
+                guardAgainst(target, units, ctx.coverAcFrom(unit.pos, target.pos), unit.pos),
                 move,
                 unit.stance,
               ),
@@ -1234,7 +1243,7 @@ export function runBattle(
               // штраф MAP на обоих один — тот, что был до приёма
               const guard2 = second
                 ? stanceGuard(
-                    guardAgainst(second, units, ctx.coverAcFrom(unit.pos, second.pos)),
+                    guardAgainst(second, units, ctx.coverAcFrom(unit.pos, second.pos), unit.pos),
                     move,
                     unit.stance,
                   )

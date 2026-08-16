@@ -326,7 +326,11 @@ describe('характер выбирает действие', () => {
   /**
    * Доли действий бойца с одним и тем же приказом, но разным характером.
    * `ally` добавляет в партию хилого союзника под ударом — иначе прикрыть
-   * собой некого и тяга наседки не проявляется.
+   * собой некого и тяга наседки не проявляется. В этой сцене боец стоит с той
+   * же стороны, с какой заходят враги (прикрытие союзника направленное —
+   * глобальный багфикс защиты: из-за спины подопечного щит не работает вовсе),
+   * и приказа не имеет: закрыть собой стоит целого действия, и под «бей
+   * ближнего» характер до него не доходит — решать должен характер.
    */
   function actionMix(lenses: LensId[], ally = false, seeds = 30): Record<string, number> {
     const counts = new Map<string, number>();
@@ -334,11 +338,12 @@ describe('характер выбирает действие', () => {
     for (let seed = 1; seed <= seeds; seed++) {
       const hero: UnitSpec = {
         id: 'h', name: 'Боец', side: 'party', maxHp: 60, atk: 8, range: 1,
-        speed: 5, move: 2, lenses, rules: [attack()], spawn: { x: 4, y: 5 },
+        speed: 5, move: 2, lenses, rules: ally ? [] : [attack()],
+        spawn: ally ? { x: 5, y: 5 } : { x: 4, y: 5 },
       };
       const mate: UnitSpec = {
         id: 'm', name: 'Хиляк', side: 'party', maxHp: 16, atk: 3, range: 1,
-        speed: 1, move: 1, lenses: ['plain'], rules: [attack()], spawn: { x: 5, y: 5 },
+        speed: 1, move: 1, lenses: ['plain'], rules: [attack()], spawn: { x: 5, y: 4 },
       };
       const foes: UnitSpec[] = [1, 2].map((i) => ({
         id: `f${i}`, name: `Враг ${i}`, side: 'foe', maxHp: 40, atk: 6, range: 1,
