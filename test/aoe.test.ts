@@ -164,7 +164,7 @@ describe('урон залпа', () => {
     const caster = fighter('c', 'foe', { x: 0, y: 0 }, { atk: 6 });
     const t = fighter('t', 'party', { x: 1, y: 1 });
     const nominal = expectedDamage(6) * 0.75;
-    const at = (mult: number): number => aoeDamage(caster, 0.75, t, [caster, t], undefined, mult);
+    const at = (mult: number): number => aoeDamage(caster, 0.75, t, undefined, mult);
     expect(at(BASIC_SAVE_MULT.critSuccess)).toBe(0);
     expect(at(BASIC_SAVE_MULT.success)).toBe(Math.round(nominal / 2));
     expect(at(BASIC_SAVE_MULT.fail)).toBe(Math.round(nominal));
@@ -187,6 +187,30 @@ describe('залп в бою (гать, сид 4)', () => {
   const dummy = (id: string, side: Side, spawn: Pos, hp: number): UnitSpec => ({
     id, name: id, side, maxHp: hp, atk: 1, range: 1, speed: 1, move: 0,
     lenses: ['plain'], rules: [], spawn,
+  });
+
+  it('своя оборона идёт в спасбросок: под залпом «прикрыться» теперь стоит хода', () => {
+    // до правки бонус к КБ считал только скоринг, а бой бросал спасбросок
+    // голой Реакцией — «прикрылся» под залпом не стоил ничего
+    const total = (brace: boolean): number => {
+      let dmg = 0;
+      for (let seed = 1; seed <= 12; seed++) {
+        const target: UnitSpec = {
+          ...dummy('d1', 'party', { x: 8, y: 5 }, 400),
+          speed: 9,
+          rules: brace ? [{ when: { kind: 'always' }, then: { kind: 'brace' }, weight: 3, scope: 'self', source: 'глухая оборона' }] : [],
+        };
+        const r = runBattle(seed, [
+          target,
+          // второй манекен — приманка залпа: по одной цели шаман бьёт палкой
+          { ...dummy('d2', 'party', { x: 9, y: 5 }, 400), speed: 9 },
+          { ...shaman('nobody'), maxHp: 400, aoe: { blast: { range: 4, mult: 0.75 } }, spawn: { x: 8, y: 8 } },
+        ]);
+        dmg += hitsIn(r.events).filter((h) => h.unit === 'd1').reduce((a, h) => a + h.dmg, 0);
+      }
+      return dmg;
+    };
+    expect(total(true)).toBeLessThan(total(false));
   });
 
   it('шаман накрывает пару манекенов: фиксированный урон обоим, добивает', () => {

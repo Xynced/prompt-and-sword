@@ -87,11 +87,13 @@ describe('Гром: стена и щит', () => {
       spec({ id, side: 'party', spawn, atk: 8, range: 4, speed: 8, move: 1 });
     const brute = (id: string, spawn: Pos): UnitSpec =>
       spec({ id, side: 'foe', spawn, maxHp: 300, atk: 12, move: 3, rules: [rule({ kind: 'attack', target: 'weakest' })] });
-    // стена окупается от двоих смежных — при одном щит (−40%) честно лучше
+    // стена окупается от двоих смежных — при одном щит (−40%) честно лучше.
+    // Гром стоит ПЕРЕД своими: чужое прикрытие направленное (глобальный багфикс
+    // защиты), и стена из-за спин не кроет никого
     const r = runBattle(3, [
       grom,
-      squishy('lia', { x: 5, y: 4 }),
-      squishy('dart', { x: 4, y: 5 }),
+      squishy('lia', { x: 3, y: 4 }),
+      squishy('dart', { x: 3, y: 5 }),
       squishy('far', { x: 1, y: 12 }), // вне накрытия стены
       brute('e1', { x: 7, y: 4 }),
       brute('e2', { x: 7, y: 5 }),

@@ -476,18 +476,23 @@ describe('смоуки волны 2: наив vs контр', () => {
 
   it('обоз: волки обгоняют наив и рвут телегу; «прикрывать подопечного» спасает', () => {
     // выборка шире обычной: с MAP (план action-economy) разрыв держится, но
-    // на 20 сидах запас съедает шум — 60 сидов дают 10 побед наива против 52
+    // на 20 сидах запас съедает шум — 60 сидов дают 11 побед наива против 41.
+    // Было 52: заслон стал направленным (глобальный багфикс защиты), и страж,
+    // отставший за телегой, чужой удар больше не перехватывает — слово по-
+    // прежнему решает бой, но требует ещё и правильной стороны
     const naive = smokeSweep({ kind: 'fight', layer: 2, slot: 1 }, NAIVE, 60);
     const guard = smokeSweep({ kind: 'fight', layer: 2, slot: 1 }, [[protectWard, atkNearest], [atkNearest], [protectWard, atkNearest]], 60);
     expect(naive.wins).toBeLessThanOrEqual(14);
-    expect(guard.wins).toBeGreaterThanOrEqual(42);
+    expect(guard.wins).toBeGreaterThanOrEqual(35);
   });
 
   it('свой ритуал: наив 0 — охота идёт мимо дерущихся; охрана чтеца решает', () => {
+    // 0 побед наива против 14 у охраны (было 20 — заслон перехватывал с любой
+    // стороны; глобальный багфикс защиты требует стоять между чтецом и врагом)
     const naive = smokeSweep({ kind: 'fight', layer: 2, slot: 2 }, NAIVE);
     const guard = smokeSweep({ kind: 'fight', layer: 2, slot: 2 }, [[protectWard, atkNearest], [atkNearest], [protectWard, atkNearest]]);
     expect(naive.wins).toBeLessThanOrEqual(3);
-    expect(guard.wins).toBeGreaterThanOrEqual(17);
+    expect(guard.wins).toBeGreaterThanOrEqual(12);
   });
 
   it('до рассвета: наив тонет в волнах, строй с обороной выстаивает', () => {

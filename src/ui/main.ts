@@ -701,6 +701,8 @@ interface FrameUnit {
   alive: boolean;
   /** Действующее прикрытие — значок на фишке до начала своего хода: прикрытие / глухая оборона / прикрыт союзником. */
   cover?: 'half' | 'full' | 'ally' | 'shield';
+  /** Кто держит чужой щит (`cover: 'ally'`) — значок жив, только пока он жив и смежен. */
+  coverBy?: string;
   /** Что на юните тлеет (план damage-types, волна 6) — подпись значка: «огонь», «яд», «кровь». */
   smolder?: string;
 }
@@ -747,7 +749,22 @@ function buildFrames(
 ): { frames: Frame[]; reveals: Reveal[] } {
   const units = new Map<string, FrameUnit>();
   const nm = (id: string): string => units.get(id)?.name ?? id;
-  const snap = (): FrameUnit[] => [...units.values()].map((u) => ({ ...u }));
+  // Значок чужого щита пересчитывается на каждом кадре, а не гасится событием:
+  // прикрытие живо, только пока щитоносец жив и смежен (та же проверка в момент
+  // чтения, что у `effectiveGuard` в бою). Без пересчёта значок висел до
+  // следующего хода прикрытого — и щит читался как работающий через полполя
+  const snap = (): FrameUnit[] =>
+    [...units.values()].map((u) => {
+      const c = { ...u };
+      if (c.cover === 'ally') {
+        const by = c.coverBy !== undefined ? units.get(c.coverBy) : undefined;
+        if (!by?.alive || Math.max(Math.abs(by.x - c.x), Math.abs(by.y - c.y)) > 1) {
+          c.cover = undefined;
+          c.coverBy = undefined;
+        }
+      }
+      return c;
+    });
   // висящие зоны замаха по кастерам: от телеграфа до залпа или смерти кастера
   const activeZones = new Map<string, { x: number; y: number }>();
   const out: Frame[] = [];
@@ -1171,7 +1188,10 @@ function buildFrames(
         if (e.ally) {
           const a = units.get(e.ally);
           // щит союзника не понижает уже взятую глухую оборону
-          if (a && a.cover !== 'full') a.cover = 'ally';
+          if (a && a.cover !== 'full') {
+            a.cover = 'ally';
+            a.coverBy = e.unit;
+          }
           float(e.ally, '⛨ прикрыт', 'buff');
         } else {
           const u = units.get(e.unit);

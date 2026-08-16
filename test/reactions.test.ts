@@ -105,23 +105,30 @@ describe('одна реакция в раунд', () => {
     expect(rounds.size).toBeGreaterThan(2);
   });
 
-  // Гром при Лие: щит держит удар соседа справа, «прикрывай Лию» — удар
-  // снизу. Порознь каждый канал работает каждый раунд, вместе им приходится
-  // делить один карман
+  // Гром впереди Лии: щит держит удар ближника снизу, «прикрывай Лию» —
+  // выстрел из-за него же. Гром стоит МЕЖДУ стрелком и Лией: заслон
+  // направленный (глобальный багфикс защиты), из-за спины подопечного его нет.
+  // Стрелок — буквалист с «бей опасного» (у Лии atk 5, у Грома 1): цель названа
+  // однозначно и цены дороги он не считает, иначе бил бы прямо в заслон.
+  // Порознь каждый канал работает каждый раунд, вместе им приходится делить
+  // один карман
   const protectLia = rule({ kind: 'protect', ally: 'lia' });
   const guardScene = (opts: { shield?: boolean; protect?: boolean }): UnitSpec[] => [
     spec({
       id: 'grom',
       side: 'party',
-      spawn: at(5, 6),
+      spawn: at(5, 7),
       maxHp: 400,
       atk: 1,
       ...(opts.shield ? { shield: { ac: 2, hardness: 3, hp: 999 } } : {}),
       rules: opts.protect ? [protectLia] : [],
     }),
-    spec({ id: 'lia', side: 'party', spawn: at(5, 7), maxHp: 400, atk: 1 }),
-    spec({ id: 'e0', side: 'foe', spawn: at(6, 6), atk: 8, rules: [atkNearest] }),
-    spec({ id: 'e1', side: 'foe', spawn: at(5, 8), atk: 8, rules: [atkNearest] }),
+    spec({ id: 'lia', side: 'party', spawn: at(5, 6), maxHp: 400, atk: 5 }),
+    spec({ id: 'e0', side: 'foe', spawn: at(6, 8), atk: 8, rules: [atkNearest] }),
+    spec({
+      id: 'e1', side: 'foe', spawn: at(3, 8), atk: 8, range: 3, lenses: ['literalist'],
+      rules: [rule({ kind: 'attack', target: 'mostDangerous' })],
+    }),
   ];
 
   it('щитоносец-телохранитель тратит одну реакцию: перехват ИЛИ блок', () => {
