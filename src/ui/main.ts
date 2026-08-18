@@ -19,6 +19,7 @@ import {
   type ConditionDraft,
   type PhraseDraft,
   type PreferenceDraft,
+  type CondLinkDraft,
   type SimpleConditionDraft,
   compilePhrase,
   describeDraft,
@@ -2001,7 +2002,7 @@ function editorHtml(): string {
           // глубокие чипсы: условие фразы — цепочка до трёх уровней со связкой
           // «и»/«или» (одна на фразу); следующий уровень появляется, когда
           // выбран предыдущий
-          const chain: SimpleConditionDraft[] =
+          const chain: CondLinkDraft[] =
             ph.condition.id === 'and' || ph.condition.id === 'or'
               ? ph.condition.conds
               : ph.condition.id === 'always'
@@ -2015,19 +2016,22 @@ function editorHtml(): string {
                   <option value="or" ${op === 'or' ? 'selected' : ''}>или</option>
                 </select>`
               : `<span class="nest">${op === 'or' ? 'или' : 'и'}</span>`;
-          const condSelects = [
-            selectHtml('cond-select', eh.id, i, conditionOptions(), chain[0] ?? { id: 'always' }, 'data-level="0"'),
-          ];
+          // «не» — грамматика при звене, а не чипс словаря: галочка рядом с
+          // выбором. У «всегда» отрицать нечего — галочка гаснет
+          const condChip = (lvl: number, opts: Opt<ConditionDraft>[]): string => {
+            const link = chain[lvl];
+            const neg = link?.id === 'not';
+            const value: ConditionDraft = neg ? link.cond : (link ?? { id: 'always' });
+            const off = value.id === 'always';
+            return `<label class="neg" title="если НЕ">
+                <input type="checkbox" class="neg-check" data-hero="${eh.id}" data-idx="${i}"
+                  data-level="${lvl}" ${neg ? 'checked' : ''} ${off ? 'disabled' : ''}> не
+              </label>${selectHtml('cond-select', eh.id, i, opts, value, `data-level="${lvl}"`)}`;
+          };
+          const condSelects = [condChip(0, conditionOptions())];
           for (let lvl = 1; lvl < 3 && chain.length >= lvl; lvl++) {
             condSelects.push(
-              `<span class="nest">⌞</span>${opChip(lvl)}${selectHtml(
-                'cond-select',
-                eh.id,
-                i,
-                moreConditionOptions(),
-                chain[lvl] ?? { id: 'always' },
-                `data-level="${lvl}"`,
-              )}`,
+              `<span class="nest">⌞</span>${opChip(lvl)}${condChip(lvl, moreConditionOptions())}`,
             );
           }
           return `<div class="slot-row">
@@ -2435,14 +2439,19 @@ function draftsFromEditor(heroId: string): PhraseDraft[] {
   return rows.map((condSel) => {
     const idx = condSel.dataset.idx!;
     // глубокие чипсы: уровни условия собираются в конъюнкцию «и»
-    const conds: SimpleConditionDraft[] = [];
+    const conds: CondLinkDraft[] = [];
     for (const lvl of [0, 1, 2]) {
       const sel = app.querySelector<HTMLSelectElement>(
         `.cond-select[data-hero="${heroId}"][data-idx="${idx}"][data-level="${lvl}"]`,
       );
       if (!sel) continue;
       const c = JSON.parse(sel.value) as SimpleConditionDraft;
-      if (c.id !== 'always') conds.push(c);
+      if (c.id === 'always') continue;
+      // «не» — галочка рядом со звеном, а не отдельный чипс словаря
+      const neg = app.querySelector<HTMLInputElement>(
+        `.neg-check[data-hero="${heroId}"][data-idx="${idx}"][data-level="${lvl}"]`,
+      );
+      conds.push(neg?.checked ? { id: 'not', cond: c } : c);
     }
     const opSel = app.querySelector<HTMLSelectElement>(
       `.op-select[data-hero="${heroId}"][data-idx="${idx}"]`,
@@ -2494,6 +2503,15 @@ function bind(): void {
       const r = applyPhrases(heroId, draftsFromEditor(heroId));
       editError[heroId] = r.ok ? '' : r.error;
       delete heroUncertainty[heroId]; // правка чипсами — заметки компилятора устарели
+      render();
+    });
+  }
+  for (const inp of app.querySelectorAll<HTMLInputElement>('input.neg-check')) {
+    inp.addEventListener('change', () => {
+      const heroId = inp.dataset.hero!;
+      const r = applyPhrases(heroId, draftsFromEditor(heroId));
+      editError[heroId] = r.ok ? '' : r.error;
+      delete heroUncertainty[heroId];
       render();
     });
   }

@@ -124,6 +124,8 @@ import { DEFAULT_AC } from './tuning.js';
  *   делай X» → одно правило с when = and[А, Б]), or — дизъюнкция («если А
  *   или Б»). «Или» одним правилом — не то же, что две фразы: при обоих
  *   истинных условиях or-правило горит один раз, две фразы — удвоенным весом.
+ *   not — отрицание простого условия («если НЕ А»); в and/or входит наравне
+ *   с простыми, но само комбинаторов внутрь не берёт.
  */
 
 export type Selector =
@@ -281,7 +283,18 @@ export type Condition =
    */
   | { kind: 'and'; conds: Condition[] }
   /** Дизъюнкция — «если А или Б»: горит, когда истинно хотя бы одно. */
-  | { kind: 'or'; conds: Condition[] };
+  | { kind: 'or'; conds: Condition[] }
+  /**
+   * Отрицание — «если НЕ А»: та же грамматика, что «и»/«или», слова не стоит.
+   * Из черновиков внутри только ПРОСТОЕ условие: `not` навешивается на атом,
+   * а не на комбинатор, — «не (А и Б)» в языке не выражается.
+   *
+   * Инверсия буквальная: условие, молчащее без данных (нет высот на арене,
+   * нет таймера у сценария), под отрицанием даёт true. «Я не на высоте» на
+   * плоской арене — правда; но «пока время НЕ на исходе» в сценарии без
+   * дедлайна горит всегда, и это осознанная цена простоты.
+   */
+  | { kind: 'not'; cond: Condition };
 
 /** Ссылка на позицию-якорь для пространственных предпочтений. */
 export type PosRef = { type: 'ally'; id: AllyRef } | { type: 'enemy'; sel: Selector };
@@ -657,6 +670,8 @@ export function evalCondition(
       return cond.conds.every((c) => evalCondition(c, self, units, round, ground));
     case 'or':
       return cond.conds.some((c) => evalCondition(c, self, units, round, ground));
+    case 'not':
+      return !evalCondition(cond.cond, self, units, round, ground);
   }
 }
 

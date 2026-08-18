@@ -152,6 +152,105 @@ function condRu(c: Condition, nm: (id: string) => string): string {
     case 'or':
       // «если … — или если … — »: части уже кончаются на « — »
       return c.conds.map((s) => condRu(s, nm)).join('или ');
+    case 'not':
+      return negRu(c.cond, nm);
+  }
+}
+
+/**
+ * Условие под «не» — своя формулировка на каждое слово: по-русски отрицание
+ * садится внутрь фразы, приставкой к готовому тексту его не сделать.
+ * Комбинаторы внутрь «не» не попадают (грамматика конструктора и схемы), но
+ * тип Condition этого не знает — оттого их разбор здесь честный, а не бросок.
+ */
+function negRu(c: Condition, nm: (id: string) => string): string {
+  switch (c.kind) {
+    case 'hpBelow':
+      return c.who === 'self'
+        ? `пока моё hp не ниже ${Math.round(c.frac * 100)}% — `
+        : `пока hp ${allyRu(c.who.ally, nm)} не ниже ${Math.round(c.frac * 100)}% — `;
+    case 'hpAbove':
+      return c.who === 'self'
+        ? `если моё hp ниже ${Math.round(c.frac * 100)}% — `
+        : `если hp ${allyRu(c.who.ally, nm)} ниже ${Math.round(c.frac * 100)}% — `;
+    case 'outnumbered':
+      return 'пока врагов не больше, чем нас — ';
+    case 'allyInDanger':
+      return `пока ${allyRu(c.ally, nm, 'nom')} вне опасности — `;
+    case 'battleDrags':
+      return 'пока бой не затянулся — ';
+    case 'initiativeEdge':
+      return 'если мы не быстрее — ';
+    case 'allyFallen':
+      return 'пока никто из наших не пал — ';
+    case 'surrounded':
+      return 'пока меня не окружили — ';
+    case 'underCharge':
+      return 'пока враги не накатывают — ';
+    case 'firstBlood':
+      return 'пока кровь ещё не пролилась — ';
+    case 'leaderDown':
+      return 'пока вожак врага жив — ';
+    case 'wasHit':
+      return 'пока меня ещё не били — ';
+    case 'enemyAdjacent':
+      return 'пока враг не вплотную — ';
+    case 'allyAdjacent':
+      return 'пока рядом никого из наших — ';
+    case 'alone':
+      return 'пока я не в отрыве от своих — ';
+    case 'weOutnumber':
+      return 'пока нас не больше — ';
+    case 'enemyShooters':
+      return 'если у врага не осталось стрелков — ';
+    case 'enemyCasters':
+      return 'если у врага не осталось заклинателя — ';
+    case 'enemyWavering':
+      return 'пока враг не дрогнул — ';
+    case 'lastEnemy':
+      return 'пока врагов больше одного — ';
+    case 'allyHurt':
+      return 'пока никто из наших не ранен — ';
+    case 'enemiesClustered':
+      return 'пока враги не скучились — ';
+    case 'allyTaunting':
+      return 'пока никто из наших не вызвал врагов на себя — ';
+    case 'allyEngaged':
+      return 'пока никто из наших не схватился с врагом — ';
+    case 'guarded':
+      return 'пока меня не прикрывают — ';
+    case 'allySurrounded':
+      return 'пока никого из наших не обступили — ';
+    case 'alliesFocusing':
+      return 'пока наши ни на кого не навалились — ';
+    case 'spreadThin':
+      return 'пока мы не растянулись — ';
+    case 'lull':
+      return 'если затишья нет и до меня дотягиваются — ';
+    case 'weaponFails':
+      return 'пока моё оружие берёт того, кто ближе всех, — ';
+    case 'smoldering':
+      return 'пока на мне не тлеет — ';
+    case 'onHighGround':
+      return 'пока я не на высоте — ';
+    case 'cornered':
+      return 'пока меня не прижали — ';
+    case 'inFormation':
+      return 'если строй разорван — ';
+    case 'inZone':
+      return 'пока я не на рубеже задачи — ';
+    case 'enemyInZone':
+      return 'пока враг не ворвался на рубеж — ';
+    case 'timeShort':
+      return 'пока время задачи не на исходе — ';
+    case 'prizeHeld':
+      return 'пока трофей не у наших — ';
+    // «не всегда» и «не (А и Б)» язык не порождает — но тип их допускает
+    case 'always':
+    case 'and':
+    case 'or':
+    case 'not':
+      return `если неверно, что ${condRu(c, nm)}`;
   }
 }
 
