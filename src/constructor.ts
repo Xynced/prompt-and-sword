@@ -50,15 +50,28 @@ export type SimpleConditionDraft =
   | { id: 'cond.prizeHeld' };
 
 /**
- * Условие фразы: простое — или один комбинатор (глубокие чипсы): «и» (and,
+ * Отрицание простого условия — грамматика, а не слово (как «и»/«или»):
+ * платит только вложенное условие. Навешивается на атом: «не (А и Б)» и
+ * «не не А» языку недоступны.
+ */
+export type NegatedConditionDraft = { id: 'not'; cond: RealConditionDraft };
+
+/** Простое условие, кроме «всегда»: «не всегда» — правило, которое не горит. */
+export type RealConditionDraft = Exclude<SimpleConditionDraft, { id: 'always' }>;
+
+/** Звено условия: простое слово или оно же под «не». */
+export type CondLinkDraft = SimpleConditionDraft | NegatedConditionDraft;
+
+/**
+ * Условие фразы: звено — или один комбинатор (глубокие чипсы): «и» (and,
  * горит при всех) либо «или» (or, горит при любом). Внутри комбинатора только
- * простые условия — комбинаторы не вкладываются; вложенные группы
+ * звенья — комбинаторы не вкладываются; вложенные группы
  * расплющивает compileNested.
  */
 export type ConditionDraft =
-  | SimpleConditionDraft
-  | { id: 'and'; conds: SimpleConditionDraft[] }
-  | { id: 'or'; conds: SimpleConditionDraft[] };
+  | CondLinkDraft
+  | { id: 'and'; conds: CondLinkDraft[] }
+  | { id: 'or'; conds: CondLinkDraft[] };
 
 export type SelectorDraft =
   | 'sel.nearest'
@@ -190,10 +203,11 @@ const allyText = (
   form: 'nom' | 'gen' | 'ins' = 'gen',
 ): string => (typeof ref === 'string' ? nm(ref) : ALLY_ROLE_RU[ref.role][form]);
 
-/** Концепты условия; «и»/«или» — грамматика, а не слово: платят только вложенные условия. */
+/** Концепты условия; «и»/«или»/«не» — грамматика, а не слово: платят только вложенные условия. */
 function condConcepts(c: ConditionDraft): ConceptId[] {
   if (c.id === 'always') return [];
   if (c.id === 'and' || c.id === 'or') return c.conds.flatMap(condConcepts);
+  if (c.id === 'not') return condConcepts(c.cond);
   if (c.id === 'cond.allyInDanger') return [c.id, ...allyConcepts(c.ally)];
   if ((c.id === 'cond.hpBelow' || c.id === 'cond.hpAbove') && c.who !== 'self') {
     return [c.id, ...allyConcepts(c.who.ally)];
@@ -306,6 +320,98 @@ function condText(c: ConditionDraft, nm: (id: string) => string): string {
     case 'or':
       // «если А или если Б: » — тексты частей без завершающего «: »
       return `${c.conds.map((s) => condText(s, nm).replace(/: $/, '')).join(' или ')}: `;
+    case 'not':
+      return negText(c.cond, nm);
+  }
+}
+
+/**
+ * Текст условия под «не». Своя формулировка на каждое слово, а не приставка к
+ * общей: по-русски отрицание садится внутрь фразы («наш НЕ в контакте»), и
+ * механическое «не (наш в контакте)» приказ читать мешает.
+ */
+function negText(c: RealConditionDraft, nm: (id: string) => string): string {
+  switch (c.id) {
+    case 'cond.hpBelow':
+      return c.who === 'self'
+        ? `пока hp не ниже ${Math.round(c.frac * 100)}%: `
+        : `пока hp ${allyText(c.who.ally, nm)} не ниже ${Math.round(c.frac * 100)}%: `;
+    case 'cond.hpAbove':
+      return c.who === 'self'
+        ? `если hp не выше ${Math.round(c.frac * 100)}%: `
+        : `если hp ${allyText(c.who.ally, nm)} не выше ${Math.round(c.frac * 100)}%: `;
+    case 'cond.outnumbered':
+      return 'пока врагов не больше: ';
+    case 'cond.battleDrags':
+      return 'пока бой не затянулся: ';
+    case 'cond.initiativeEdge':
+      return 'если мы не быстрее: ';
+    case 'cond.allyFallen':
+      return 'пока никто из наших не пал: ';
+    case 'cond.surrounded':
+      return 'пока меня не окружили: ';
+    case 'cond.underCharge':
+      return 'пока враги не накатывают: ';
+    case 'cond.allyInDanger':
+      return `пока ${allyText(c.ally, nm, 'nom')} не в опасности: `;
+    case 'cond.firstBlood':
+      return 'пока кровь не пролилась: ';
+    case 'cond.leaderDown':
+      return 'пока вожак врага жив: ';
+    case 'cond.wasHit':
+      return 'пока меня не ударили: ';
+    case 'cond.enemyAdjacent':
+      return 'пока враг не вплотную: ';
+    case 'cond.allyAdjacent':
+      return 'пока рядом нет своих: ';
+    case 'cond.alone':
+      return 'пока я не в отрыве: ';
+    case 'cond.weOutnumber':
+      return 'пока нас не больше: ';
+    case 'cond.enemyShooters':
+      return 'если у врага нет стрелков: ';
+    case 'cond.enemyCasters':
+      return 'если у врага нет заклинателя: ';
+    case 'cond.enemyWavering':
+      return 'пока враг не дрогнул: ';
+    case 'cond.lastEnemy':
+      return 'пока врагов больше одного: ';
+    case 'cond.allyHurt':
+      return 'пока никто из наших не ранен: ';
+    case 'cond.enemiesClustered':
+      return 'пока враги не скучились: ';
+    case 'cond.allyTaunting':
+      return 'пока никто из наших не держит вызов: ';
+    case 'cond.allyEngaged':
+      return 'пока наш не в контакте: ';
+    case 'cond.guarded':
+      return 'пока меня не прикрывают: ';
+    case 'cond.allySurrounded':
+      return 'пока наших не обступили: ';
+    case 'cond.alliesFocusing':
+      return 'пока наши не навалились: ';
+    case 'cond.spreadThin':
+      return 'пока мы не растянулись: ';
+    case 'cond.lull':
+      return 'если затишья нет: ';
+    case 'cond.weaponFails':
+      return 'пока оружие берёт: ';
+    case 'cond.smoldering':
+      return 'пока на мне не тлеет: ';
+    case 'cond.onHighGround':
+      return 'пока я не на высоте: ';
+    case 'cond.cornered':
+      return 'пока меня не прижали: ';
+    case 'cond.inFormation':
+      return 'если строй не сомкнут: ';
+    case 'cond.inZone':
+      return 'пока я не на рубеже: ';
+    case 'cond.enemyInZone':
+      return 'пока врага нет на рубеже: ';
+    case 'cond.timeShort':
+      return 'пока время не на исходе: ';
+    case 'cond.prizeHeld':
+      return 'пока трофей не у наших: ';
   }
 }
 
@@ -500,6 +606,8 @@ function compileCondition(c: ConditionDraft): Condition {
       return { kind: 'and', conds: c.conds.map((s) => compileCondition(s)) };
     case 'or':
       return { kind: 'or', conds: c.conds.map((s) => compileCondition(s)) };
+    case 'not':
+      return { kind: 'not', cond: compileCondition(c.cond) };
   }
 }
 

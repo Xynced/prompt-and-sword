@@ -375,3 +375,160 @@ describe('карточка и LLM-схема: and', () => {
     expect(validateOutput(single, FULL_VOCAB, [], 4).ok).toBe(false);
   });
 });
+
+/**
+ * Отрицание «не» — та же грамматика, что «и»/«или»: слова не стоит, платит
+ * только вложенное условие. Навешивается на атом, комбинаторов внутрь не берёт.
+ */
+
+describe('evalCondition: not', () => {
+  it('переворачивает простое условие', () => {
+    const self = unit('a', 'party', { x: 3, y: 3 });
+    const e1 = unit('e1', 'foe', { x: 4, y: 3 });
+    const e2 = unit('e2', 'foe', { x: 3, y: 4 });
+    const notSurrounded: Rule['when'] = { kind: 'not', cond: { kind: 'surrounded' } };
+    expect(evalCondition(notSurrounded, self, [self, e1])).toBe(true);
+    expect(evalCondition(notSurrounded, self, [self, e1, e2])).toBe(false);
+  });
+
+  it('работает звеном внутри «и» и «или»', () => {
+    const self = unit('a', 'party', { x: 3, y: 3 }, { hp: 10 });
+    const melee = unit('e1', 'foe', { x: 9, y: 9 });
+    // ранен, но стрелков у врага нет
+    const cond: Rule['when'] = {
+      kind: 'and',
+      conds: [{ kind: 'hpBelow', who: 'self', frac: 0.5 }, { kind: 'not', cond: { kind: 'enemyShooters' } }],
+    };
+    expect(evalCondition(cond, self, [self, melee])).toBe(true);
+    const archer = unit('e2', 'foe', { x: 10, y: 9 }, { range: 4 });
+    expect(evalCondition(cond, self, [self, melee, archer])).toBe(false);
+  });
+
+  it('инверсия буквальная: молчащее без данных условие под «не» истинно', () => {
+    const self = unit('a', 'party', { x: 3, y: 3 });
+    const foe = unit('e', 'foe', { x: 9, y: 9 });
+    // высот на арене нет — «я на высоте» молчит, значит «не на высоте» горит
+    expect(evalCondition({ kind: 'onHighGround' }, self, [self, foe])).toBe(false);
+    expect(evalCondition({ kind: 'not', cond: { kind: 'onHighGround' } }, self, [self, foe])).toBe(true);
+  });
+});
+
+describe('конструктор: условие «не»', () => {
+  it('не-фраза компилируется в отрицание со своей русской формулировкой', () => {
+    const draft: PhraseDraft = {
+      condition: { id: 'not', cond: { id: 'cond.allyEngaged' } },
+      preference: { id: 'act.wait' },
+    };
+    const r = compilePhrase(draft, FULL_VOCAB);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.rule.when).toEqual({ kind: 'not', cond: { kind: 'allyEngaged' } });
+    expect(r.rule.source).toBe('пока наш не в контакте: выжидать');
+  });
+
+  it('«не» — грамматика, но вложенное слово всё равно платит словарём', () => {
+    const draft: PhraseDraft = {
+      condition: { id: 'not', cond: { id: 'cond.allyEngaged' } },
+      preference: { id: 'act.retreat' },
+    };
+    const r = compilePhrase(draft, STARTING_VOCAB);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.missing).toEqual(['cond.allyEngaged']);
+  });
+
+  it('«не» внутри «и» — конъюнкция звеньев, source читается насквозь', () => {
+    const draft: PhraseDraft = {
+      condition: {
+        id: 'and',
+        conds: [{ id: 'cond.hpBelow', who: 'self', frac: 0.5 }, { id: 'not', cond: { id: 'cond.guarded' } }],
+      },
+      preference: { id: 'act.retreat' },
+    };
+    const r = compilePhrase(draft, FULL_VOCAB);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.rule.when).toEqual({
+      kind: 'and',
+      conds: [{ kind: 'hpBelow', who: 'self', frac: 0.5 }, { kind: 'not', cond: { kind: 'guarded' } }],
+    });
+    expect(r.rule.source).toBe('если hp ниже 50%: пока меня не прикрывают: отступать');
+  });
+});
+
+describe('карточка и LLM-схема: not', () => {
+  it('ruleRu читает отрицание отдельной формулировкой, а не приставкой', () => {
+    const r: Rule = {
+      when: { kind: 'not', cond: { kind: 'allyEngaged' } },
+      then: { kind: 'wait' },
+      weight: 2,
+      scope: 'self',
+      source: 'тест',
+    };
+    expect(ruleRu(r)).toBe(
+      'пока никто из наших не схватился с врагом — выжидаю: сам не иду навстречу, берегу ход — пока бой не докатился до меня',
+    );
+  });
+
+  it('схема несёт ветку «not»; валидатор берёт атом и режет всё прочее', () => {
+    const s = JSON.stringify(buildCompileSchema(FULL_VOCAB, []));
+    expect(s).toContain('"not"');
+
+    const phrase = (condition: unknown) => ({
+      phrases: [{ condition, preference: { id: 'act.retreat' }, weight: 1 }],
+      uncertainty: [],
+    });
+    expect(validateOutput(phrase({ id: 'not', cond: { id: 'cond.allyEngaged' } }), FULL_VOCAB, [], 4).ok).toBe(true);
+    // закрытое слово под «не» — отказ целиком
+    expect(validateOutput(phrase({ id: 'not', cond: { id: 'cond.allyEngaged' } }), STARTING_VOCAB, [], 4).ok).toBe(false);
+    // «не» звеном внутри «или» — грамматика
+    expect(
+      validateOutput(
+        phrase({ id: 'or', conds: [{ id: 'cond.alone' }, { id: 'not', cond: { id: 'cond.guarded' } }] }),
+        FULL_VOCAB,
+        [],
+        4,
+      ).ok,
+    ).toBe(true);
+    // «не всегда», «не (А и Б)» и «не не А» языку недоступны
+    for (const bad of [
+      { id: 'not', cond: { id: 'always' } },
+      { id: 'not', cond: { id: 'and', conds: [{ id: 'cond.alone' }, { id: 'cond.guarded' }] } },
+      { id: 'not', cond: { id: 'not', cond: { id: 'cond.alone' } } },
+    ]) {
+      expect(validateOutput(phrase(bad), FULL_VOCAB, [], 4).ok).toBe(false);
+    }
+  });
+});
+
+describe('решение: «жди, пока наш не сцепится» одной фразой', () => {
+  const rules: Rule[] = [
+    {
+      when: { kind: 'not', cond: { kind: 'allyEngaged' } },
+      then: { kind: 'wait' },
+      weight: 2,
+      scope: 'self',
+      source: 'пока наш не в контакте: выжидать',
+    },
+    {
+      when: { kind: 'allyEngaged' },
+      then: { kind: 'attack', target: 'nearest' },
+      weight: 2,
+      scope: 'self',
+      source: 'если наш в контакте: атаковать: ближайший',
+    },
+  ];
+
+  it('плут стоит, пока воин не в контакте, и снимается с места, когда сцепился', () => {
+    const foe = fighter('e', 'foe', { x: 15, y: 9 });
+    const idle = fighter('grom', 'party', { x: 2, y: 10 });
+    const rogue = fighter('mara', 'party', { x: 2, y: 9 }, rules, { speed: 9, move: 3 });
+    expect(decide(rogue, [rogue, idle, foe]).chosen.action).toBe('wait');
+
+    // воин дошёл и встал вплотную к врагу — отрицание гаснет, приказ снимает с места
+    const engaged = fighter('grom', 'party', { x: 14, y: 9 });
+    const moved = decide(rogue, [rogue, engaged, foe]);
+    expect(moved.chosen.action).toBe('move');
+    expect(moved.chosen.to.x).toBeGreaterThan(rogue.pos.x);
+  });
+});

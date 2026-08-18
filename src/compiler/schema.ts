@@ -4,6 +4,7 @@ import {
   type PhraseDraft,
   type PreferenceDraft,
   type SelectorDraft,
+  type CondLinkDraft,
   type SimpleConditionDraft,
 } from '../constructor.js';
 import type { AllyRef, AllyRole } from '../ir.js';
@@ -161,14 +162,17 @@ export function buildCompileSchema(vocab: readonly ConceptId[], allyIds: readonl
   if (has('cond.allyInDanger') && hasAlly) {
     simple.push(obj({ id: { const: 'cond.allyInDanger' }, ally: allySchema }));
   }
-  const conditions: object[] = [obj({ id: { const: 'always' } }), ...simple];
+  // «не» — грамматика, не слово: отрицание любого открытого простого условия
+  const negated: object[] = simple.length > 0 ? [obj({ id: { const: 'not' }, cond: { anyOf: simple } })] : [];
+  const links = [...simple, ...negated];
+  const conditions: object[] = [obj({ id: { const: 'always' } }), ...links];
   // глубокие чипсы: «и»/«или» — грамматика, не слова; доступны при любом открытом условии
   if (simple.length > 0) {
     for (const op of ['and', 'or'] as const) {
       conditions.push(
         obj({
           id: { const: op },
-          conds: { type: 'array', items: { anyOf: simple }, minItems: 2, maxItems: 3 },
+          conds: { type: 'array', items: { anyOf: links }, minItems: 2, maxItems: 3 },
         }),
       );
     }
@@ -264,15 +268,23 @@ function validateCondition(
     }
     case 'and':
     case 'or': {
-      // комбинатор: 2–3 ПРОСТЫХ условия (без always и вложенных комбинаторов)
+      // комбинатор: 2–3 звена (простое условие или оно же под «не»); без
+      // always и без вложенных комбинаторов
       if (!Array.isArray(v.conds) || v.conds.length < 2 || v.conds.length > 3) return null;
-      const conds: SimpleConditionDraft[] = [];
+      const conds: CondLinkDraft[] = [];
       for (const s of v.conds) {
         const c = validateCondition(s, vocab, allyIds);
         if (!c || c.id === 'and' || c.id === 'or' || c.id === 'always') return null;
         conds.push(c);
       }
       return { id: v.id, conds };
+    }
+    case 'not': {
+      // отрицание навешивается только на простое условие: ни «всегда», ни
+      // комбинатор, ни второе «не» внутрь не пускаем
+      const c = validateCondition(v.cond, vocab, allyIds);
+      if (!c || c.id === 'and' || c.id === 'or' || c.id === 'always' || c.id === 'not') return null;
+      return { id: 'not', cond: c };
     }
     default:
       return null;
