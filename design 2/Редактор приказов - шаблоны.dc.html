@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Caveat:wght@400;600&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #332f29; }
+  a { color: #9c3b28; text-decoration: none; border-bottom: 1px solid rgba(156,59,40,0.5); }
+  a:hover { color: #c04d33; }
+</style>
+</helmet>
+<section style="display:flex;flex-direction:column;gap:22px;padding:40px 44px;font-family:'EB Garamond',Georgia,serif;color:#1f1b16">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:1000px">
+    <span style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.14em;text-transform:uppercase;color:rgba(240,232,213,0.45)">четвёртая панель · редактор приказов · куда ведут обе кнопки «переписать»</span>
+    <h1 style="margin:0;font:500 26px/1.15 'EB Garamond',serif;letter-spacing:0.04em;color:#f0e8d5">Редактор приказов: слово слева, эхо справа</h1>
+    <p style="margin:0;font:400 16px/1.45 'EB Garamond',serif;color:rgba(240,232,213,0.72);text-wrap:pretty">Оборот 2 — <a href="#2a">2a</a>: текст пишется один раз и превращается в набор (только из слов, которые герой знает); словарь ушёл за кнопку со счётом, добавлены три комплекта приказов и фокус как дефицитный ресурс отряда. Ниже — прежние <a href="#1a">1a</a> и <a href="#1b">1b</a>. Главный экран игры и единственное место, где игрок действует. Контракт видимости из плана линз: <span style="color:#f0e8d5">понял дословно</span> — печатаем правило, <span style="color:#f0e8d5">понял по-своему</span> — только факт (содержание раскроет свиток боя), <span style="color:#f0e8d5">не понял вообще</span> — подсветка неуверенности. <a href="#1a">1a</a> — свободный текст (с токеном компилятора), <a href="#1b">1b</a> — конструктор чипсами (без токена). Азбука прежняя: <a href="Свиток боя - шаблоны.dc.html#1a">свиток</a>, <a href="Разведка врага - шаблоны.dc.html#2a">разведка</a>.</p>
+  </div>
+
+  <div style="display:flex;gap:34px;align-items:flex-start;flex-wrap:wrap">
+
+    <div id="2a" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">2a</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">текст → разбор · комплекты · фокус</span>
+      </div>
+
+      <div style="position:relative;width:600px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Приказы · Яр</span>
+          <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">воин · слоты ◆◆◆◇</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+            <button onClick="{{ openDict }}" style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:5px 6px;background:transparent;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7);cursor:pointer;border-radius:0" style-hover="border-color:#9c3b28;color:#9c3b28">словарь · 7 слов</button>
+            <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.06em;color:rgba(31,27,22,0.45)">фокусы: {{ focusLeft }}</span>
+          </span>
+        </div>
+
+        <div style="display:flex;gap:5px;align-items:center">
+          <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">комплект</span>
+          <div style="display:flex;gap:3px">
+            <button data-kit="A" onClick="{{ setKit }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:6px 9px;border:1px solid rgba(31,27,22,0.4);cursor:pointer;border-radius:0;background:{{ kitA.bg }};color:{{ kitA.fg }}">A · штурм</button>
+            <button data-kit="B" onClick="{{ setKit }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:6px 9px;border:1px solid rgba(31,27,22,0.4);cursor:pointer;border-radius:0;background:{{ kitB.bg }};color:{{ kitB.fg }}">B · осада</button>
+            <button data-kit="C" onClick="{{ setKit }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:6px 9px;border:1px dashed rgba(31,27,22,0.35);cursor:pointer;border-radius:0;background:{{ kitC.bg }};color:{{ kitC.fg }}">C · пусто</button>
+          </div>
+          <span style="margin-left:auto;font:400 13px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.5)">{{ kitNote }}</span>
+        </div>
+
+        <sc-if value="{{ isDraft }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">скажи один раз, своими словами</span>
+
+            <sc-if value="{{ draftFilled }}" hint-placeholder-val="{{ true }}">
+              <div style="background:rgba(255,255,255,0.55);border:1px solid rgba(31,27,22,0.3);padding:11px 12px;min-height:118px;display:flex">
+                <span style="font:400 16px/1.45 'EB Garamond',serif;text-wrap:pretty">{{ draftText }}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="flex:1;font:400 14px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.55)">Разбор — на его словах: всё, чего он не знает, останется за бортом и будет видно.</span>
+                <button onClick="{{ compile }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 12px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">разобрать</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ draftEmpty }}" hint-placeholder-val="{{ true }}">
+              <div style="background:rgba(255,255,255,0.35);border:1px dashed rgba(31,27,22,0.3);padding:11px 12px;min-height:118px;display:flex">
+                <span style="font:400 16px/1.35 'Caveat',cursive;color:rgba(31,27,22,0.42)">здесь будет вторая стратегия — например, про дистанцию и стрелков</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="flex:1;font:400 14px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.45)">Пустой комплект не выставить в бой — сначала слова.</span>
+                <button onClick="{{ openModal }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 12px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">написать приказы</button>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isSet }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:11px">
+            <div style="display:flex;gap:9px;align-items:flex-start;background:rgba(31,27,22,0.06);padding:8px 10px">
+              <span style="flex:1;font:400 13.5px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.62);font-style:italic">{{ quote }}</span>
+              <button onClick="{{ openModal }}" style="flex:none;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:5px 6px;background:transparent;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6);cursor:pointer;border-radius:0" style-hover="color:#9c3b28;border-color:#9c3b28">править текст</button>
+            </div>
+
+            <div style="display:flex;align-items:baseline;gap:8px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">что из этого он собрал</span>
+              <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;color:rgba(31,27,22,0.4)">фокус — важнее остальных</span>
+            </div>
+
+            <sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+            <div data-p="1" onClick="{{ setFocus }}" style="display:flex;gap:10px;align-items:flex-start;padding:8px 9px;cursor:pointer;border-left:3px solid {{ p1.bar }};background:{{ p1.bg }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;font:600 13px/1.5 'Courier Prime',monospace;color:{{ p1.markColor }}">{{ p1.mark }}</span>
+              <span style="flex:1;display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                  <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">всегда</span>
+                  <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">атаковать</span>
+                  <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">самого опасного</span>
+                </div>
+                <span style="display:flex;align-items:baseline;gap:7px">
+                  <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:{{ p1.labelColor }}">{{ p1.label }}</span>
+                  <span style="margin-left:auto;font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600">понял дословно</span>
+                </span>
+              </span>
+            </div>
+
+            <div data-p="2" onClick="{{ setFocus }}" style="display:flex;gap:10px;align-items:flex-start;padding:8px 9px;cursor:pointer;border-left:3px solid {{ p2.bar }};background:{{ p2.bg }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;font:600 13px/1.5 'Courier Prime',monospace;color:{{ p2.markColor }}">{{ p2.mark }}</span>
+              <span style="flex:1;display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                  <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">окружили</span>
+                  <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">глухая оборона</span>
+                </div>
+                <span style="display:flex;align-items:baseline;gap:7px">
+                  <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:{{ p2.labelColor }}">{{ p2.label }}</span>
+                  <span style="margin-left:auto;font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600">понял дословно</span>
+                </span>
+              </span>
+            </div>
+
+            <div data-p="3" onClick="{{ setFocus }}" style="display:flex;gap:10px;align-items:flex-start;padding:8px 9px;cursor:pointer;border-left:3px solid {{ p3.bar }};background:{{ p3.bg }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;font:600 13px/1.5 'Courier Prime',monospace;color:{{ p3.markColor }}">{{ p3.mark }}</span>
+              <span style="flex:1;display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                  <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">рядом с Лией</span>
+                  <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">прикрывать</span>
+                </div>
+                <span style="display:flex;align-items:baseline;gap:7px">
+                  <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:{{ p3.labelColor }}">{{ p3.label }}</span>
+                  <span style="margin-left:auto;font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600;color:#9c3b28">понял по-своему</span>
+                </span>
+              </span>
+            </div>
+
+            </sc-if>
+
+            <sc-if value="{{ isB }}" hint-placeholder-val="{{ true }}">
+            <div data-p="1" onClick="{{ setFocus }}" style="display:flex;gap:10px;align-items:flex-start;padding:8px 9px;cursor:pointer;border-left:3px solid {{ p1.bar }};background:{{ p1.bg }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;font:600 13px/1.5 'Courier Prime',monospace;color:{{ p1.markColor }}">{{ p1.mark }}</span>
+              <span style="flex:1;display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                  <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">всегда</span>
+                  <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">держать дистанцию</span>
+                </div>
+                <span style="display:flex;align-items:baseline;gap:7px">
+                  <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:{{ p1.labelColor }}">{{ p1.label }}</span>
+                  <span style="margin-left:auto;font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600">понял дословно</span>
+                </span>
+              </span>
+            </div>
+
+            <div data-p="2" onClick="{{ setFocus }}" style="display:flex;gap:10px;align-items:flex-start;padding:8px 9px;cursor:pointer;border-left:3px solid {{ p2.bar }};background:{{ p2.bg }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;font:600 13px/1.5 'Courier Prime',monospace;color:{{ p2.markColor }}">{{ p2.mark }}</span>
+              <span style="flex:1;display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                  <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">окружили</span>
+                  <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">глухая оборона</span>
+                </div>
+                <span style="display:flex;align-items:baseline;gap:7px">
+                  <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:{{ p2.labelColor }}">{{ p2.label }}</span>
+                  <span style="margin-left:auto;font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600">понял дословно</span>
+                </span>
+              </span>
+            </div>
+
+            <div data-p="3" onClick="{{ setFocus }}" style="display:flex;gap:10px;align-items:flex-start;padding:8px 9px;cursor:pointer;border-left:3px solid {{ p3.bar }};background:{{ p3.bg }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;font:600 13px/1.5 'Courier Prime',monospace;color:{{ p3.markColor }}">{{ p3.mark }}</span>
+              <span style="flex:1;display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                  <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">вне линии огня</span>
+                  <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">атаковать</span>
+                  <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">стрелка</span>
+                </div>
+                <span style="display:flex;align-items:baseline;gap:7px">
+                  <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:{{ p3.labelColor }}">{{ p3.label }}</span>
+                  <span style="margin-left:auto;font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600;color:#9c3b28">понял по-своему</span>
+                </span>
+              </span>
+            </div>
+
+            </sc-if>
+
+            <div onClick="{{ openModal }}" style="display:flex;gap:10px;align-items:center;padding:9px 9px;border:1px dashed rgba(31,27,22,0.3);cursor:pointer" style-hover="border-color:#9c3b28">
+              <span style="flex:none;font:600 13px/1.4 'Courier Prime',monospace;color:rgba(31,27,22,0.28)">◇</span>
+              <span style="flex:1;font:400 15px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.42)">свободный слот — допиши приказ или оставь ему свободу</span>
+              <span style="flex:none;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;color:rgba(31,27,22,0.35)">слот 4 из 4</span>
+            </div>
+
+            <span style="font:400 14px/1.3 'Caveat',cursive;color:{{ focusHintColor }}">{{ focusHint }}</span>
+          </div>
+        </sc-if>
+
+        <div style="display:flex;gap:8px;align-items:center;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+          <button onClick="{{ save }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 10px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">сохранить набор</button>
+          <span style="flex:1;font:400 13px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.5)">{{ saveNote }}</span>
+          <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 12px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">⚔ выступить</button>
+        </div>
+
+        <sc-if value="{{ dict }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute;inset:0;background:rgba(31,27,22,0.55);display:flex;align-items:center;justify-content:center;padding:14px">
+            <div style="width:100%;max-height:100%;overflow:auto;background:#f0e8d5;border-top:4px solid #9c3b28;box-shadow:0 18px 44px rgba(0,0,0,0.5);padding:15px 17px;display:flex;flex-direction:column;gap:11px">
+              <div style="display:flex;align-items:baseline;gap:9px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px">
+                <span style="font:500 14px/1.15 'EB Garamond',serif;letter-spacing:0.09em;text-transform:uppercase">Словарь · Яр</span>
+                <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.06em;color:rgba(31,27,22,0.45)">7 из 38 слов</span>
+                <button onClick="{{ closeDict }}" style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:5px 7px;background:transparent;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7);cursor:pointer;border-radius:0" style-hover="color:#9c3b28;border-color:#9c3b28">закрыть</button>
+              </div>
+
+              <div style="display:flex;gap:5px;align-items:center;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:5px 7px;background:#1f1b16;color:#f0e8d5;cursor:pointer">все 7</span>
+                <span style="padding:5px 7px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6);cursor:pointer">условия 2</span>
+                <span style="padding:5px 7px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6);cursor:pointer">цели 1</span>
+                <span style="padding:5px 7px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6);cursor:pointer">действия 4</span>
+                <span style="margin-left:auto;font:400 13px/1.2 'Caveat',cursive;text-transform:none;letter-spacing:0;color:rgba(31,27,22,0.5)">клик по слову — вставить в текст</span>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.25);padding-bottom:3px">
+                  <span style="font:600 12px/1 'EB Garamond',serif;color:#9c3b28;text-transform:uppercase;letter-spacing:0.08em">Редкие</span>
+                  <span style="font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45)">4 · меняют язык, а не громкость</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 14px">
+                  <span style="display:flex;align-items:baseline;gap:7px;padding:3px 0"><span style="flex:none;padding:4px 5px;font:400 9.5px/1 'Courier Prime',monospace;background:#9c3b28;color:#f7f0e1">самый опасный</span><span style="font:400 13px/1.25 'EB Garamond',serif;color:rgba(31,27,22,0.75)">лучший селектор боя</span></span>
+                  <span style="display:flex;align-items:baseline;gap:7px;padding:3px 0"><span style="flex:none;padding:4px 5px;font:400 9.5px/1 'Courier Prime',monospace;background:#9c3b28;color:#f7f0e1">окружили</span><span style="font:400 13px/1.25 'EB Garamond',serif;color:rgba(31,27,22,0.75)">условие: враги со всех сторон</span></span>
+                  <span style="display:flex;align-items:baseline;gap:7px;padding:3px 0"><span style="flex:none;padding:4px 5px;font:400 9.5px/1 'Courier Prime',monospace;background:#9c3b28;color:#f7f0e1">глухая оборона</span><span style="font:400 13px/1.25 'EB Garamond',serif;color:rgba(31,27,22,0.75)">решает бой, но только по условию</span></span>
+                  <span style="display:flex;align-items:baseline;gap:7px;padding:3px 0"><span style="flex:none;padding:4px 5px;font:400 9.5px/1 'Courier Prime',monospace;background:#9c3b28;color:#f7f0e1">рядом с</span><span style="font:400 13px/1.25 'EB Garamond',serif;color:rgba(31,27,22,0.75)">строй: держаться в клетке от своего</span></span>
+                </div>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.25);padding-bottom:3px">
+                  <span style="font:600 12px/1 'EB Garamond',serif;text-transform:uppercase;letter-spacing:0.08em">Обычные</span>
+                  <span style="font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45)">3 · рабочая речь</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 14px">
+                  <span style="display:flex;align-items:baseline;gap:7px;padding:3px 0"><span style="flex:none;padding:4px 5px;font:400 9.5px/1 'Courier Prime',monospace;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">прикрывать</span><span style="font:400 13px/1.25 'EB Garamond',serif;color:rgba(31,27,22,0.7)">встать между своим и врагом</span></span>
+                  <span style="display:flex;align-items:baseline;gap:7px;padding:3px 0"><span style="flex:none;padding:4px 5px;font:400 9.5px/1 'Courier Prime',monospace;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">бить часто</span><span style="font:400 13px/1.25 'EB Garamond',serif;color:rgba(31,27,22,0.7)">манера: слабый удар крепче</span></span>
+                  <span style="display:flex;align-items:baseline;gap:7px;padding:3px 0"><span style="flex:none;padding:4px 5px;font:400 9.5px/1 'Courier Prime',monospace;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">бить наверняка</span><span style="font:400 13px/1.25 'EB Garamond',serif;color:rgba(31,27,22,0.7)">манера: полный удар пробивает</span></span>
+                </div>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px dashed rgba(31,27,22,0.25);padding-bottom:3px">
+                  <span style="font:600 12px/1 'EB Garamond',serif;color:rgba(31,27,22,0.45);text-transform:uppercase;letter-spacing:0.08em">Ещё не открыто</span>
+                  <span style="font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.4)">31 · трофеи, скрипторий, книжник</span>
+                </div>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                  <span style="padding:4px 5px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.38)">?</span>
+                  <span style="padding:4px 5px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.38)">?</span>
+                  <span style="padding:4px 5px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.38)">?</span>
+                  <span style="padding:4px 5px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.38)">? ещё 28</span>
+                  <span style="margin-left:auto;font:400 13px/1.2 'Caveat',cursive;letter-spacing:0;color:rgba(31,27,22,0.5)">закрытые слова не показываются даже названием — иначе это спойлер трофея</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ modal }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute;inset:0;background:rgba(31,27,22,0.55);display:flex;align-items:center;justify-content:center;padding:14px">
+            <div style="width:100%;background:#f0e8d5;border-top:4px solid #9c3b28;box-shadow:0 18px 44px rgba(0,0,0,0.5);padding:15px 17px;display:flex;flex-direction:column;gap:11px">
+              <div style="display:flex;align-items:baseline;gap:9px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px">
+                <span style="font:500 14px/1.15 'EB Garamond',serif;letter-spacing:0.09em;text-transform:uppercase">Твой текст · комплект {{ kitName }}</span>
+                <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.06em;color:rgba(31,27,22,0.45)">он знает 7 слов</span>
+              </div>
+
+              <div style="display:flex;gap:13px;align-items:stretch">
+                <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+                  <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">скажи своими словами</span>
+                  <sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+                    <div style="flex:1;background:rgba(255,255,255,0.6);border:1px solid rgba(31,27,22,0.3);padding:10px 11px;min-height:132px">
+                      <span style="font:400 15.5px/1.45 'EB Garamond',serif;text-wrap:pretty">Бей самого опасного. Если нас окружили — держи глухую оборону и не отходи от Лии, прикрывай её. Бей <span style="background:rgba(156,59,40,0.18);border-bottom:1px dashed #9c3b28">с оттяжкой</span>, экономь дыхание и <span style="background:rgba(156,59,40,0.18);border-bottom:1px dashed #9c3b28">не лезь в свалку</span>.</span>
+                    </div>
+                    <span style="font:400 13.5px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.55)">Подсвечено то, чего он не знает: перепиши или оставь — в набор это просто не войдёт.</span>
+                  </sc-if>
+
+                  <sc-if value="{{ isB }}" hint-placeholder-val="{{ true }}">
+                    <div style="flex:1;background:rgba(255,255,255,0.6);border:1px solid rgba(31,27,22,0.3);padding:10px 11px;min-height:132px">
+                      <span style="font:400 15.5px/1.45 'EB Garamond',serif;text-wrap:pretty">Держи дистанцию. Если нас окружили — глухая оборона. Стой вне линии огня и снимай стрелков.</span>
+                    </div>
+                    <span style="font:400 13.5px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.55)">Здесь он понял каждое слово — подсвечивать нечего.</span>
+                  </sc-if>
+
+                  <sc-if value="{{ isC }}" hint-placeholder-val="{{ true }}">
+                    <div style="flex:1;background:rgba(255,255,255,0.45);border:1px dashed rgba(31,27,22,0.3);padding:10px 11px;min-height:132px">
+                      <span style="font:400 15.5px/1.35 'Caveat',cursive;color:rgba(31,27,22,0.42)">здесь будет вторая стратегия — например, про дистанцию и стрелков</span>
+                    </div>
+                    <span style="font:400 13.5px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.45)">Пока пусто — применить нечего.</span>
+                  </sc-if>
+                </div>
+
+                <div style="width:236px;flex:none;display:flex;flex-direction:column;gap:5px;background:rgba(31,27,22,0.06);padding:10px 11px">
+                  <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">как он это понял</span>
+
+                  <sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;flex-direction:column;gap:2px;border-bottom:1px dotted rgba(31,27,22,0.25);padding:4px 0">
+                      <span style="font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600">понял дословно</span>
+                      <span style="font:400 12.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.78)">цель — самый опасный; окружили → глухая оборона</span>
+                    </div>
+
+                    <div style="display:flex;flex-direction:column;gap:2px;border-bottom:1px dotted rgba(31,27,22,0.25);padding:4px 0">
+                      <span style="font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600;color:#9c3b28">понял по-своему</span>
+                      <span style="font:400 14px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.62)">«рядом с Лией, прикрывай» он прочтёт на свой лад — увидишь в бою</span>
+                    </div>
+
+                    <div style="display:flex;flex-direction:column;gap:3px;padding:4px 0">
+                      <span style="font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600;color:#9c3b28">не понял вообще</span>
+                      <span style="font:400 12.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.78)">«с оттяжкой», «не лезь в свалку» — таких слов он не знает</span>
+                      <span style="display:flex;gap:4px;flex-wrap:wrap;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.04em;text-transform:uppercase">
+                        <span style="padding:4px 5px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">может, «держать дистанцию»?</span>
+                      </span>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ isB }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;flex-direction:column;gap:2px;border-bottom:1px dotted rgba(31,27,22,0.25);padding:4px 0">
+                      <span style="font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600">понял дословно</span>
+                      <span style="font:400 12.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.78)">держать дистанцию; окружили → глухая оборона; цель — стрелок</span>
+                    </div>
+
+                    <div style="display:flex;flex-direction:column;gap:2px;padding:4px 0">
+                      <span style="font:400 12.5px/1.2 'EB Garamond',serif;font-weight:600;color:#9c3b28">понял по-своему</span>
+                      <span style="font:400 14px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.62)">«вне линии огня» он прочтёт на свой лад — увидишь в бою</span>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ isC }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;flex-direction:column;gap:3px;padding:4px 0">
+                      <span style="font:400 14px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.45)">пока нечего понимать — напиши хоть строку, и эхо появится здесь</span>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+
+              <div style="display:flex;gap:8px;align-items:center;border-top:1px dotted rgba(31,27,22,0.35);padding-top:9px">
+                <span style="flex:1;font:400 13px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.5)">Текст сохранится целиком — даже те слова, что он пока не понимает.</span>
+                <button onClick="{{ closeModal }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:7px 10px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">отмена</button>
+                <sc-if value="{{ canApply }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ apply }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:7px 12px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">применить</button>
+                </sc-if>
+                <sc-if value="{{ isC }}" hint-placeholder-val="{{ true }}">
+                  <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:7px 12px;background:transparent;color:rgba(31,27,22,0.35);border:1px dashed rgba(31,27,22,0.3);cursor:default;border-radius:0">применить</button>
+                </sc-if>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+      <p style="margin:0;width:600px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Текст пишется один раз и превращается в набор — дальше игрок работает с разбором, а не с прозой. Словарь ушёл за кнопку (виден только счёт слов), комплекты A/B/C переключают стратегию в один клик, а фокус — общий дефицитный ресурс отряда: поднять вес можно не всем и не везде.</p>
+    </div>
+
+    <div id="1a" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">1a</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">свободный текст · клик по эху — что понято</span>
+      </div>
+
+      <div style="width:620px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:13px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Приказы · Яр</span>
+          <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">воин · молот и щит</span>
+          <span style="margin-left:auto;display:flex;align-items:baseline;gap:6px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">слоты принципов</span>
+            <span style="font:600 13px/1 'Courier Prime',monospace;letter-spacing:2px;color:#9c3b28">◆◆◆◇</span>
+          </span>
+        </div>
+
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">что ты ему говоришь</span>
+
+            <div style="display:flex;gap:8px;align-items:flex-start;background:rgba(255,255,255,0.5);border:1px solid rgba(31,27,22,0.3);padding:8px 9px">
+              <span style="flex:none;font:400 10px/1.6 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">1</span>
+              <span style="font:400 15.5px/1.4 'EB Garamond',serif">Бей самого опасного, а если нас окружили — держи глухую оборону.</span>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:flex-start;background:rgba(255,255,255,0.5);border:1px solid rgba(31,27,22,0.3);padding:8px 9px">
+              <span style="flex:none;font:400 10px/1.6 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">2</span>
+              <span style="font:400 15.5px/1.4 'EB Garamond',serif">Держись рядом с Лией и прикрывай её.</span>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:flex-start;background:rgba(255,255,255,0.5);border:1px solid rgba(156,59,40,0.55);padding:8px 9px">
+              <span style="flex:none;font:400 10px/1.6 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">3</span>
+              <span style="font:400 15.5px/1.4 'EB Garamond',serif">Бей с оттяжкой, экономь дыхание<span style="background:rgba(156,59,40,0.18);border-bottom:1px dashed #9c3b28"> и не лезь в свалку</span>.</span>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:center;border:1px dashed rgba(31,27,22,0.3);padding:9px">
+              <span style="flex:none;font:400 10px/1.6 'Courier Prime',monospace;color:rgba(31,27,22,0.3)">4</span>
+              <span style="font:400 15px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.42)">свободный слот — допиши приказ или оставь ему свободу</span>
+            </div>
+
+            <div style="display:flex;gap:5px;flex-wrap:wrap;padding-top:2px">
+              <span style="font:400 9px/1.6 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(31,27,22,0.4)">открытые слова:</span>
+              <span style="display:flex;gap:4px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                <span style="padding:4px 5px;background:#9c3b28;color:#f7f0e1">самый опасный</span>
+                <span style="padding:4px 5px;background:#9c3b28;color:#f7f0e1">окружили</span>
+                <span style="padding:4px 5px;background:#9c3b28;color:#f7f0e1">глухая оборона</span>
+                <span style="padding:4px 5px;background:#9c3b28;color:#f7f0e1">рядом с</span>
+                <span style="padding:4px 5px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">прикрывать</span>
+                <span style="padding:4px 5px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">бить часто</span>
+                <span style="padding:4px 5px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">бить наверняка</span>
+                <span style="padding:4px 5px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.4)">+31 ещё не открыто</span>
+              </span>
+            </div>
+            <span style="font:400 14px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.55)">Красным залиты редкие слова — те, что меняют язык, а не громкость.</span>
+          </div>
+
+          <div style="width:250px;flex:none;display:flex;flex-direction:column;gap:6px;background:#f0e8d5;border-top:4px solid #9c3b28;padding:11px 13px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">как он это понял</span>
+
+            <div data-row="1" onClick="{{ pick }}" style="display:flex;flex-direction:column;gap:3px;border-bottom:1px dotted rgba(31,27,22,0.25);padding:5px 0;cursor:pointer;background:{{ sel1 }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="display:flex;align-items:baseline;gap:6px">
+                <span style="flex:none;font:600 11px/1.3 'Courier Prime',monospace;color:#1f1b16">1</span>
+                <span style="font:400 13px/1.25 'EB Garamond',serif;font-weight:600">понял дословно</span>
+              </span>
+              <span style="padding-left:17px;font:400 13px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.8)">цель — самый опасный; окружили → глухая оборона</span>
+              <sc-if value="{{ open1 }}" hint-placeholder-val="{{ true }}">
+                <span style="margin-left:17px;margin-top:3px;display:flex;flex-direction:column;gap:2px;font:400 9.5px/1.35 'Courier Prime',monospace;color:rgba(31,27,22,0.6)">
+                  <span>если всегда → атака · цель sel.mostDangerous · вес 3</span>
+                  <span>если cond.surrounded → оборона · вес 5</span>
+                </span>
+              </sc-if>
+            </div>
+
+            <div data-row="2" onClick="{{ pick }}" style="display:flex;flex-direction:column;gap:3px;border-bottom:1px dotted rgba(31,27,22,0.25);padding:5px 0;cursor:pointer;background:{{ sel2 }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="display:flex;align-items:baseline;gap:6px">
+                <span style="flex:none;font:600 11px/1.3 'Courier Prime',monospace;color:#1f1b16">2</span>
+                <span style="font:400 13px/1.25 'EB Garamond',serif;font-weight:600;color:#9c3b28">понял по-своему</span>
+              </span>
+              <span style="padding-left:17px;font:400 15px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.62)">что-то в этой строке он прочтёт на свой лад — увидишь в бою</span>
+              <sc-if value="{{ open2 }}" hint-placeholder-val="{{ true }}">
+                <span style="margin-left:17px;margin-top:3px;display:flex;flex-direction:column;gap:3px">
+                  <span style="font:400 9.5px/1.35 'Courier Prime',monospace;color:rgba(31,27,22,0.6)">рядом с Лией → держаться в 1 клетке · вес 2</span>
+                  <span style="font:400 9.5px/1.35 'Courier Prime',monospace;color:#9c3b28">прикрывать → скрыто до боя</span>
+                  <span style="font:400 14px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.5)">спарринг «те же кости» покажет бесплатно</span>
+                </span>
+              </sc-if>
+            </div>
+
+            <div data-row="3" onClick="{{ pick }}" style="display:flex;flex-direction:column;gap:3px;padding:5px 0;cursor:pointer;background:{{ sel3 }}" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="display:flex;align-items:baseline;gap:6px">
+                <span style="flex:none;font:600 11px/1.3 'Courier Prime',monospace;color:#1f1b16">3</span>
+                <span style="font:400 13px/1.25 'EB Garamond',serif;font-weight:600;color:#9c3b28">не понял вообще</span>
+              </span>
+              <span style="padding-left:17px;font:400 13px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.8)">«с оттяжкой» и «не лезь в свалку» — таких слов он не знает</span>
+              <sc-if value="{{ open3 }}" hint-placeholder-val="{{ true }}">
+                <span style="margin-left:17px;margin-top:3px;display:flex;flex-direction:column;gap:4px">
+                  <span style="font:400 9.5px/1.35 'Courier Prime',monospace;color:rgba(31,27,22,0.6)">понято только «экономь дыхание» → бить часто · вес 1</span>
+                  <span style="display:flex;gap:4px;flex-wrap:wrap;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.04em;text-transform:uppercase">
+                    <span style="padding:4px 5px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">может, «держать дистанцию»?</span>
+                  </span>
+                </span>
+              </sc-if>
+            </div>
+
+            <span style="border-top:1px dotted rgba(31,27,22,0.35);padding-top:7px;font:400 14px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.6)">Эхо не спорит и не советует — только показывает, что дошло.</span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+          <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 8px;background:transparent;color:rgba(31,27,22,0.55);border:1px dashed rgba(31,27,22,0.35);cursor:pointer;border-radius:0" style-hover="color:#9c3b28">⬒ чипсы</button>
+          <span style="flex:1;font:400 13px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.5)">токен компилятора: 7 из 10 на забег</span>
+          <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 10px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">те же кости — спарринг</button>
+          <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 12px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">⚔ выступить</button>
+        </div>
+      </div>
+      <p style="margin:0;width:620px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Слева — свои слова, справа — эхо построчно, три состояния и ни одного четвёртого. Неуверенность подсвечена прямо в тексте приказа, так что видно, какой кусок фразы провалился; клик по строке эха разворачивает механический перевод — для тех, кто хочет считать веса.</p>
+    </div>
+
+    <div id="1b" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">1b</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">конструктор чипсами · без токена компилятора</span>
+      </div>
+
+      <div style="width:420px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Приказы · Яр</span>
+          <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">слоты ◆◆◆◇</span>
+        </div>
+
+        <span style="font:400 14px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.6)">Свободного текста нет — фраза собирается из открытых слов. Тот же IR, то же эхо, просто провалиться в «не понял» невозможно.</span>
+
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;flex-direction:column;gap:5px;border-bottom:1px dotted rgba(31,27,22,0.25);padding-bottom:9px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">принцип 1 · если</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+              <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">всегда</span>
+              <span style="padding:5px 6px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6)">окружили</span>
+              <span style="padding:5px 6px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6)">врагов больше</span>
+              <span style="padding:5px 6px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6)">меня ударили</span>
+            </div>
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">то · и по кому</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+              <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">атаковать</span>
+              <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">самого опасного</span>
+              <span style="padding:5px 6px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6)">ближайшего</span>
+              <span style="padding:5px 6px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.6)">вожака</span>
+            </div>
+            <span style="display:flex;align-items:baseline;gap:7px;padding-top:2px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(31,27,22,0.4)">вес</span>
+              <span style="font:600 11px/1 'Courier Prime',monospace;letter-spacing:2px;color:#9c3b28">◆◆◆◇◇</span>
+              <span style="margin-left:auto;font:400 13px/1.2 'EB Garamond',serif;font-weight:600">понял дословно</span>
+            </span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:5px;border-bottom:1px dotted rgba(31,27,22,0.25);padding-bottom:9px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">принцип 2 · если</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+              <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">окружили</span>
+              <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">глухая оборона</span>
+            </div>
+            <span style="display:flex;align-items:baseline;gap:7px;padding-top:2px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(31,27,22,0.4)">вес</span>
+              <span style="font:600 11px/1 'Courier Prime',monospace;letter-spacing:2px;color:#9c3b28">◆◆◆◆◆</span>
+              <span style="margin-left:auto;font:400 13px/1.2 'EB Garamond',serif;font-weight:600">понял дословно</span>
+            </span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">принцип 3 · если</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+              <span style="padding:5px 6px;background:#9c3b28;color:#f7f0e1">рядом с Лией</span>
+              <span style="padding:5px 6px;background:#1f1b16;color:#f0e8d5">прикрывать</span>
+            </div>
+            <span style="display:flex;align-items:baseline;gap:7px;padding-top:2px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(31,27,22,0.4)">вес</span>
+              <span style="font:600 11px/1 'Courier Prime',monospace;letter-spacing:2px;color:#9c3b28">◆◆◇◇◇</span>
+              <span style="margin-left:auto;font:400 13px/1.2 'EB Garamond',serif;font-weight:600;color:#9c3b28">понял по-своему</span>
+            </span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;border:1px dashed rgba(31,27,22,0.3);padding:9px">
+            <span style="font:400 15px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.42)">четвёртый слот пуст — собрать принцип</span>
+            <span style="margin-left:auto;font:400 14px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.4)">+</span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+          <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 8px;background:#1f1b16;color:#f0e8d5;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0">⬒ чипсы</button>
+          <span style="flex:1"></span>
+          <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 12px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">⚔ выступить</button>
+        </div>
+      </div>
+      <p style="margin:0;width:420px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Резервный ввод, когда токена нет: условие → действие → цель, вес ромбами. Эхо сжимается до одной пометки в строке принципа — переводить нечего, слова уже машинные. «Понял по-своему» остаётся: характер работает и здесь.</p>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:900}}">
+const KITS = {
+  A: {
+    note: 'штурм — как ты дрался в прошлом бою',
+    stage: 'set',
+    dirty: false,
+    focus: 1,
+    text: 'Бей самого опасного. Если нас окружили — держи глухую оборону и не отходи от Лии, прикрывай её. Бей с оттяжкой, экономь дыхание и не лезь в свалку.',
+    quote: '«Бей самого опасного. Если нас окружили — держи глухую оборону и не отходи от Лии, прикрывай её. Бей с оттяжкой…»',
+  },
+  B: {
+    note: 'осада — сохранён 2 узла назад',
+    stage: 'set',
+    dirty: false,
+    focus: 2,
+    text: 'Держи дистанцию. Если нас окружили — глухая оборона. Стой вне линии огня и снимай стрелков.',
+    quote: '«Держи дистанцию. Если нас окружили — глухая оборона. Стой вне линии огня и снимай стрелков.»',
+  },
+  C: { note: 'пустой — впиши стратегию про запас', stage: 'draft', dirty: true, focus: null, text: '', quote: '' },
+};
+const FOCUS_TOTAL = 3;
+const FOCUS_USED_ELSEWHERE = 2;
+
+class Component extends DCLogic {
+  state = { open: 2, kit: 'A', stage: 'set', focus: 1, saved: true, modal: false, dict: false };
+
+  kitVals(id) {
+    const on = this.state.kit === id;
+    return { bg: on ? '#1f1b16' : 'transparent', fg: on ? '#f0e8d5' : 'rgba(31,27,22,0.6)' };
+  }
+
+  principle(i) {
+    const on = this.state.focus === i;
+    return {
+      mark: on ? '◆' : '◇',
+      markColor: on ? '#9c3b28' : 'rgba(31,27,22,0.3)',
+      bar: on ? '#9c3b28' : 'rgba(31,27,22,0.18)',
+      bg: on ? 'rgba(156,59,40,0.08)' : 'transparent',
+      label: on ? 'фокус' : '',
+      labelColor: on ? '#9c3b28' : 'transparent',
+    };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const focusLeft = FOCUS_TOTAL - FOCUS_USED_ELSEWHERE - (s.focus ? 1 : 0);
+    const o = this.state.open;
+    const bg = (i) => (o === i ? 'rgba(156,59,40,0.07)' : 'transparent');
+    return {
+      open1: o === 1, open2: o === 2, open3: o === 3,
+      sel1: bg(1), sel2: bg(2), sel3: bg(3),
+      focusLeft: s.focus ? 'занято ' + (FOCUS_USED_ELSEWHERE + 1) + ' из 3' : focusLeft + ' свободен из 3',
+      isDraft: s.stage === 'draft',
+      isSet: s.stage === 'set',
+      isA: s.kit === 'A',
+      isB: s.kit === 'B',
+      draftText: KITS[s.kit].text,
+      draftFilled: !!KITS[s.kit].text,
+      draftEmpty: !KITS[s.kit].text,
+      quote: KITS[s.kit].quote,
+      kitA: this.kitVals('A'),
+      kitB: this.kitVals('B'),
+      kitC: this.kitVals('C'),
+      kitNote: KITS[s.kit].note,
+      p1: this.principle(1),
+      p2: this.principle(2),
+      p3: this.principle(3),
+      modal: s.modal,
+      kitName: s.kit,
+      isC: s.kit === 'C',
+      canApply: s.kit !== 'C',
+      dict: s.dict,
+      openDict: () => this.setState({ dict: true }),
+      closeDict: () => this.setState({ dict: false }),
+      openModal: () => this.setState({ modal: true, dict: false }),
+      closeModal: () => this.setState({ modal: false }),
+      apply: () => this.setState({ modal: false, stage: 'set', saved: false }),
+      focusHint: s.focus
+        ? 'Фокус на этом принципе: он перевесит остальные, даже когда характер тянет в другую сторону. Снять — клик по нему же.'
+        : focusLeft > 0
+          ? 'Фокус свободен — отметь принцип, который важнее всех прочих. Осталось на весь отряд: ' + focusLeft + '.'
+          : 'Фокусы кончились: сними у другого героя, если этот принцип важнее.',
+      focusHintColor: s.focus ? '#9c3b28' : 'rgba(31,27,22,0.55)',
+      saveNote: s.saved
+        ? 'комплект ' + s.kit + ' сохранён · переключение бесплатно'
+        : 'есть несохранённые правки в комплекте ' + s.kit,
+      setKit: (e) => {
+        const k = e.currentTarget.dataset.kit;
+        this.setState({ kit: k, stage: KITS[k].stage, saved: !KITS[k].dirty, focus: KITS[k].focus, modal: false });
+      },
+      compile: () => this.setState({ stage: 'set', saved: false }),
+      back: () => this.setState({ stage: 'draft', saved: false }),
+      save: () => this.setState({ saved: true }),
+      setFocus: (e) => {
+        const i = Number(e.currentTarget.dataset.p);
+        if (s.focus === i) return this.setState({ focus: null, saved: false });
+        if (focusLeft <= 0 && !s.focus) return;
+        this.setState({ focus: i, saved: false });
+      },
+      pick: (e) => {
+        const i = Number(e.currentTarget.dataset.row);
+        this.setState({ open: o === i ? null : i });
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

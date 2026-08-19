@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Caveat:wght@400;600&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #332f29; }
+  a { color: #9c3b28; text-decoration: none; border-bottom: 1px solid rgba(156,59,40,0.5); }
+  a:hover { color: #c04d33; }
+</style>
+</helmet>
+<section style="display:flex;flex-direction:column;gap:22px;padding:40px 44px;font-family:'EB Garamond',Georgia,serif;color:#1f1b16">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:1000px">
+    <span style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.14em;text-transform:uppercase;color:rgba(240,232,213,0.45)">пятая панель · экран боя · то, что игрок смотрит, а не делает</span>
+    <h1 style="margin:0;font:500 26px/1.15 'EB Garamond',serif;letter-spacing:0.04em;color:#f0e8d5">Экран боя: кадры вместо кнопок</h1>
+    <p style="margin:0;font:400 16px/1.45 'EB Garamond',serif;color:rgba(240,232,213,0.72);text-wrap:pretty">Единственный экран, где игрок ничего не решает — он читает последствия своих слов. Значит вся работа интерфейса — сделать причину видимой: чей ход, по чьему приказу, что перевесило. <a href="#1a">1a</a> — просмотр боя, <a href="#1b">1b</a> — расстановка перед первым кадром. Свиток целиком уже описан отдельно (<a href="Свиток боя - шаблоны.dc.html#1a">свиток 1a</a>), здесь — его лента.</p>
+  </div>
+
+  <div style="display:flex;gap:34px;align-items:flex-start;flex-wrap:wrap">
+
+    <div id="1a" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">1a</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">просмотр боя · листай кадры кнопками ‹ ›</span>
+      </div>
+
+      <div style="width:700px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:13px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">⚑ Сорвать ритуал</span>
+          <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">элитка · слой 5 · seed 4417</span>
+          <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+            <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">{{ roundChip }}</span>
+            <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">дедлайн 9</span>
+          </span>
+        </div>
+
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+            <div style="position:relative;display:grid;grid-template-columns:repeat(18,1fr);grid-auto-rows:20px;gap:2px;background:rgba(31,27,22,0.05);padding:4px">
+              <span style="grid-column:1/4;grid-row:1/10;border:1px solid rgba(31,27,22,0.18);background:repeating-linear-gradient(90deg,rgba(31,27,22,0.07) 0 1px,transparent 1px 7px)"></span>
+              <span style="grid-column:7/9;grid-row:2/4;background:rgba(31,27,22,0.5)"></span>
+              <span style="grid-column:9/11;grid-row:6/8;background:rgba(31,27,22,0.5)"></span>
+              <span style="grid-column:12/13;grid-row:4/6;border:1px solid rgba(31,27,22,0.35);background:rgba(31,27,22,0.12);display:flex;align-items:center;justify-content:center;font:400 8px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.55)">+1</span>
+
+              <sc-for list="{{ units }}" as="u" hint-placeholder-count="6">
+                <span style="grid-column:{{ u.col }};grid-row:{{ u.row }};background:{{ u.bg }};border:2px solid {{ u.ring }};box-shadow:{{ u.shadow }};display:flex;align-items:center;justify-content:center;font:700 10px/1 'Courier Prime',monospace;color:{{ u.fg }};opacity:{{ u.opacity }}">{{ u.tag }}</span>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(31,27,22,0.4)">кадр {{ frameNo }} из 23</span>
+              <span style="flex:1;display:flex;gap:2px;align-items:center">
+                <sc-for list="{{ ticks }}" as="t" hint-placeholder-count="23">
+                  <span style="flex:1;height:{{ t.h }};background:{{ t.bg }}"></span>
+                </sc-for>
+              </span>
+            </div>
+
+            <div style="display:flex;gap:6px;align-items:center">
+              <button onClick="{{ prev }}" style="font:400 11px/1 'Courier Prime',monospace;padding:7px 10px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">‹</button>
+              <button onClick="{{ next }}" style="font:400 11px/1 'Courier Prime',monospace;padding:7px 10px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">›</button>
+              <button onClick="{{ toggleRun }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:7px 12px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">{{ runLabel }}</button>
+              <div style="display:flex;gap:3px;font:400 9.5px/1 'Courier Prime',monospace">
+                <button data-sp="1" onClick="{{ setSpeed }}" style="padding:6px 7px;border:1px solid rgba(31,27,22,0.4);cursor:pointer;border-radius:0;background:{{ sp1.bg }};color:{{ sp1.fg }}">×1</button>
+                <button data-sp="2" onClick="{{ setSpeed }}" style="padding:6px 7px;border:1px solid rgba(31,27,22,0.4);cursor:pointer;border-radius:0;background:{{ sp2.bg }};color:{{ sp2.fg }}">×2</button>
+                <button data-sp="4" onClick="{{ setSpeed }}" style="padding:6px 7px;border:1px solid rgba(31,27,22,0.4);cursor:pointer;border-radius:0;background:{{ sp4.bg }};color:{{ sp4.fg }}">×4</button>
+              </div>
+              <span style="margin-left:auto;font:400 13px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.5)">пробел — пауза, стрелки — по кадру</span>
+            </div>
+          </div>
+
+          <div style="width:250px;flex:none;display:flex;flex-direction:column;gap:9px">
+            <div style="display:flex;flex-direction:column;gap:5px;background:#f0e8d5;border-top:3px solid #9c3b28;padding:9px 11px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">сейчас · кто и почему</span>
+              <span style="display:flex;align-items:baseline;gap:6px">
+                <span style="font:600 12px/1.3 'Courier Prime',monospace;color:#9c3b28">{{ cur.cost }}</span>
+                <span style="font:400 15px/1.3 'EB Garamond',serif">{{ cur.text }}</span>
+              </span>
+              <span style="display:flex;flex-direction:column;gap:2px;border-top:1px dotted rgba(31,27,22,0.3);padding-top:5px">
+                <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(31,27,22,0.4)">по твоему приказу</span>
+                <span style="font:400 13px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.8)">{{ cur.order }}</span>
+              </span>
+              <sc-if value="{{ cur.hasVoice }}" hint-placeholder-val="{{ true }}">
+                <span style="border-left:2px solid #9c3b28;padding-left:8px;font:400 15px/1.25 'Caveat',cursive;color:#9c3b28">{{ cur.voice }}</span>
+              </sc-if>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">лента решений</span>
+              <sc-for list="{{ feed }}" as="f" hint-placeholder-count="4">
+                <span style="display:flex;gap:6px;align-items:baseline;padding:3px 0;border-bottom:1px dotted rgba(31,27,22,0.2)">
+                  <span style="flex:none;width:22px;font:400 9px/1.5 'Courier Prime',monospace;color:rgba(31,27,22,0.4)">{{ f.no }}</span>
+                  <span style="font:400 12.5px/1.25 'EB Garamond',serif;color:{{ f.color }}">{{ f.text }}</span>
+                </span>
+              </sc-for>
+              <button style="align-self:flex-start;margin-top:2px;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:5px 7px;background:transparent;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7);cursor:pointer;border-radius:0" style-hover="border-color:#9c3b28;color:#9c3b28">весь свиток</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:9px;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+          <sc-for list="{{ party }}" as="p" hint-placeholder-count="4">
+            <span style="flex:1;display:flex;flex-direction:column;gap:3px">
+              <span style="display:flex;align-items:baseline;gap:5px">
+                <span style="font:600 13.5px/1.1 'EB Garamond',serif;color:{{ p.name_color }}">{{ p.name }}</span>
+                <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;color:#9c3b28">{{ p.cls }}</span>
+                <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">{{ p.hp }}</span>
+              </span>
+              <span style="height:4px;background:rgba(31,27,22,0.15);display:flex">
+                <span style="width:{{ p.pct }};background:{{ p.bar }}"></span>
+              </span>
+              <span style="font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.4)">{{ p.note }}</span>
+            </span>
+          </sc-for>
+        </div>
+      </div>
+      <p style="margin:0;width:700px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Поле показывает состояние, блок «сейчас» — причину: цена ромбами, само действие, строка «по твоему приказу» и реплика характера, если она здесь впервые. Лента справа — четыре последних решения, полный свиток за кнопкой. Транспорт как у видео: кадр — это решение, а не секунда.</p>
+    </div>
+
+    <div id="1b" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">1b</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">расстановка · последнее решение до боя</span>
+      </div>
+
+      <div style="width:430px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Расстановка</span>
+          <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">зона — 3 колонки слева</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(12,1fr);grid-auto-rows:19px;gap:2px;background:rgba(31,27,22,0.05);padding:4px">
+          <span style="grid-column:1/4;grid-row:1/9;border:1px solid rgba(156,59,40,0.4);background:rgba(156,59,40,0.06)"></span>
+          <span style="grid-column:1/2;grid-row:3/4;background:#1f1b16;display:flex;align-items:center;justify-content:center;font:700 9px/1 'Courier Prime',monospace;color:#f0e8d5">Я</span>
+          <span style="grid-column:2/3;grid-row:5/6;background:#1f1b16;display:flex;align-items:center;justify-content:center;font:700 9px/1 'Courier Prime',monospace;color:#f0e8d5">Л</span>
+          <span style="grid-column:1/2;grid-row:7/8;background:#1f1b16;display:flex;align-items:center;justify-content:center;font:700 9px/1 'Courier Prime',monospace;color:#f0e8d5">И</span>
+          <span style="grid-column:3/4;grid-row:2/3;border:2px dashed rgba(31,27,22,0.45);display:flex;align-items:center;justify-content:center;font:700 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">С</span>
+          <span style="grid-column:5/7;grid-row:2/4;background:rgba(31,27,22,0.5)"></span>
+          <span style="grid-column:6/8;grid-row:6/8;background:rgba(31,27,22,0.5)"></span>
+          <span style="grid-column:10/11;grid-row:2/3;background:#9c3b28"></span>
+          <span style="grid-column:11/12;grid-row:4/5;background:#9c3b28"></span>
+          <span style="grid-column:12/13;grid-row:6/7;background:#9c3b28"></span>
+        </div>
+        <span style="font:400 13.5px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.55)">Скала ещё не поставлена — пунктирная клетка ждёт. Враги видны, потому что карта куплена разведкой; без неё восточная часть под туманом.</span>
+
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">кто с каким комплектом идёт</span>
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dotted rgba(31,27,22,0.25)">
+            <span style="flex:none;display:flex;flex-direction:column;gap:1px;width:60px">
+              <span style="font:600 15px/1.1 'EB Garamond',serif">Яр</span>
+              <span style="font:400 8.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;color:#9c3b28">воин</span>
+            </span>
+            <span style="flex:1;font:400 12.5px/1.2 'EB Garamond',serif;color:rgba(31,27,22,0.7)">бей самого опасного…</span>
+            <span style="flex:none;display:flex;gap:3px;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+              <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">A</span>
+              <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.55)">B</span>
+              <span style="padding:4px 6px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.35)">C</span>
+            </span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dotted rgba(31,27,22,0.25)">
+            <span style="flex:none;display:flex;flex-direction:column;gap:1px;width:60px">
+              <span style="font:600 15px/1.1 'EB Garamond',serif">Лия</span>
+              <span style="font:400 8.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;color:#9c3b28">волшебница</span>
+            </span>
+            <span style="flex:1;font:400 12.5px/1.2 'EB Garamond',serif;color:rgba(31,27,22,0.7)">держись за камнями, бей лучом…</span>
+            <span style="flex:none;display:flex;gap:3px;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+              <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.55)">A</span>
+              <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">B</span>
+              <span style="padding:4px 6px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.35)">C</span>
+            </span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dotted rgba(31,27,22,0.25)">
+            <span style="flex:none;display:flex;flex-direction:column;gap:1px;width:60px">
+              <span style="font:600 15px/1.1 'EB Garamond',serif">Ива</span>
+              <span style="font:400 8.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;color:#9c3b28">жрица</span>
+            </span>
+            <span style="flex:1;font:400 12.5px/1.2 'EB Garamond',serif;color:rgba(31,27,22,0.7)">лечи, кому хуже всех…</span>
+            <span style="flex:none;display:flex;gap:3px;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+              <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">A</span>
+              <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.4);color:rgba(31,27,22,0.55)">B</span>
+              <span style="padding:4px 6px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.35)">C</span>
+            </span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0">
+            <span style="flex:none;display:flex;flex-direction:column;gap:1px;width:60px">
+              <span style="font:600 15px/1.1 'EB Garamond',serif;color:rgba(31,27,22,0.55)">Скала</span>
+              <span style="font:400 8.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;color:rgba(156,59,40,0.6)">паладин</span>
+            </span>
+            <span style="flex:1;font:400 13px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.45)">поставь на поле — тогда выберешь комплект</span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+          <span style="flex:1;font:400 13px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.5)">приказы правятся отсюда — до первого кадра бесплатно</span>
+          <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 10px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">приказы</button>
+          <button style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 12px;background:transparent;color:rgba(31,27,22,0.35);border:1px dashed rgba(31,27,22,0.3);cursor:default;border-radius:0">⚔ выступить</button>
+        </div>
+      </div>
+      <p style="margin:0;width:430px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Расстановка — последний момент, когда игрок ещё действует: клетка, комплект приказов на каждого, правка текста. «Выступить» неактивна, пока кто-то не поставлен: единственный вход в бой — полный отряд на поле.</p>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900}}">
+const FRAMES = [
+  {
+    round: 3, cost: '◆', actor: 'yar', text: 'Яр бьёт огра сплеча — +9 против КБ 15, попал: дробящий 12',
+    order: '«бей самого опасного» — огр перед ритуалистом', voice: '',
+    move: { yar: [6, 5] },
+  },
+  {
+    round: 3, cost: '◆', actor: 'lia', text: 'Лия отходит за камни вместо того, чтобы прикрыть Яра',
+    order: '«прикрывай Яра» — понято по-своему',
+    voice: '«Постою у него за спиной — оттуда тоже всё видно.»',
+    move: { lia: [8, 7] },
+  },
+  {
+    round: 3, cost: '◇', actor: 'ogre', text: 'Огр отвечает на её уход — дубина +10, промах по КБ 16',
+    order: 'его реакция, не твой приказ', voice: '',
+    move: {},
+  },
+  {
+    round: 4, cost: '◆◆', actor: 'yar', text: 'Яр проламывает укрытие ритуалиста — +4, попал: 9',
+    order: '«бей самого опасного» — ритуалист вышел вперёд', voice: '',
+    move: { yar: [11, 4] },
+  },
+];
+
+const BASE = {
+  yar: { tag: 'Я', col: 5, row: 5, side: 'party' },
+  lia: { tag: 'Л', col: 4, row: 8, side: 'party' },
+  skala: { tag: 'С', col: 3, row: 3, side: 'party' },
+  iva: { tag: 'И', col: 3, row: 7, side: 'party' },
+  ogre: { tag: 'О', col: 13, row: 5, side: 'foe' },
+  rit: { tag: 'Р', col: 16, row: 4, side: 'foe' },
+  sling: { tag: 'П', col: 17, row: 8, side: 'foe' },
+};
+
+class Component extends DCLogic {
+  state = { i: 1, speed: 2, running: false };
+
+  positions() {
+    const out = {};
+    Object.keys(BASE).forEach((k) => { out[k] = [BASE[k].col, BASE[k].row]; });
+    for (let n = 0; n <= this.state.i; n++) {
+      const mv = FRAMES[n].move;
+      Object.keys(mv).forEach((k) => { out[k] = mv[k]; });
+    }
+    return out;
+  }
+
+  renderVals() {
+    const s = this.state;
+    const f = FRAMES[s.i];
+    const pos = this.positions();
+    const actor = f.actor;
+
+    const units = Object.keys(BASE).map((k) => {
+      const u = BASE[k];
+      const party = u.side === 'party';
+      const isActor = k === actor;
+      return {
+        tag: u.tag,
+        col: pos[k][0] + ' / span 1',
+        row: pos[k][1] + ' / span 1',
+        bg: party ? '#1f1b16' : '#9c3b28',
+        fg: party ? '#f0e8d5' : '#f7f0e1',
+        ring: isActor ? '#f6efdd' : 'transparent',
+        opacity: isActor ? '1' : '0.88',
+        shadow: isActor ? '0 0 0 1px #1f1b16' : 'none',
+      };
+    });
+
+    const speed = (n) => ({
+      bg: s.speed === n ? '#1f1b16' : 'transparent',
+      fg: s.speed === n ? '#f0e8d5' : 'rgba(31,27,22,0.6)',
+    });
+
+    const ticks = [];
+    for (let n = 0; n < 23; n++) {
+      const cur = n === s.i;
+      const past = n < s.i;
+      ticks.push({
+        h: cur ? '12px' : '6px',
+        bg: cur ? '#9c3b28' : past ? 'rgba(31,27,22,0.45)' : 'rgba(31,27,22,0.15)',
+      });
+    }
+
+    const feed = [];
+    for (let n = Math.max(0, s.i - 3); n <= s.i; n++) {
+      feed.unshift({
+        no: FRAMES[n].round + '.' + (n + 1),
+        text: FRAMES[n].text,
+        color: n === s.i ? '#1f1b16' : 'rgba(31,27,22,0.55)',
+      });
+    }
+
+    const party = [
+      { name: 'Яр', cls: 'воин', hp: '44/56', pct: '78%', bar: '#1f1b16', note: 'приказы A', name_color: '#1f1b16' },
+      { name: 'Лия', cls: 'волшебница', hp: '19/40', pct: '48%', bar: '#9c3b28', note: 'ниже половины', name_color: '#9c3b28' },
+      { name: 'Скала', cls: 'паладин', hp: '74/96', pct: '77%', bar: '#1f1b16', note: 'приказы B', name_color: '#1f1b16' },
+      { name: 'Ива', cls: 'жрица', hp: '30/44', pct: '68%', bar: '#1f1b16', note: 'приказы A', name_color: '#1f1b16' },
+    ];
+
+    return {
+      units, ticks, feed, party,
+      roundChip: 'раунд ' + f.round,
+      frameNo: s.i + 1,
+      cur: { cost: f.cost, text: f.text, order: f.order, voice: f.voice, hasVoice: !!f.voice },
+      runLabel: s.running ? '❙❙ пауза' : '▶ играть',
+      sp1: speed(1), sp2: speed(2), sp4: speed(4),
+      prev: () => this.setState({ i: Math.max(0, s.i - 1) }),
+      next: () => this.setState({ i: Math.min(FRAMES.length - 1, s.i + 1) }),
+      toggleRun: () => this.setState({ running: !s.running }),
+      setSpeed: (e) => this.setState({ speed: Number(e.currentTarget.dataset.sp) }),
+    };
+  }
+}
+</script>
+</body>
+</html>
