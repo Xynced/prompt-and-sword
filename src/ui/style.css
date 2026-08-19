@@ -148,20 +148,10 @@ button.primary:disabled:hover { background: var(--ink); }
 /* ---- тропа забега (спека «Карта забега», вариант 1a) ---- */
 .run-chips { display: flex; gap: 4px; margin-left: auto; }
 .trail {
-  position: relative;
   display: flex;
   gap: 5px;
   align-items: stretch;
   flex: none;
-}
-/* сквозная полосочка-тропа: узлы сидят на ней */
-.t-path {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1px;
-  background: rgba(31, 27, 22, 0.22);
 }
 .t-col {
   position: relative;

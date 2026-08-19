@@ -1494,7 +1494,7 @@ function trailHtml(): string {
       return `<div class="t-col">${cells}</div>`;
     })
     .join('');
-  return `<div class="trail"><span class="t-path"></span>${cols}</div>`;
+  return `<div class="trail">${cols}</div>`;
 }
 
 function trailLegendHtml(): string {
