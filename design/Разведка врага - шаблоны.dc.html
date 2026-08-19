@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Caveat:wght@400;600&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #332f29; }
+  a { color: #9c3b28; text-decoration: none; border-bottom: 1px solid rgba(156,59,40,0.5); }
+  a:hover { color: #c04d33; }
+</style>
+</helmet>
+<section style="display:flex;flex-direction:column;gap:22px;padding:40px 44px;font-family:'EB Garamond',Georgia,serif;color:#1f1b16">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:940px">
+    <span style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.14em;text-transform:uppercase;color:rgba(240,232,213,0.45)">оборот 2 · туман войны и очки разведки · узел «сорвать ритуал»</span>
+    <h1 style="margin:0;font:500 26px/1.15 'EB Garamond',serif;letter-spacing:0.04em;color:#f0e8d5">Разведка — это трата, а не справка</h1>
+    <p style="margin:0;font:400 16px/1.45 'EB Garamond',serif;color:rgba(240,232,213,0.72);text-wrap:pretty">Отход от <a href="#1a">1a</a>: задача боя открыта всегда, поле за зоной расстановки закрыто туманом, отряд — только имена, без роли и характера. Очко разведки (ромб — та же азбука, что в <a href="Действия - шаблоны v2.dc.html#3a">3a</a>) покупает карту, числа врага или его приказы. Ниже — прежние обороты 1a и 1b.</p>
+  </div>
+
+  <div style="display:flex;gap:34px;align-items:flex-start;flex-wrap:wrap">
+    <div id="2a" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">2a</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">туман войны · очки разведки тратятся кликом</span>
+      </div>
+
+      <div style="width:470px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Разведка</span>
+          <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">перед выступлением</span>
+          <span style="margin-left:auto;display:flex;align-items:baseline;gap:6px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">очки разведки</span>
+            <span style="font:600 13px/1 'Courier Prime',monospace;letter-spacing:2px;color:#9c3b28">{{ marks }}</span>
+          </span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:4px;border-left:3px solid #9c3b28;padding:2px 0 2px 10px">
+          <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">задача боя · открыта всегда</span>
+          <span style="font:600 17px/1.1 'EB Garamond',serif">⚑ Сорвать ритуал</span>
+          <span style="font:400 13.5px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.78);text-wrap:pretty">Ритуалист дочитает погибель к раунду 9, если доживёт. Срази его раньше; огра можно не трогать.</span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">поле</span>
+            <span style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">{{ mapNote }}</span>
+          </div>
+
+          <sc-if value="{{ mapClosed }}" hint-placeholder-val="{{ true }}">
+            <div style="position:relative;display:grid;grid-template-columns:repeat(12,1fr);grid-auto-rows:17px;gap:2px">
+              <span style="grid-column:1/4;grid-row:1/8;border:1px solid rgba(31,27,22,0.45);background:repeating-linear-gradient(90deg,rgba(31,27,22,0.1) 0 1px,transparent 1px 6px)"></span>
+              <span style="grid-column:4/13;grid-row:1/8;border:1px dashed rgba(31,27,22,0.3);background-image:repeating-linear-gradient(135deg,rgba(31,27,22,0.22) 0 2px,transparent 2px 6px);display:flex;align-items:center;justify-content:center;font:400 15px/1 'Caveat',cursive;color:rgba(31,27,22,0.6)">туман войны</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font:400 9.5px/1.3 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">видна только зона расстановки</span>
+              <button data-cost="map" onClick="{{ buy }}" style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:5px 7px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">◆ открыть карту</button>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ mapOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="display:grid;grid-template-columns:repeat(12,1fr);grid-auto-rows:17px;gap:2px">
+              <span style="grid-column:1/4;grid-row:1/8;border:1px solid rgba(31,27,22,0.45);background:repeating-linear-gradient(90deg,rgba(31,27,22,0.1) 0 1px,transparent 1px 6px)"></span>
+              <span style="grid-column:5/7;grid-row:2/4;background:rgba(31,27,22,0.55)"></span>
+              <span style="grid-column:6/8;grid-row:5/7;background:rgba(31,27,22,0.55)"></span>
+              <span style="grid-column:8/9;grid-row:3/5;border:1px solid rgba(31,27,22,0.4);background:rgba(31,27,22,0.12);display:flex;align-items:center;justify-content:center;font:400 8px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.6)">+1</span>
+              <span style="grid-column:10/11;grid-row:2/3;background:#9c3b28"></span>
+              <span style="grid-column:11/12;grid-row:4/5;background:#9c3b28"></span>
+              <span style="grid-column:12/13;grid-row:6/7;background:#9c3b28"></span>
+            </div>
+            <span style="font:400 9.5px/1.3 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">камни, высота +1, три врага у восточного края · проход один — по низу</span>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:4px">
+            <span style="font:600 14px/1 'EB Garamond',serif;color:#9c3b28;text-transform:uppercase;letter-spacing:0.08em">Отряд</span>
+            <span style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">{{ countNote }}</span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:5px;padding:7px 0;border-bottom:1px dotted rgba(31,27,22,0.25)">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="flex:none;width:20px;font:600 12px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">◎</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">Огр</span>
+              <span style="margin-left:auto;display:flex;gap:4px;align-items:center">
+                <sc-if value="{{ ogre.statsOn }}" hint-placeholder-val="{{ true }}">
+                  <span style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:#1f1b16;color:#f0e8d5">{{ ogre.stats }}</span>
+                </sc-if>
+                <sc-if value="{{ ogre.statsOff }}" hint-placeholder-val="{{ true }}">
+                  <button data-cost="ogreStats" onClick="{{ buy }}" style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:transparent;border:1px dashed rgba(31,27,22,0.4);color:rgba(31,27,22,0.5);cursor:pointer;border-radius:0" style-hover="border-color:#9c3b28;color:#9c3b28">◆ числа</button>
+                </sc-if>
+                <sc-if value="{{ ogre.ordersOff }}" hint-placeholder-val="{{ true }}">
+                  <button data-cost="ogreOrders" onClick="{{ buy }}" style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:transparent;border:1px dashed rgba(31,27,22,0.4);color:rgba(31,27,22,0.5);cursor:pointer;border-radius:0" style-hover="border-color:#9c3b28;color:#9c3b28">◆ приказы</button>
+                </sc-if>
+              </span>
+            </div>
+            <sc-if value="{{ ogre.ordersOn }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:2px;padding-left:29px">
+                <sc-for list="{{ ogre.orders }}" as="order" hint-placeholder-count="3">
+                  <span style="display:flex;gap:8px;font:400 14px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.85)">
+                    <span style="flex:none;width:10px;font:600 11px/1.4 'Courier Prime',monospace;color:#9c3b28">·</span>
+                    <span>{{ order }}</span>
+                  </span>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:5px;padding:7px 0;border-bottom:1px dotted rgba(31,27,22,0.25)">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="flex:none;width:20px;font:600 12px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">◎</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">Ритуалист</span>
+              <span style="margin-left:auto;display:flex;gap:4px;align-items:center">
+                <sc-if value="{{ ritualist.statsOn }}" hint-placeholder-val="{{ true }}">
+                  <span style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:#1f1b16;color:#f0e8d5">{{ ritualist.stats }}</span>
+                </sc-if>
+                <sc-if value="{{ ritualist.statsOff }}" hint-placeholder-val="{{ true }}">
+                  <button data-cost="ritualistStats" onClick="{{ buy }}" style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:transparent;border:1px dashed rgba(31,27,22,0.4);color:rgba(31,27,22,0.5);cursor:pointer;border-radius:0" style-hover="border-color:#9c3b28;color:#9c3b28">◆ числа</button>
+                </sc-if>
+                <sc-if value="{{ ritualist.ordersOff }}" hint-placeholder-val="{{ true }}">
+                  <button data-cost="ritualistOrders" onClick="{{ buy }}" style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:transparent;border:1px dashed rgba(31,27,22,0.4);color:rgba(31,27,22,0.5);cursor:pointer;border-radius:0" style-hover="border-color:#9c3b28;color:#9c3b28">◆ приказы</button>
+                </sc-if>
+              </span>
+            </div>
+            <sc-if value="{{ ritualist.ordersOn }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:2px;padding-left:29px">
+                <sc-for list="{{ ritualist.orders }}" as="order" hint-placeholder-count="2">
+                  <span style="display:flex;gap:8px;font:400 14px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.85)">
+                    <span style="flex:none;width:10px;font:600 11px/1.4 'Courier Prime',monospace;color:#9c3b28">·</span>
+                    <span>{{ order }}</span>
+                  </span>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ mapOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:5px;padding:7px 0">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="flex:none;width:20px;font:600 12px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">◎</span>
+                <span style="font:600 16px/1.05 'EB Garamond',serif">Пращник</span>
+                <span style="margin-left:auto;display:flex;gap:4px;align-items:center">
+                  <sc-if value="{{ slinger.statsOn }}" hint-placeholder-val="{{ true }}">
+                    <span style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:#1f1b16;color:#f0e8d5">{{ slinger.stats }}</span>
+                  </sc-if>
+                  <sc-if value="{{ slinger.statsOff }}" hint-placeholder-val="{{ true }}">
+                    <button data-cost="slingerStats" onClick="{{ buy }}" style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:transparent;border:1px dashed rgba(31,27,22,0.4);color:rgba(31,27,22,0.5);cursor:pointer;border-radius:0" style-hover="border-color:#9c3b28;color:#9c3b28">◆ числа</button>
+                  </sc-if>
+                  <sc-if value="{{ slinger.ordersOff }}" hint-placeholder-val="{{ true }}">
+                    <button data-cost="slingerOrders" onClick="{{ buy }}" style="font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;padding:4px 6px;background:transparent;border:1px dashed rgba(31,27,22,0.4);color:rgba(31,27,22,0.5);cursor:pointer;border-radius:0" style-hover="border-color:#9c3b28;color:#9c3b28">◆ приказы</button>
+                  </sc-if>
+                </span>
+              </div>
+              <sc-if value="{{ slinger.ordersOn }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;flex-direction:column;gap:2px;padding-left:29px">
+                  <sc-for list="{{ slinger.orders }}" as="order" hint-placeholder-count="3">
+                    <span style="display:flex;gap:8px;font:400 14px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.85)">
+                      <span style="flex:none;width:10px;font:600 11px/1.4 'Courier Prime',monospace;color:#9c3b28">·</span>
+                      <span>{{ order }}</span>
+                    </span>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ mapClosed }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:9px;padding:7px 0;color:rgba(31,27,22,0.45)">
+              <span style="flex:none;width:20px;font:600 12px/1 'Courier Prime',monospace">?</span>
+              <span style="font:400 15px/1.2 'Caveat',cursive">кто-то ещё за камнями — карта покажет, сколько их всего</span>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+          <span style="font:400 14px/1.35 'Caveat',cursive;color:rgba(31,27,22,0.62)">{{ hint }}</span>
+          <div style="display:flex;gap:8px">
+            <button style="flex:1;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 6px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">⚔ выступить</button>
+            <button style="flex:1;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 6px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">переписать приказы</button>
+            <button onClick="{{ reset }}" style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 8px;background:transparent;color:rgba(31,27,22,0.5);border:1px dashed rgba(31,27,22,0.35);cursor:pointer;border-radius:0" style-hover="color:#9c3b28">↻</button>
+          </div>
+        </div>
+      </div>
+      <p style="margin:0;width:470px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Задача открыта всегда, поле под туманом, отряд — только имена. Очко разведки покупает или карту (с ней — состав и расстановка), или числа одного врага, или его приказы. Три очка на четыре с лишним запроса — выбор, а не чек-лист.</p>
+    </div>
+
+    <div id="1a" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">1a</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">досье отряда · клик по врагу</span>
+      </div>
+
+      <div style="display:flex;gap:18px;align-items:flex-start">
+        <div style="width:440px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+            <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Разведка</span>
+            <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">элитка · слой 5</span>
+            <span style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.55)">врагов 3 · их ходов 3/раунд</span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:4px;border-left:3px solid #9c3b28;padding:2px 0 2px 10px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">задача боя · видна всегда</span>
+            <span style="font:600 17px/1.1 'EB Garamond',serif">⚑ Сорвать ритуал</span>
+            <span style="font:400 13.5px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.78);text-wrap:pretty">Ритуалист дочитает погибель к раунду 9, если доживёт. Срази его раньше; огра можно не трогать.</span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:4px">
+              <span style="font:600 14px/1 'EB Garamond',serif;color:#9c3b28;text-transform:uppercase;letter-spacing:0.08em">Отряд</span>
+              <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">числа — разведка, приказы — уже с характером</span>
+            </div>
+
+            <div data-key="ritualist" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px dotted rgba(31,27,22,0.25);cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28">◎</span>
+              <span style="display:flex;flex-direction:column;gap:2px">
+                <span style="font:600 16px/1.05 'EB Garamond',serif">Ритуалист</span>
+                <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">цель задачи · держится за огром</span>
+              </span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">hp 34 · КБ 14</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">раунд 9</span>
+              </span>
+            </div>
+
+            <div data-key="ogre" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px dotted rgba(31,27,22,0.25);cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">◎</span>
+              <span style="display:flex;flex-direction:column;gap:2px">
+                <span style="font:600 16px/1.05 'EB Garamond',serif">Огр</span>
+                <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">пробка · закрывает проход тушей</span>
+              </span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">hp 90 · КБ 15</span>
+                <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">◇ ответ</span>
+              </span>
+            </div>
+
+            <div data-key="slinger" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:7px 4px;cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">◎</span>
+              <span style="display:flex;flex-direction:column;gap:2px">
+                <span style="font:600 16px/1.05 'EB Garamond',serif">Пращник</span>
+                <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">застрельщик · камнем по раненым</span>
+              </span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">hp 16 · КБ 14</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">даль 4</span>
+              </span>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">что уже выявлено разведкой</span>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;color:rgba(31,27,22,0.7)">
+              <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45)">воля 11 у ритуалиста</span>
+              <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45)">реакция 4 у огра</span>
+              <span style="padding:4px 6px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.4)">? сопр / слаб — по бою</span>
+            </div>
+            <span style="font:400 14px/1.35 'Caveat',cursive;color:rgba(31,27,22,0.62)">Огр неповоротлив: площадное и толчок идут по его реакции 4. Ритуалиста словом не сбить — воля 11.</span>
+          </div>
+
+          <div style="display:flex;gap:8px;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+            <button style="flex:1;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 6px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">⚔ выступить</button>
+            <button style="flex:1;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 6px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">переписать приказы</button>
+          </div>
+        </div>
+
+        <sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+          <div style="width:340px;flex:none;background:#f0e8d5;border-top:4px solid #9c3b28;box-shadow:0 22px 55px rgba(0,0,0,0.5);padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px">
+              <span style="font:600 19px/1.05 'EB Garamond',serif">{{ sel.name }}</span>
+              <button onClick="{{ close }}" style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:#1f1b16;background:transparent;border:1px solid rgba(31,27,22,0.45);padding:4px 6px;cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">закрыть</button>
+            </div>
+            <span style="font:400 9.5px/1.3 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.06em;color:rgba(31,27,22,0.55)">{{ sel.meta }}</span>
+
+            <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+              <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">{{ sel.ac }}</span>
+              <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">{{ sel.saves }}</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">приказы · как исполнит</span>
+              <sc-for list="{{ sel.orders }}" as="order" hint-placeholder-count="3">
+                <span style="display:flex;gap:8px;font:400 14px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.85)">
+                  <span style="flex:none;width:12px;font:600 11px/1.5 'Courier Prime',monospace;color:#9c3b28">·</span>
+                  <span>{{ order }}</span>
+                </span>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">чем бьёт</span>
+              <sc-for list="{{ sel.arms }}" as="arm" hint-placeholder-count="2">
+                <span style="display:flex;align-items:center;gap:8px">
+                  <span style="flex:none;width:12px;font:600 11px/1 'Courier Prime',monospace;color:#9c3b28">◆</span>
+                  <span style="font:600 15px/1.05 'EB Garamond',serif">{{ arm.name }}</span>
+                  <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                    <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">{{ arm.atk }}</span>
+                    <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">{{ arm.dmg }}</span>
+                  </span>
+                </span>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ sel.reaction }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:baseline;gap:8px;border-top:1px dotted rgba(31,27,22,0.35);padding-top:8px">
+                <span style="flex:none;width:12px;font:600 11px/1 'Courier Prime',monospace;color:#9c3b28">◇</span>
+                <span style="font:400 13.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.85)">{{ sel.reaction }}</span>
+              </div>
+            </sc-if>
+
+            <div style="border-top:1px dotted rgba(31,27,22,0.35);padding-top:8px;font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">{{ sel.word }}</div>
+          </div>
+        </sc-if>
+      </div>
+      <p style="margin:0;width:440px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Тот же корпус: список — сводка на один взгляд, подробности врага ждут в попапе. Приказы печатаются уже после линзы — видно, что враг БУДЕТ делать.</p>
+    </div>
+
+    <div id="1b" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">1b</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">порядок целей · разведка как головоломка</span>
+      </div>
+
+      <div style="width:520px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">⚑ Сорвать ритуал</span>
+          <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">элитка · слой 5</span>
+          <span style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:#9c3b28">дедлайн — раунд 9</span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">сколько у тебя раундов</span>
+          <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:3px;align-items:end">
+            <span style="height:14px;background:rgba(31,27,22,0.18)"></span>
+            <span style="height:14px;background:rgba(31,27,22,0.18)"></span>
+            <span style="height:14px;background:rgba(31,27,22,0.18)"></span>
+            <span style="height:14px;background:rgba(31,27,22,0.18)"></span>
+            <span style="height:14px;background:rgba(31,27,22,0.18)"></span>
+            <span style="height:14px;background:rgba(31,27,22,0.18)"></span>
+            <span style="height:22px;background:rgba(156,59,40,0.35)"></span>
+            <span style="height:22px;background:rgba(156,59,40,0.55)"></span>
+            <span style="height:30px;background:#9c3b28"></span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">
+            <span>раунд 1 — сближение</span>
+            <span>4–6 — огр в проходе</span>
+            <span style="color:#9c3b28">9 — дочитал</span>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">кого бить первым · и что будет, если оставить</span>
+
+          <div style="display:flex;gap:11px;align-items:flex-start;border-bottom:1px dotted rgba(31,27,22,0.25);padding-bottom:9px">
+            <span style="flex:none;width:34px;font:600 20px/1 'EB Garamond',serif;color:#9c3b28">1</span>
+            <span style="display:flex;flex-direction:column;gap:3px">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span style="font:600 17px/1.05 'EB Garamond',serif">Ритуалист</span>
+                <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">hp 34 · КБ 14 · воля 11 · за огром</span>
+              </span>
+              <span style="font:400 14px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.8);text-wrap:pretty">Оставить — к раунду 9 бой проигран независимо от размена. Прячется за огром и отходит: до него нужно достать, а не додавить.</span>
+            </span>
+          </div>
+
+          <div style="display:flex;gap:11px;align-items:flex-start;border-bottom:1px dotted rgba(31,27,22,0.25);padding-bottom:9px">
+            <span style="flex:none;width:34px;font:600 20px/1 'EB Garamond',serif;color:rgba(31,27,22,0.45)">2</span>
+            <span style="display:flex;flex-direction:column;gap:3px">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span style="font:600 17px/1.05 'EB Garamond',serif">Пращник</span>
+                <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">hp 16 · КБ 14 · праща 5, даль 4</span>
+              </span>
+              <span style="font:400 14px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.8);text-wrap:pretty">Дешёвое тело, но бьёт по раненым из-за камней — налог на время, которого у тебя нет.</span>
+            </span>
+          </div>
+
+          <div style="display:flex;gap:11px;align-items:flex-start">
+            <span style="flex:none;width:34px;font:600 20px/1 'EB Garamond',serif;color:rgba(31,27,22,0.45)">—</span>
+            <span style="display:flex;flex-direction:column;gap:3px">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span style="font:600 17px/1.05 'EB Garamond',serif;color:rgba(31,27,22,0.6)">Огр</span>
+                <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">hp 90 · дубина 10 · ◇ ответный удар</span>
+              </span>
+              <span style="font:400 14px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.72);text-wrap:pretty">Бить не нужно вовсе: 90 hp — это четыре раунда, которых нет. Но мимо не пробежать — уход бегом стоит удара на 10.</span>
+            </span>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+          <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">чем это контрится из твоего словаря</span>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+            <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">бить вожака</span>
+            <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">осторожный шаг</span>
+            <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">обойти со стороны</span>
+            <span style="padding:4px 6px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.4)">? приманка — не открыто</span>
+          </div>
+          <span style="font:400 14px/1.35 'Caveat',cursive;color:#9c3b28">«Руби ближайшего» здесь и есть проигрыш: ближайший — огр, а часы идут по ритуалисту.</span>
+        </div>
+      </div>
+      <p style="margin:0;width:520px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Те же данные, но панель отвечает на вопрос игрока, а не перечисляет юнитов: часы сверху, порядок целей списком, словарь-контр внизу. Попап не нужен — панель сама уже вывод.</p>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1500,&quot;height&quot;:940}}">
+const FOES = {
+  ritualist: {
+    name: 'Ритуалист',
+    meta: 'вожак · цель задачи · держится за огром',
+    ac: 'hp 34 · КБ 14',
+    saves: 'стойк 6 · реакц 7 · воля 11',
+    orders: [
+      'прятаться за огром и читать',
+      'не подпускать к себе — отходит, когда сближаются',
+    ],
+    arms: [{ name: 'жертвенный серп', atk: '+9 / +4 / −1', dmg: 'рубящий 4' }],
+    reaction: 'щит: раз за бой — +2 к КБ и −2 урона с удара, поэтому первый удар по нему считай вполсилы',
+    word: 'слово «бить вожака» целит сюда само; воля 11 — провокацией и страхом его не увести.',
+  },
+  ogre: {
+    name: 'Огр',
+    meta: 'пробка · медленный · шаг 1 клетка',
+    ac: 'hp 90 · КБ 15',
+    saves: 'стойк 12 · реакц 4 · воля 4',
+    orders: [
+      'закрыть проход тушей',
+      'крушить ближайшего',
+      'вышвырнуть с дороги — толчок',
+    ],
+    arms: [{ name: 'дубина-бревно', atk: '+10 / +5 / 0', dmg: 'дробящий 10' }],
+    reaction: 'ответный удар: кто уходит бегом из-под носа — получает удар в полную силу',
+    word: 'осторожный шаг проходит мимо него бесплатно; бег — нет. Реакция 4 и воля 4 — площадное и толчок берут его легко.',
+  },
+  slinger: {
+    name: 'Пращник',
+    meta: 'застрельщик · держит дистанцию',
+    ac: 'hp 16 · КБ 14',
+    saves: 'стойк 5 · реакц 8 · воля 5',
+    orders: [
+      'держать дистанцию',
+      'стрелять из-за камней',
+      'камнем по раненым',
+    ],
+    arms: [
+      { name: 'праща', atk: '+9 / +4 / −1', dmg: 'дробящий 5 · даль 4' },
+      { name: 'кривой нож', atk: '+9 / +4 / −1', dmg: 'колющий 3 · в упор' },
+    ],
+    reaction: '',
+    word: 'реакции нет — единственный, к кому можно подойти без цены.',
+  },
+};
+
+const STATS = {
+  ogre: 'hp 90 · КБ 15 · реакц 4 · ◇ ответ',
+  ritualist: 'hp 34 · КБ 14 · воля 11 · ◇ щит',
+  slinger: 'hp 16 · КБ 14 · праща даль 4',
+};
+
+const PTS = 3;
+
+class Component extends DCLogic {
+  state = { open: 'ritualist', spent: [] };
+  renderVals() {
+    const key = this.state.open;
+    const spent = this.state.spent;
+    const left = PTS - spent.length;
+    const has = (k) => spent.indexOf(k) >= 0;
+    const foe = (id) => ({
+      stats: STATS[id],
+      orders: FOES[id].orders,
+      statsOn: has(id + 'Stats'),
+      statsOff: !has(id + 'Stats'),
+      ordersOn: has(id + 'Orders'),
+      ordersOff: !has(id + 'Orders'),
+    });
+    const mapOpen = has('map');
+    const hint = left === 0
+      ? 'Очки вышли. Остальное придётся выяснять телом — и переписывать приказы уже по ходу боя.'
+      : mapOpen
+        ? 'Карта открыта: врагов трое, проход один. Осталось решить, чьи числа важнее чьих приказов.'
+        : 'Пока поле под туманом, состав отряда неполон: карта покупает и расстановку, и последнего врага.';
+    return {
+      marks: '◆'.repeat(left) + '◇'.repeat(spent.length),
+      mapOpen,
+      mapClosed: !mapOpen,
+      mapNote: mapOpen ? '18×18 · открыто' : '18×18 · под туманом',
+      countNote: mapOpen ? 'врагов 3' : 'врагов ? — состав неполон',
+      ogre: foe('ogre'),
+      ritualist: foe('ritualist'),
+      slinger: foe('slinger'),
+      hint,
+      buy: (e) => {
+        const k = e.currentTarget.dataset.cost;
+        if (has(k) || this.state.spent.length >= PTS) return;
+        this.setState({ spent: this.state.spent.concat(k) });
+      },
+      reset: () => this.setState({ spent: [] }),
+      open: !!key,
+      sel: FOES[key] || {},
+      pick: (e) => {
+        const k = e.currentTarget.dataset.key;
+        this.setState({ open: this.state.open === k ? null : k });
+      },
+      close: () => this.setState({ open: null }),
+    };
+  }
+}
+</script>
+</body>
+</html>

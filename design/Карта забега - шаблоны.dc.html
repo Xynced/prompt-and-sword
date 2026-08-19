@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Caveat:wght@400;600&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #332f29; }
+  a { color: #9c3b28; text-decoration: none; border-bottom: 1px solid rgba(156,59,40,0.5); }
+  a:hover { color: #c04d33; }
+</style>
+</helmet>
+<section style="display:flex;flex-direction:column;gap:22px;padding:40px 44px;font-family:'EB Garamond',Georgia,serif;color:#1f1b16">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:1000px">
+    <span style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.14em;text-transform:uppercase;color:rgba(240,232,213,0.45)">шестая панель · карта забега · 8 слоёв, 15 узлов, seed 4417</span>
+    <h1 style="margin:0;font:500 26px/1.15 'EB Garamond',serif;letter-spacing:0.04em;color:#f0e8d5">Карта забега: выбор ветки — это выбор языка</h1>
+    <p style="margin:0;font:400 16px/1.45 'EB Garamond',serif;color:rgba(240,232,213,0.72);text-wrap:pretty">Карта решает один вопрос: куда пойти и чем за это заплатить. Настоящая структура из кода — урок, два боя, скрипторий/событие, элитка в третьем слое, привал, элитка, событие, босс. Элитка и босс дают интел заранее — это и есть валюта выбора. <a href="#1a">1a</a> — тропа целиком, <a href="#1b">1b</a> — развилка крупным планом.</p>
+  </div>
+
+  <div style="display:flex;gap:34px;align-items:flex-start;flex-wrap:wrap">
+
+    <div id="1a" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">1a</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">тропа целиком · клик по узлу</span>
+      </div>
+
+      <div style="width:760px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Тропа</span>
+          <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">слой 3 из 8 · seed 4417</span>
+          <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+            <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">слов 7</span>
+            <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">фокусы 3</span>
+            <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">отряд 4 живы</span>
+          </span>
+        </div>
+
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="position:relative;flex:1;display:flex;gap:6px;align-items:stretch">
+            <span style="position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(31,27,22,0.22)"></span>
+            <sc-for list="{{ layers }}" as="L" hint-placeholder-count="8">
+              <div style="position:relative;flex:1;display:flex;flex-direction:column;gap:5px;align-items:stretch;justify-content:center">
+                <sc-for list="{{ L.nodes }}" as="n" hint-placeholder-count="2">
+                  <div data-id="{{ n.id }}" onClick="{{ pick }}" style="display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;min-height:66px;padding:9px 4px;cursor:pointer;background:{{ n.bg }};border:1px {{ n.borderStyle }} {{ n.border }};opacity:{{ n.opacity }}" style-hover="border-color:#1f1b16">
+                    <span style="font:600 19px/1 'Courier Prime',monospace;color:{{ n.fg }}">{{ n.icon }}</span>
+                    <span style="font:400 8.5px/1.1 'Courier Prime',monospace;letter-spacing:0.04em;text-transform:uppercase;color:{{ n.fg }};text-align:center">{{ n.kind }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="width:250px;flex:none;display:flex;flex-direction:column;gap:8px;background:#f0e8d5;border-top:4px solid {{ sel.accent }};padding:12px 13px">
+            <div style="display:flex;align-items:baseline;gap:7px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px">
+              <span style="font:600 17px/1.1 'EB Garamond',serif">{{ sel.title }}</span>
+              <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.06em;color:rgba(31,27,22,0.45)">{{ sel.state }}</span>
+            </div>
+
+            <span style="font:400 13.5px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.82);text-wrap:pretty">{{ sel.desc }}</span>
+
+            <sc-if value="{{ sel.hasIntel }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">кто ждёт · известно заранее</span>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.04em">
+                  <sc-for list="{{ sel.foes }}" as="f" hint-placeholder-count="3">
+                    <span style="padding:4px 5px;background:#9c3b28;color:#f7f0e1">{{ f }}</span>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ sel.hidden }}" hint-placeholder-val="{{ true }}">
+              <span style="font:400 14px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.5)">кто ждёт — неизвестно: интел дают только урок, элитка и босс</span>
+            </sc-if>
+
+            <div style="display:flex;flex-direction:column;gap:3px;border-top:1px dotted rgba(31,27,22,0.3);padding-top:7px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">что даст</span>
+              <span style="font:400 13.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.82)">{{ sel.reward }}</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">чем грозит</span>
+              <span style="font:400 15px/1.25 'Caveat',cursive;color:#9c3b28">{{ sel.risk }}</span>
+            </div>
+
+            <sc-if value="{{ sel.canGo }}" hint-placeholder-val="{{ true }}">
+              <button style="margin-top:2px;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 10px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">идти сюда</button>
+            </sc-if>
+            <sc-if value="{{ sel.locked }}" hint-placeholder-val="{{ true }}">
+              <span style="margin-top:2px;font:400 9.5px/1.3 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.05em;color:rgba(31,27,22,0.4)">туда дороги нет с этого узла</span>
+            </sc-if>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:12px;flex-wrap:wrap;border-top:1px dotted rgba(31,27,22,0.35);padding-top:9px;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;color:rgba(31,27,22,0.5)">
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:9px;height:9px;background:#1f1b16"></span>пройдено</span>
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:9px;height:9px;background:#9c3b28"></span>ты здесь</span>
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border:1px solid #9c3b28;background:rgba(156,59,40,0.12)"></span>доступно сейчас</span>
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border:1px dashed rgba(31,27,22,0.35)"></span>дальше по тропе</span>
+          <span style="margin-left:auto;font:400 13px/1.2 'Caveat',cursive;text-transform:none;letter-spacing:0">⚔ бой · ⚑ элитка · ✦ скрипторий · ☾ привал · ? событие · ✝ босс</span>
+        </div>
+      </div>
+      <p style="margin:0;width:760px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Слои — колонки, узлы — клетки той же азбуки, что и на поле боя. Тропа читается вся сразу: видно, что элитка неизбежна дважды, а скрипторий — только на выбор с событием. Карточка справа честно делит узел на «что даст» и «чем грозит», а интел показывает только там, где его даёт код.</p>
+    </div>
+
+    <div id="1b" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">1b</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">развилка крупным планом</span>
+      </div>
+
+      <div style="width:430px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:13px">
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+          <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Куда дальше</span>
+          <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">слой 4 · две дороги</span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px;border-left:3px solid #9c3b28;padding:3px 0 3px 10px">
+          <span style="display:flex;align-items:baseline;gap:7px">
+            <span style="font:600 17px/1.1 'EB Garamond',serif">⚑ Элитка · сорвать ритуал</span>
+            <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;color:#9c3b28">интел открыт</span>
+          </span>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace">
+            <span style="padding:4px 5px;background:#9c3b28;color:#f7f0e1">огр 90</span>
+            <span style="padding:4px 5px;background:#9c3b28;color:#f7f0e1">ритуалист 34</span>
+            <span style="padding:4px 5px;background:#9c3b28;color:#f7f0e1">пращник 16</span>
+          </div>
+          <span style="font:400 13.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.82)">даст: <span style="font-weight:600">три редких слова</span> на выбор — то, что меняет язык.</span>
+          <span style="font:400 15px/1.25 'Caveat',cursive;color:#9c3b28">грозит: дедлайн 9 раундов и 90 hp мяса в проходе. Лия входит с 19/40.</span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px;border-left:3px solid rgba(31,27,22,0.3);padding:3px 0 3px 10px">
+          <span style="display:flex;align-items:baseline;gap:7px">
+            <span style="font:600 17px/1.1 'EB Garamond',serif">⚔ Бой · застрельщики</span>
+            <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;color:rgba(31,27,22,0.45)">интел закрыт</span>
+          </span>
+          <span style="font:400 14px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.5)">кто ждёт — узнаешь на месте</span>
+          <span style="font:400 13.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.82)">даст: <span style="font-weight:600">три обычных слова</span> — шире речь, а не глубже.</span>
+          <span style="font:400 15px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.6)">грозит: неизвестностью — и тем, что редкого слова к боссу может не хватить.</span>
+        </div>
+
+        <div style="display:flex;gap:8px;border-top:1px dotted rgba(31,27,22,0.35);padding-top:10px">
+          <button style="flex:1;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 6px;background:#1f1b16;color:#f0e8d5;border:none;cursor:pointer;border-radius:0" style-hover="background:#9c3b28">идти на элитку</button>
+          <button style="flex:1;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;padding:8px 6px;background:transparent;color:#1f1b16;border:1px solid rgba(31,27,22,0.45);cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">идти в бой</button>
+        </div>
+      </div>
+      <p style="margin:0;width:430px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Тот же выбор, но без графа: две дороги рядом, у каждой «даст / грозит», и напоминание, куда всё равно приведёт тропа. Читается за пять секунд — и объясняет, почему редкое слово стоит крови.</p>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1320,&quot;height&quot;:760}}">
+const KINDS = {
+  lesson: { icon: '✎', label: 'урок', title: 'Урок', accent: '#9c3b28' },
+  fight: { icon: '⚔', label: 'бой', title: 'Бой', accent: '#1f1b16' },
+  elite: { icon: '⚑', label: 'элитка', title: 'Элитка', accent: '#9c3b28' },
+  scriptorium: { icon: '✦', label: 'скрипторий', title: 'Скрипторий', accent: '#1f1b16' },
+  event: { icon: '?', label: 'событие', title: 'Событие', accent: '#1f1b16' },
+  rest: { icon: '☾', label: 'привал', title: 'Привал', accent: '#1f1b16' },
+  boss: { icon: '✝', label: 'босс', title: 'Вождь орды', accent: '#9c3b28' },
+};
+
+const LAYERS = [
+  ['lesson'],
+  ['fight', 'fight'],
+  ['scriptorium', 'event'],
+  ['fight', 'elite', 'fight'],
+  ['rest', 'scriptorium'],
+  ['elite', 'fight'],
+  ['event', 'scriptorium'],
+  ['boss'],
+];
+
+const PASSED = [0, 1];
+const CURRENT = 3;
+const AVAILABLE = [5, 6];
+
+const INFO = {
+  0: { desc: 'Первый бой забега: две крысы и подсказка про дистанцию.', reward: 'пара обычных слов или одно редкое — первое настоящее решение', risk: 'проиграть можно бесплатно: урок только учит', foes: ['крыса 8', 'крыса 8'] },
+  1: { desc: 'Обычная стычка на ранней арене — пройдена.', reward: 'три обычных слова на выбор', risk: 'ран не лечат до привала', foes: [] },
+  2: { desc: 'Второй бой того же слоя — ты пошёл мимо.', reward: 'три обычных слова на выбор', risk: 'уже не вернуться: тропа идёт только вперёд', foes: [] },
+  3: { desc: 'Скрипторий: обычное и редкое слово или слот принципа герою.', reward: 'слово либо +1 слот приказов', risk: 'ничем — но и раны не залечит', foes: [] },
+  5: { desc: 'Застрельщики: держат дистанцию и бьют по раненым.', reward: 'три обычных слова на выбор', risk: 'Лия входит с 19/40 — камнем добьют', foes: [] },
+  6: { desc: 'Элитка слоя 4. Ритуалист дочитает погибель к раунду 9, если доживёт.', reward: 'три редких слова на выбор', risk: 'дедлайн 9 раундов и 90 hp огра в проходе', foes: ['огр 90', 'ритуалист 34', 'пращник 16'] },
+  8: { desc: 'Привал: раны перевязаны, отряд входит в поздние слои свежим.', reward: 'лечение всему отряду', risk: 'вместо слова — здоровье; выбор без второго шанса', foes: [] },
+  10: { desc: 'Вторая элитка — неизбежна на любой ветке.', reward: 'три редких слова на выбор', risk: 'сюда придётся донести и отряд, и слова', foes: ['тролль 110', 'поединщик 52', 'сержант 44'] },
+  14: { desc: 'Вождь орды. Финал забега.', reward: 'забег пройден', risk: 'входить только полным составом на полном hp', foes: ['вождь 140', 'телохранитель 70', 'телохранитель 70'] },
+};
+
+const INTEL = ['lesson', 'elite', 'boss'];
+
+class Component extends DCLogic {
+  state = { sel: 5 };
+
+  renderVals() {
+    const s = this.state;
+    let id = 0;
+    const layers = LAYERS.map((kinds, li) => {
+      const nodes = kinds.map((kind) => {
+        const nid = id++;
+        const passed = PASSED.indexOf(nid) >= 0;
+        const current = nid === CURRENT;
+        const avail = AVAILABLE.indexOf(nid) >= 0;
+        const k = KINDS[kind];
+        const on = s.sel === nid;
+        return {
+          id: String(nid),
+          icon: k.icon,
+          kind: k.label,
+          mark: current ? '◆' : passed ? '◆' : avail ? '◇' : '◇',
+          markColor: current ? '#f7f0e1' : passed ? 'rgba(240,232,213,0.7)' : avail ? '#9c3b28' : 'rgba(31,27,22,0.28)',
+          bg: current ? '#9c3b28' : passed ? '#1f1b16' : avail ? 'rgba(156,59,40,0.12)' : 'transparent',
+          fg: current || passed ? '#f0e8d5' : avail ? '#9c3b28' : 'rgba(31,27,22,0.45)',
+          border: on ? '#1f1b16' : current || avail ? '#9c3b28' : 'rgba(31,27,22,0.35)',
+          borderStyle: passed || current || avail ? 'solid' : 'dashed',
+          opacity: passed ? '0.7' : '1',
+        };
+      });
+      return {
+        label: 'слой ' + (li + 1),
+        labelColor: li === 2 || li === 3 ? '#9c3b28' : 'rgba(31,27,22,0.35)',
+        nodes,
+      };
+    });
+
+    let sid = 0;
+    let selKind = 'fight';
+    LAYERS.forEach((kinds) => kinds.forEach((kind) => { if (sid++ === s.sel) selKind = kind; }));
+    const info = INFO[s.sel] || { desc: 'Узел этого забега.', reward: 'по типу узла', risk: '—', foes: [] };
+    const k = KINDS[selKind];
+    const passed = PASSED.indexOf(s.sel) >= 0;
+    const avail = AVAILABLE.indexOf(s.sel) >= 0;
+    const hasIntel = INTEL.indexOf(selKind) >= 0 && info.foes.length > 0;
+
+    return {
+      layers,
+      sel: {
+        title: k.icon + ' ' + k.title,
+        accent: k.accent,
+        state: passed ? 'пройден' : avail ? 'доступен' : s.sel === CURRENT ? 'ты здесь' : 'дальше по тропе',
+        desc: info.desc,
+        reward: info.reward,
+        risk: info.risk,
+        foes: info.foes,
+        hasIntel,
+        hidden: !hasIntel,
+        canGo: avail,
+        locked: !avail && !passed && s.sel !== CURRENT,
+      },
+      pick: (e) => this.setState({ sel: Number(e.currentTarget.dataset.id) }),
+    };
+  }
+}
+</script>
+</body>
+</html>
