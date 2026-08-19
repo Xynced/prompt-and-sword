@@ -338,20 +338,21 @@ function applyPhrases(heroId: string, drafts: PhraseDraft[]): ReturnType<typeof 
 
 const NUM = ['i.', 'ii.', 'iii.', 'iv.', 'v.', 'vi.'];
 
+/** Азбука видов узла (спека карты забега): типографика, не иконки. */
 const NODE_GLYPH: Record<NodeKind, string> = {
-  lesson: 'α',
-  fight: '×',
-  elite: '✕',
+  lesson: '✎',
+  fight: '⚔',
+  elite: '⚑',
   event: '?',
-  rest: '~',
-  scriptorium: '§',
-  boss: 'Ω',
+  rest: '☾',
+  scriptorium: '✦',
+  boss: '✝',
 };
 
 const NODE_RU: Record<NodeKind, string> = {
   lesson: 'урок',
   fight: 'бой',
-  elite: 'элита',
+  elite: 'элитка',
   event: 'событие',
   rest: 'привал',
   scriptorium: 'скрипторий',
@@ -445,6 +446,20 @@ const LENS_HINT: Record<LensId, string> = {
 
 /** Подпись важности фразы: фокус (план nerve) держит приказ при разбросе весов. */
 const WEIGHT_NOTE: Record<number, string> = { 1: '', 2: ' (важно)', 3: ' (фокус)' };
+
+/**
+ * Фокус (спека редактора приказов): единственный видимый игроку рычаг
+ * приоритета — вес 3 на фразе. Один фокус на героя, бюджет общий на отряд.
+ */
+const FOCUS_BUDGET = 3;
+
+const isFocused = (d: PhraseDraft): boolean => (d.weight ?? 1) >= 3;
+
+/** Сколько фокусов отряда ещё свободно. */
+function focusFree(): number {
+  const used = run.heroes.filter((h) => h.alive && h.phrases.some(isFocused)).length;
+  return Math.max(0, FOCUS_BUDGET - used);
+}
 
 /** Приказы героя как связный текст (до линзы — как написано). */
 function ordersSentence(h: { phrases: PhraseDraft[] }): string {
@@ -1400,49 +1415,156 @@ function rosterHtml(compact: boolean): string {
 
 // ---------- экран: карта похода ----------
 
-function mapSvg(): string {
-  const layerW = new Map<number, number>();
-  for (const n of run.map) layerW.set(n.layer, (layerW.get(n.layer) ?? 0) + 1);
-  const pos = (n: MapNode): { x: number; y: number } => ({
-    x: 48 + n.layer * 106,
-    y: 118 + (n.slot - (layerW.get(n.layer)! - 1) / 2) * 76,
-  });
-  const canGo = run.status === 'ongoing' && run.resolved && !run.pendingReward;
-  const nextIds = new Set(canGo ? currentNode(run).next : []);
+/** Состояние клетки тропы — читается фоном и рамкой, без значков внутри (спека карты). */
+type TrailState = 'here' | 'done' | 'open' | 'far';
 
-  const edges = run.map
-    .flatMap((n) =>
-      n.next.map((to) => {
-        const a = pos(n);
-        const b = pos(run.map[to]!);
-        const active = nextIds.has(to) && n.id === run.at;
-        return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="edge ${active ? 'active' : ''}"/>`;
-      }),
-    )
-    .join('');
-  const nodes = run.map
-    .map((n) => {
-      const { x, y } = pos(n);
-      const cls = [
-        'mnode',
-        visited.has(n.id) && n.id !== run.at ? 'done' : '',
-        n.id === run.at ? 'current' : '',
-        nextIds.has(n.id) ? 'selectable' : '',
-      ].join(' ');
-      const here =
-        n.id === run.at
-          ? `<text class="mnote" x="${x}" y="${y - 22}" text-anchor="middle" transform="rotate(-4 ${x} ${y - 22})">ты здесь</text>`
-          : '';
-      return `<g class="${cls}" data-node="${n.id}">
-        <rect x="${x - 13}" y="${y - 13}" width="26" height="26" transform="rotate(45 ${x} ${y})"/>
-        <text class="glyph" x="${x}" y="${y + 4.5}" text-anchor="middle">${NODE_GLYPH[n.kind]}</text>
-        <text class="mkind" x="${x}" y="${y + 32}" text-anchor="middle">${NODE_RU[n.kind]}</text>
-        ${here}
-        <title>${NODE_RU[n.kind]}</title>
-      </g>`;
+const TRAIL_STATE_RU: Record<TrailState, string> = {
+  here: 'ты здесь',
+  done: 'пройден',
+  open: 'доступен',
+  far: 'дальше по тропе',
+};
+
+/** Узлы, куда есть дорога прямо сейчас — из рёбер текущего узла, а не из отдельного списка. */
+function openNodeIds(): Set<number> {
+  const canGo = run.status === 'ongoing' && run.resolved && !run.pendingReward;
+  return new Set(canGo ? currentNode(run).next : []);
+}
+
+function trailStateOf(n: MapNode, open: Set<number>): TrailState {
+  if (n.id === run.at) return 'here';
+  if (visited.has(n.id)) return 'done';
+  if (open.has(n.id)) return 'open';
+  return 'far';
+}
+
+/** Тропа: слои — колонки, узлы — клетки на сквозной полосочке. */
+function trailHtml(): string {
+  const open = openNodeIds();
+  const layers: MapNode[][] = [];
+  for (const n of run.map) (layers[n.layer] ??= []).push(n);
+  const cols = layers
+    .map((nodes) => {
+      const cells = [...nodes]
+        .sort((a, b) => a.slot - b.slot)
+        .map((n) => {
+          const st = trailStateOf(n, open);
+          return `<div class="tnode ${st}${n.id === pickedId() ? ' sel' : ''}"
+            data-action="pick-node" data-node="${n.id}" title="${NODE_RU[n.kind]} — ${TRAIL_STATE_RU[st]}">
+            <span class="g">${NODE_GLYPH[n.kind]}</span>
+            <span class="k">${NODE_RU[n.kind]}</span>
+          </div>`;
+        })
+        .join('');
+      return `<div class="t-col">${cells}</div>`;
     })
     .join('');
-  return `<svg class="map" viewBox="0 0 850 240" role="img" aria-label="Карта похода">${edges}${nodes}</svg>`;
+  return `<div class="trail"><span class="t-path"></span>${cols}</div>`;
+}
+
+function trailLegendHtml(): string {
+  const sw = (st: TrailState): string => `<span class="t-leg"><i class="sw ${st}"></i>${TRAIL_STATE_RU[st]}</span>`;
+  return `<div class="t-legend">
+    ${sw('done')}${sw('here')}${sw('open')}${sw('far')}
+    <span class="t-glyphs">${Object.entries(NODE_GLYPH)
+      .map(([k, g]) => `${g} ${NODE_RU[k as NodeKind]}`)
+      .join(' · ')}</span>
+  </div>`;
+}
+
+/** Чипсы состояния забега в шапке тропы. */
+function runChipsHtml(): string {
+  const alive = run.heroes.filter((h) => h.alive).length;
+  return `<span class="run-chips">
+    <span class="chip ink">слов ${run.vocab.length}</span>
+    <span class="chip line">фокусы ${focusFree()} из ${FOCUS_BUDGET}</span>
+    <span class="chip red">отряд ${alive} жив${alive === 1 ? '' : 'ы'}</span>
+  </span>`;
+}
+
+/** Дедлайн задачи узла в раундах — если сценарий его ставит. */
+function nodeDeadline(node: MapNode): number | null {
+  const o = scenarioForNode(node)?.setup.objective;
+  if (!o) return null;
+  if (o.kind === 'killBefore') return o.round;
+  if (o.kind === 'survive' || o.kind === 'holdZone') return o.rounds;
+  if (o.kind === 'protect') return o.rounds ?? null;
+  return null;
+}
+
+/** «что даст» — награда узла словами; пулы трофеев живут в run.ts. */
+function nodeReward(node: MapNode): string {
+  switch (node.kind) {
+    case 'lesson':
+      return 'пара обычных слов или одно редкое — первое настоящее решение забега';
+    case 'fight':
+      return 'три обычных слова на выбор — шире речь, а не глубже';
+    case 'elite':
+      return 'три редких слова на выбор — то, что меняет язык';
+    case 'scriptorium':
+      return 'слово в словарь либо +1 слот приказов герою — берут одно';
+    case 'rest':
+      return 'лечение всему отряду';
+    case 'event':
+      return 'встреча: слово, слот или наёмник взамен павшего';
+    case 'boss':
+      return 'забег пройден';
+  }
+}
+
+/** «чем грозит» — настоящая цена этого узла в этом забеге, одной строкой. */
+function nodeRisk(node: MapNode): string {
+  const parts: string[] = [];
+  const deadline = nodeDeadline(node);
+  if (deadline) parts.push(`дедлайн ${deadline} раундов`);
+  if (node.kind === 'lesson') {
+    parts.push('проиграть можно бесплатно: урок только учит');
+  } else if (FIGHT_KINDS.includes(node.kind)) {
+    const hurt = [...run.heroes]
+      .filter((h) => h.alive && h.hp < h.stats.maxHp)
+      .sort((a, b) => a.hp / a.stats.maxHp - b.hp / b.stats.maxHp)[0];
+    if (hurt) parts.push(`${hurt.name} входит с ${hurt.hp}/${hurt.stats.maxHp}`);
+    const fallen = run.heroes.filter((h) => !h.alive).length;
+    if (fallen) parts.push(`отряд неполон: павших ${fallen}`);
+    if (node.kind === 'boss') parts.push('второй попытки не будет');
+    if (parts.length === 0) parts.push('ран не лечат до привала');
+  } else if (node.kind === 'rest') {
+    parts.push('вместо слова — здоровье; выбор без второго шанса');
+  } else if (node.kind === 'scriptorium') {
+    parts.push('ничем — но и раны не залечит');
+  } else {
+    parts.push('за встречу платят временем, а не кровью');
+  }
+  return parts.join(' · ');
+}
+
+/** Описание узла: задача боя видна всегда — честная часть разведки. */
+function nodeDesc(node: MapNode): string {
+  const scenario = scenarioForNode(node);
+  if (FIGHT_KINDS.includes(node.kind)) return scenario ? scenario.brief : 'Перебей всех — задача без оговорок.';
+  switch (node.kind) {
+    case 'scriptorium':
+      return 'Полка чужих наставлений: слово в словарь или лишний слот приказа. Берут одно.';
+    case 'rest':
+      return 'Костёр, тишина, иголка с ниткой. Живые восстановят большую часть здоровья.';
+    default:
+      return 'Встреча на дороге: книжник, тайник или наёмник у костра.';
+  }
+}
+
+/** «кто ждёт» — состав врагов заранее только там, где интел даёт код. */
+function foeIntelHtml(node: MapNode): string {
+  if (!FIGHT_KINDS.includes(node.kind)) return '';
+  if (!intelVisible(node)) {
+    return `<div class="nc-hidden">кто ждёт — неизвестно: интел дают только урок, элитка и босс</div>`;
+  }
+  const chips = foesForNode(node)
+    .map((f) => `<span class="chip red">${esc(f.name)} ${f.maxHp}</span>`)
+    .join('');
+  return `<div class="nc-block">
+    <span class="kicker">кто ждёт · известно заранее</span>
+    <div class="chips">${chips}</div>
+  </div>`;
 }
 
 function intelHtml(node: MapNode): string {
@@ -1507,47 +1629,41 @@ function deployHtml(node: MapNode): string {
   </div>`;
 }
 
-function nodePanelHtml(): string {
-  const node = currentNode(run);
+/** Узел, чья карточка открыта: клик по тропе, по умолчанию — текущий. */
+let mapPick: number | null = null;
+
+function pickedId(): number {
+  return mapPick !== null && run.map[mapPick] ? mapPick : run.at;
+}
+
+/** Действия текущего узла: трофей, бой, событие, привал. */
+function nodeActionsHtml(node: MapNode): string {
   if (run.status !== 'ongoing') return '';
-  if (run.resolved) {
-    if (run.pendingReward) {
-      const items = run.pendingReward
-        .map((option, i) => {
-          const words = option
-            .map(
-              (c) => `<span class="s-title">${esc(CONCEPTS[c].label)}</span>
-              <span class="s-desc">${CAT_RU[CONCEPTS[c].category]} — новое слово для приказов</span>`,
-            )
-            .join('');
-          return `<button class="shop-item" data-action="reward-take" data-index="${i}">
-            <span style="flex:1;display:flex;flex-direction:column;gap:3px">${words}</span>
-            <span class="s-cost">${option.length > 1 ? `взять оба` : 'взять'}</span>
-          </button>`;
-        })
-        .join('');
-      const isBundle = run.pendingReward.some((o) => o.length > 1);
-      const desc = isBundle
-        ? 'В обозе врага — обрывки чужих наставлений. Пара расхожих слов — или одно редкое.'
-        : 'В обозе врага — обрывки чужих наставлений. Одно слово можно разобрать.';
-      return `<div class="node-panel">
-        <h2>Трофей боя</h2>
-        <div class="desc">${desc}</div>
-        <div class="shop">${items}</div>
-        <div class="btn-row"><button data-action="reward-skip">оставить на поле</button></div>
-      </div>`;
-    }
-    return `<div class="node-panel">
-      <h2>Куда дальше?</h2>
-      <div class="desc">Пути расходятся. Выбери следующий узел на карте — красный ромб зовёт.</div>
+  if (run.pendingReward) {
+    const items = run.pendingReward
+      .map((option, i) => {
+        const words = option
+          .map(
+            (c) => `<span class="s-title">${esc(CONCEPTS[c].label)}</span>
+            <span class="s-desc">${CAT_RU[CONCEPTS[c].category]} — новое слово для приказов</span>`,
+          )
+          .join('');
+        return `<button class="shop-item" data-action="reward-take" data-index="${i}">
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px">${words}</span>
+          <span class="s-cost">${option.length > 1 ? 'взять оба' : 'взять'}</span>
+        </button>`;
+      })
+      .join('');
+    return `<div class="nc-block">
+      <span class="kicker">трофей боя · в обозе врага обрывки чужих наставлений</span>
+      <div class="shop">${items}</div>
+      <div class="btn-row"><button data-action="reward-skip">оставить на поле</button></div>
     </div>`;
   }
+  if (run.resolved) {
+    return `<div class="nc-note">узел пройден — выбери на тропе, куда идти дальше</div>`;
+  }
   if (FIGHT_KINDS.includes(node.kind)) {
-    // задача боя (план objectives) видна всегда — честная часть разведки
-    const scenario = scenarioForNode(node);
-    const taskHtml = scenario
-      ? `<div class="task-line"><span class="kicker">задача боя</span><b>⚑ ${esc(scenario.title)}</b> — ${esc(scenario.brief)}</div>`
-      : '';
     const canMark = run.vocab.includes('sel.marked');
     const foeRows = foesForNode(node)
       .map((f) => {
@@ -1563,19 +1679,11 @@ function nodePanelHtml(): string {
       ? `<div class="onboarding">Первый приказ почти никогда не выигрывает этот бой — так задумано.
          В дневник вписано новое слово: «держать дистанцию».
          Перепиши принципы под то, что видно в разведке, и переиграй: <b>кости те же</b>.</div>`
-      : node.kind === 'lesson'
-        ? `<div class="flavor">учебный бой: поражение ничего не стоит — экспериментируй.</div>`
-        : '';
-    return `<div class="node-panel">
-      <h2>${esc(nodeTitle(node))}</h2>
-      ${taskHtml}
-      <div class="node-cols">
-        <div class="node-cols-l">
-          <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
-          ${intelHtml(node)}
-        </div>
-        ${deployHtml(node)}
-      </div>
+      : '';
+    return `<div class="nc-block">
+      <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
+      ${intelHtml(node)}
+      ${deployHtml(node)}
       ${nudge}
       <div class="btn-row"><button class="primary" data-action="fight">⚔ выступить</button>
         <button data-action="open-editor">переписать приказы</button>
@@ -1592,37 +1700,66 @@ function nodePanelHtml(): string {
     const names = heroNames(run);
     const parts: string[] = [];
     if (offer.concept) {
-      parts.push(`<div class="desc">Странствующий книжник готов растолковать концепт
+      parts.push(`<div class="nc-desc">Странствующий книжник готов растолковать концепт
         «${CONCEPTS[offer.concept].label}» — задаром, из любви к слову.</div>
         <div class="btn-row"><button class="primary" data-action="event-take">изучить</button></div>`);
     } else if (offer.slotHero) {
-      parts.push(`<div class="desc">В тайнике — чистый лист для полевого дневника:
+      parts.push(`<div class="nc-desc">В тайнике — чистый лист для полевого дневника:
         +1 слот приказа для ${names[offer.slotHero]}.</div>
         <div class="btn-row"><button class="primary" data-action="event-take">забрать</button></div>`);
     }
     if (offer.mercenary) {
-      parts.push(`<div class="desc">У костра сидит наёмник ${esc(offer.mercenary.name)}${
+      parts.push(`<div class="nc-desc">У костра сидит наёмник ${esc(offer.mercenary.name)}${
         debugLenses ? ` [${lensTag(offer.mercenary.lenses)}]` : ''
-      } — займёт место павшего, но прежние принципы
-        прочтёт по-своему.</div>
+      } — займёт место павшего, но прежние принципы прочтёт по-своему.</div>
         <div class="btn-row"><button data-action="event-hire">нанять</button></div>`);
     }
-    return `<div class="node-panel">
-      <h2>${esc(nodeTitle(node))}</h2>
-      ${parts.join('')}
-      <div class="btn-row"><button data-action="event-skip">пройти мимо</button></div>
-    </div>`;
+    return `${parts.join('')}<div class="btn-row"><button data-action="event-skip">пройти мимо</button></div>`;
   }
   if (node.kind === 'rest') {
-    return `<div class="node-panel">
-      <h2>${esc(nodeTitle(node))}</h2>
-      <div class="desc">Костёр, тишина, иголка с ниткой. Живые герои восстановят большую часть здоровья;
-        приказы можно переписывать сколько угодно.</div>
-      <div class="btn-row"><button class="primary" data-action="rest">отдохнуть</button>
-        <button data-action="open-editor">переписать приказы</button></div>
-    </div>`;
+    return `<div class="btn-row"><button class="primary" data-action="rest">отдохнуть</button>
+      <button data-action="open-editor">переписать приказы</button></div>`;
   }
   return '';
+}
+
+/** Карточка узла: что это, кто ждёт, что даст, чем грозит — и дорога туда. */
+function nodeCardHtml(): string {
+  const node = run.map[pickedId()]!;
+  const open = openNodeIds();
+  const state = trailStateOf(node, open);
+  const here = node.id === run.at;
+  const accent = node.kind === 'lesson' || node.kind === 'elite' || node.kind === 'boss' ? 'red' : 'ink';
+  const scenario = scenarioForNode(node);
+  const task = scenario
+    ? `<div class="task-line"><span class="kicker">задача боя</span><b>⚑ ${esc(scenario.title)}</b></div>`
+    : '';
+  const go = here
+    ? nodeActionsHtml(node)
+    : open.has(node.id)
+      ? `<div class="btn-row"><button class="primary" data-action="go-node" data-node="${node.id}">идти сюда</button></div>`
+      : `<div class="nc-note">туда дороги нет с этого узла</div>`;
+  return `<div class="node-card acc-${accent}">
+    <div class="nc-head">
+      <span class="nc-title">${NODE_GLYPH[node.kind]} ${esc(cap(NODE_RU[node.kind]))}</span>
+      <span class="nc-place">${esc(nodeTitle(node))}</span>
+      <span class="nc-state">${TRAIL_STATE_RU[state]}</span>
+    </div>
+    <div class="nc-body">
+      ${task}
+      <div class="nc-desc">${esc(nodeDesc(node))}</div>
+      ${foeIntelHtml(node)}
+      <div class="nc-block">
+        <span class="kicker">что даст</span>
+        <span class="nc-serif">${esc(nodeReward(node))}</span>
+      </div>
+      <div class="nc-block">
+        <span class="kicker">чем грозит</span>
+        <span class="nc-risk">${esc(nodeRisk(node))}</span>
+      </div>
+      ${go}
+    </div>
+  </div>`;
 }
 
 /** Кнопка теста «свободный режим» — на карте и в редакторе приказов. */
@@ -1638,15 +1775,16 @@ function mapScreenHtml(): string {
   return `<div class="spread">
     <div class="page-l">
       <div class="page-head">
-        <span class="title">Поход — западный тракт</span>
-        <span class="meta">fol. ${run.at + 1}r · seed ${run.runSeed}</span>
+        <span class="title">Тропа</span>
+        <span class="meta">слой ${currentNode(run).layer + 1} из ${
+          run.map[run.map.length - 1]!.layer + 1
+        } · seed ${run.runSeed}</span>
+        ${runChipsHtml()}
       </div>
-      ${mapSvg()}
-      ${nodePanelHtml()}
+      ${trailHtml()}
+      ${trailLegendHtml()}
+      ${nodeCardHtml()}
       <div class="foot">
-        <span>словарь: <b>${run.vocab.length}</b> слов</span><span>·</span>
-        <span>узел ${run.at + 1} из ${run.map.length}</span>
-        <span class="spacer"></span>
         <button class="linkish" data-action="toggle-debug">${debugLenses ? 'debug: скрыть характеры' : 'debug'}</button>
         <button class="linkish" data-action="open-debug" title="отладка: любой сценарий, партия и характеры">собрать бой</button>
         <button class="linkish" data-action="toggle-nerve" title="нерв: под давлением бойцы взвешивают решение неровно">${
@@ -1654,13 +1792,6 @@ function mapScreenHtml(): string {
         }</button>
         ${freeVocabBtnHtml()}
         <button class="linkish" data-action="export-journal">журнал плейтеста</button>
-        <span>${
-          run.resolved && run.status === 'ongoing'
-            ? run.pendingReward
-              ? 'сначала реши судьбу трофея'
-              : 'кликни следующий узел, чтобы идти'
-            : ''
-        }</span>
       </div>
     </div>
     <div class="gutter"></div>
@@ -3174,18 +3305,6 @@ function bind(): void {
       });
     });
   }
-  for (const g of app.querySelectorAll<SVGGElement>('.mnode.selectable')) {
-    g.addEventListener('click', () => {
-      const to = Number(g.dataset.node);
-      if (advance(run, to).ok) {
-        visited.add(to);
-        fightsAtNode = 0;
-        rewroteSinceBattle = false;
-      }
-      lessonNudge = false;
-      render();
-    });
-  }
   for (const tok of app.querySelectorAll<HTMLElement>('.btoken[data-unit]')) {
     tok.addEventListener('click', () => {
       unitCardId = tok.dataset.unit!;
@@ -3210,6 +3329,22 @@ function bind(): void {
     el.addEventListener('click', () => {
       const a = el.dataset.action!;
       switch (a) {
+        case 'pick-node':
+          mapPick = Number(el.dataset.node);
+          render();
+          break;
+        case 'go-node': {
+          const to = Number(el.dataset.node);
+          if (advance(run, to).ok) {
+            visited.add(to);
+            fightsAtNode = 0;
+            rewroteSinceBattle = false;
+            mapPick = null;
+          }
+          lessonNudge = false;
+          render();
+          break;
+        }
         case 'fight':
           startBattle();
           break;
