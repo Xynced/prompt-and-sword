@@ -2913,9 +2913,9 @@ function aftermathHtml(): string {
         ${drift
           .map(
             (r) => `<div class="ab-row"><span class="ab-mark">◈</span>
-              <span class="ab-said">${esc(r.name)}, раунд ${r.round ?? '?'} — до конца боя слушал${
-                debugLenses ? ` только ${LENS_RU[r.lens]}` : 'а только это'
-              }</span></div>
+              <span class="ab-said">${esc(r.name)}, раунд ${
+                r.round ?? '?'
+              } — характер защёлкнулся: до конца боя решает он${debugLenses ? ` (${LENS_RU[r.lens]})` : ''}</span></div>
             <div class="ab-voice">${esc(r.quip)}</div>`,
           )
           .join('')}
