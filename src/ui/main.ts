@@ -1,5 +1,5 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
-import { type Tile, pickTerrain } from '../terrain.js';
+import { PARTY_ZONE_MAX_X, type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
 import {
   describeActive,
@@ -10,6 +10,7 @@ import {
   describeReaction,
   moveMarks,
   REACTION_RU,
+  ruleRu,
   describeWeapons,
   driftQuip,
   lensQuip,
@@ -30,7 +31,7 @@ import { type ModelCall, anthropicModelCall, compileFreeText } from '../compiler
 import type { CompilerCache } from '../compiler/cache.js';
 import type { CompilerOutput } from '../compiler/schema.js';
 import { ALLY_ROLE_RU, BATTLE_DRAGS_ROUND, type AllyRef, type AllyRole, type Rule } from '../ir.js';
-import { CONCEPTS, type ConceptId } from '../vocab.js';
+import { CONCEPTS, type ConceptCategory, type ConceptId, RARE_WORDS } from '../vocab.js';
 import {
   type MapNode,
   type NodeKind,
@@ -46,8 +47,17 @@ import {
   claimReward,
   currentNode,
   eventOffer,
+  FOCUS_BUDGET,
+  INTEL_POINTS,
+  ORDER_SETS,
+  buyIntel,
+  focusUsed,
+  setFocus,
+  switchOrderSet,
   foeSpecs,
   foesForNode,
+  foesKnown,
+  visibleFoes,
   heroNames,
   heroSpecs,
   intelVisible,
@@ -59,7 +69,7 @@ import {
   skipLesson,
   startRun,
 } from '../run.js';
-import { foeIntel } from '../foes.js';
+
 import { DEBUG_BATTLES, type DebugSetup, MAX_DEBUG_PARTY, debugBattleById, debugBrief, debugRun } from '../debug.js';
 import { scenarioForNode } from '../objectives.js';
 import { HERO_POOL, type HeroArchetype, heroArchetype } from '../heroes.js';
@@ -120,12 +130,23 @@ let speed = 1;
 let timer: number | null = null;
 let tactician = false;
 let editorOpen = false;
+
+/** Оверлеи внутри редактора: модалка текста и словарь. */
+let textOpen = false;
+let vocabOpen = false;
+let vocabFilter: ConceptCategory | null = null;
 let editHero = run.heroes[0]!.id;
 let aftermathOpen = false;
+
+/** Экран перед боем: разведка и расстановка. */
+let prepOpen = false;
 /** Реплики характеров, раскрывшиеся в текущем бою, — для разбора после боя. */
 let battleReveals: Reveal[] = [];
 /** Оверлей «свиток боя» — полный лог решений. */
 let logOpen = false;
+
+/** Раскрытая строка свитка («почему так») — одновременно раскрыта одна. */
+let logRow: number | null = null;
 /** Карточка юнита (герой или враг) — по клику на фишку или имя в реестре. */
 let unitCardId: string | null = null;
 /** Вкладка карточки героя; дефолт — приёмы (спека карточки, вариант 3a). */
@@ -191,7 +212,6 @@ const ENV = (import.meta as unknown as { env?: Record<string, string> }).env ?? 
 const API_KEY: string | undefined = ENV.VITE_COMPILER_API_KEY ?? ENV.VITE_ANTHROPIC_API_KEY;
 const COMPILER_MODEL: string | undefined = ENV.VITE_COMPILER_MODEL;
 const COMPILER_BASE_URL: string | undefined = ENV.VITE_COMPILER_BASE_URL;
-const textMode: Record<string, boolean> = {};
 
 /**
  * Debug-режим (план линз): игроку характеры не показываются — он выучивает их
@@ -213,13 +233,6 @@ function unlockAllWords(): void {
   }
 }
 
-/**
- * Свободный текст — режим по умолчанию, когда компилятор доступен; без ключа —
- * только чипсы. Вне debug-режима чипсы при живом компиляторе скрыты совсем:
- * игрок видит только свои слова и «как прочёл» (план линз).
- */
-const inText = (heroId: string): boolean =>
-  API_KEY ? !debugLenses || (textMode[heroId] ?? true) : false;
 const heroText: Record<string, string> = {};
 const heroUncertainty: Record<string, string[]> = {};
 const compiling: Record<string, boolean> = {};
@@ -297,6 +310,10 @@ async function compileHeroText(heroId: string): Promise<void> {
     const res = applyPhrases(heroId, r.phrases);
     editError[heroId] = res.ok ? '' : res.error;
     heroUncertainty[heroId] = r.uncertainty;
+    // текст хранится целиком — включая слова, которых герой не знает
+    const set = hero.sets[hero.activeSet];
+    if (set) set.text = heroText[heroId] ?? '';
+    if (res.ok) textOpen = false;
   } else {
     editError[heroId] = r.error;
   }
@@ -338,20 +355,21 @@ function applyPhrases(heroId: string, drafts: PhraseDraft[]): ReturnType<typeof 
 
 const NUM = ['i.', 'ii.', 'iii.', 'iv.', 'v.', 'vi.'];
 
+/** Азбука видов узла (спека карты забега): типографика, не иконки. */
 const NODE_GLYPH: Record<NodeKind, string> = {
-  lesson: 'α',
-  fight: '×',
-  elite: '✕',
+  lesson: '✎',
+  fight: '⚔',
+  elite: '⚑',
   event: '?',
-  rest: '~',
-  scriptorium: '§',
-  boss: 'Ω',
+  rest: '☾',
+  scriptorium: '✦',
+  boss: '✝',
 };
 
 const NODE_RU: Record<NodeKind, string> = {
   lesson: 'урок',
   fight: 'бой',
-  elite: 'элита',
+  elite: 'элитка',
   event: 'событие',
   rest: 'привал',
   scriptorium: 'скрипторий',
@@ -443,8 +461,12 @@ const LENS_HINT: Record<LensId, string> = {
   showman: 'позёр красуется перед строем врага — приманка без приказа.',
 };
 
-/** Подпись важности фразы: фокус (план nerve) держит приказ при разбросе весов. */
-const WEIGHT_NOTE: Record<number, string> = { 1: '', 2: ' (важно)', 3: ' (фокус)' };
+/**
+ * Подпись важности фразы. Вес игроку закрыт (спека редактора приказов):
+ * видно только фокус — единственный рычаг приоритета в его руках.
+ */
+const WEIGHT_NOTE: Record<number, string> = { 1: '', 2: '', 3: ' (фокус)' };
+
 
 /** Приказы героя как связный текст (до линзы — как написано). */
 function ordersSentence(h: { phrases: PhraseDraft[] }): string {
@@ -746,6 +768,8 @@ interface Frame {
   round: number;
   actorId: string;
   actorName: string;
+  /** Цена решения в очках хода: 0 — реакция или ожидание (ромб ◇). */
+  cost: number;
   text: string;
   factors: { label: string; value: number }[];
   units: FrameUnit[];
@@ -770,6 +794,14 @@ interface Reveal {
   quip: string;
   /** Кадр, в котором характер проговорился: до него линза в карточке скрыта. */
   frame: number;
+  /** Слово игрока, которое прочли по-своему (нет у дрейфа). */
+  source?: string;
+  /** Что из слова получилось на деле. */
+  reading?: string;
+  /** Раунд боя — для разбора: «Лия, раунд 4». */
+  round?: number;
+  /** Защёлкнувшийся дрейф характера, а не разовое искажение слова. */
+  drift?: true;
 }
 
 function buildFrames(
@@ -800,7 +832,9 @@ function buildFrames(
   const activeZones = new Map<string, { x: number; y: number }>();
   const out: Frame[] = [];
   let round = 0;
-  let pending: { actorId: string; factors: Frame['factors']; parts: string[]; fx: Fx[]; callout?: string } | null = null;
+  let pending:
+    | { actorId: string; cost: number; factors: Frame['factors']; parts: string[]; fx: Fx[]; callout?: string }
+    | null = null;
   // всплывающий текст над юнитом (его текущая клетка) — попадает в кадр pending
   const float = (unitId: string, text: string, tone: FxTone): void => {
     const u = units.get(unitId);
@@ -871,9 +905,18 @@ function buildFrames(
   };
   const revealed = new Set<string>();
   const reveals: Reveal[] = [];
-  const reveal = (unitId: string, lens: LensId, quip: string): void => {
+  const reveal = (unitId: string, lens: LensId, quip: string, rule?: Rule): void => {
     const u = units.get(unitId)!;
-    reveals.push({ unit: unitId, name: u.name, side: u.side, lens, quip, frame: out.length });
+    reveals.push({
+      unit: unitId,
+      name: u.name,
+      side: u.side,
+      lens,
+      quip,
+      frame: out.length,
+      round,
+      ...(rule ? { source: rule.source, reading: ruleRu(rule, names) } : {}),
+    });
     if (pending && pending.callout === undefined) pending.callout = `${u.name}: «${quip}»`;
   };
 
@@ -883,6 +926,7 @@ function buildFrames(
       round,
       actorId: pending.actorId,
       actorName: nm(pending.actorId),
+      cost: pending.cost,
       text: pending.parts.length ? pending.parts.join(', ') : 'медлит',
       factors: pending.factors,
       units: snap(),
@@ -914,7 +958,7 @@ function buildFrames(
         break;
       case 'decision': {
         flush();
-        pending = { actorId: e.unit, factors: e.factors, parts: [], fx: [] };
+        pending = { actorId: e.unit, cost: AP_COST[e.action] ?? 1, factors: e.factors, parts: [], fx: [] };
         // начало своего хода: действие прикрытия и щит союзника истекают
         if (e.ap === AP_PER_TURN) {
           const u = units.get(e.unit);
@@ -937,7 +981,7 @@ function buildFrames(
           // сдвиг веса — только если смысл никто не тронул
           const marks = r.marks!;
           const mark = marks.filter((m) => m.kind === 'reword' || m.kind === 'recondition').at(-1) ?? marks.at(-1)!;
-          reveal(e.unit, mark.lens, lensQuip(mark, names, r));
+          reveal(e.unit, mark.lens, lensQuip(mark, names, r), r);
           break; // одна реплика на кадр
         }
         // достройка пропусков: ни одно правило не сработало — герой решает сам
@@ -1023,7 +1067,7 @@ function buildFrames(
           // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр;
           // «полымя» (holds) держит зону до последнего пульса
           flush();
-          pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`], fx: [] };
+          pending = { actorId: e.unit, cost: 0, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`], fx: [] };
           pending.fx.push({ kind: 'cells', cells: cellsAround(e.at, AOE_RITUAL_RADIUS), form: 'ritual' });
           if (!e.holds) activeZones.delete(e.unit);
         } else if (e.form === 'line') {
@@ -1098,6 +1142,7 @@ function buildFrames(
         units.get(e.unit)!.hp = e.hp;
         pending = {
           actorId: e.unit,
+          cost: 0,
           factors: [],
           parts: [e.quenched ? 'не зарастает: огонь не даёт' : `зарастает: +${e.amount}`],
           fx: [],
@@ -1117,6 +1162,7 @@ function buildFrames(
         units.get(e.unit)!.hp = e.hp;
         pending = {
           actorId: e.unit,
+          cost: 0,
           factors: [],
           parts: [`${persistRu(e.dmgType)}: −${e.dmg}`],
           fx: [],
@@ -1140,8 +1186,8 @@ function buildFrames(
         flush();
         const quip = driftQuip(e.lens);
         const u = units.get(e.unit)!;
-        reveals.push({ unit: e.unit, name: u.name, side: u.side, lens: e.lens, quip, frame: out.length });
-        pending = { actorId: e.unit, factors: [], parts: [`«${quip}»`], fx: [], callout: `${u.name}: «${quip}»` };
+        reveals.push({ unit: e.unit, name: u.name, side: u.side, lens: e.lens, quip, frame: out.length, round, drift: true });
+        pending = { actorId: e.unit, cost: 0, factors: [], parts: [`«${quip}»`], fx: [], callout: `${u.name}: «${quip}»` };
         break;
       }
       case 'bless':
@@ -1247,6 +1293,7 @@ function buildFrames(
     round: 0,
     actorId: '',
     actorName: '',
+    cost: 0,
     text: '',
     factors: [],
     units: out.length ? out[0]!.units.map((u) => ({ ...u, hp: u.maxHp, alive: true })) : snap(),
@@ -1313,6 +1360,7 @@ function startBattle(): void {
   logOpen = false;
   unitCardId = null;
   ordersDirty = false;
+  prepOpen = false;
   render();
   runTimer();
 }
@@ -1341,6 +1389,8 @@ function acceptOutcome(): void {
   playFight(run);
   if (run.status !== 'ongoing') recordEvent({ t: 'end', won: run.status === 'won' });
   lessonNudge = node.kind === 'lesson' && lost;
+  // проигранный урок не кончает узел — возвращаемся туда, где приказ переписывают
+  prepOpen = run.status === 'ongoing' && !run.resolved;
   battle = null;
   frames = [];
   aftermathOpen = false;
@@ -1400,229 +1450,261 @@ function rosterHtml(compact: boolean): string {
 
 // ---------- экран: карта похода ----------
 
-function mapSvg(): string {
-  const layerW = new Map<number, number>();
-  for (const n of run.map) layerW.set(n.layer, (layerW.get(n.layer) ?? 0) + 1);
-  const pos = (n: MapNode): { x: number; y: number } => ({
-    x: 48 + n.layer * 106,
-    y: 118 + (n.slot - (layerW.get(n.layer)! - 1) / 2) * 76,
-  });
+/** Состояние клетки тропы — читается фоном и рамкой, без значков внутри (спека карты). */
+type TrailState = 'here' | 'done' | 'open' | 'far';
+
+const TRAIL_STATE_RU: Record<TrailState, string> = {
+  here: 'ты здесь',
+  done: 'пройден',
+  open: 'доступен',
+  far: 'дальше по тропе',
+};
+
+/** Узлы, куда есть дорога прямо сейчас — из рёбер текущего узла, а не из отдельного списка. */
+function openNodeIds(): Set<number> {
   const canGo = run.status === 'ongoing' && run.resolved && !run.pendingReward;
-  const nextIds = new Set(canGo ? currentNode(run).next : []);
-
-  const edges = run.map
-    .flatMap((n) =>
-      n.next.map((to) => {
-        const a = pos(n);
-        const b = pos(run.map[to]!);
-        const active = nextIds.has(to) && n.id === run.at;
-        return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="edge ${active ? 'active' : ''}"/>`;
-      }),
-    )
-    .join('');
-  const nodes = run.map
-    .map((n) => {
-      const { x, y } = pos(n);
-      const cls = [
-        'mnode',
-        visited.has(n.id) && n.id !== run.at ? 'done' : '',
-        n.id === run.at ? 'current' : '',
-        nextIds.has(n.id) ? 'selectable' : '',
-      ].join(' ');
-      const here =
-        n.id === run.at
-          ? `<text class="mnote" x="${x}" y="${y - 22}" text-anchor="middle" transform="rotate(-4 ${x} ${y - 22})">ты здесь</text>`
-          : '';
-      return `<g class="${cls}" data-node="${n.id}">
-        <rect x="${x - 13}" y="${y - 13}" width="26" height="26" transform="rotate(45 ${x} ${y})"/>
-        <text class="glyph" x="${x}" y="${y + 4.5}" text-anchor="middle">${NODE_GLYPH[n.kind]}</text>
-        <text class="mkind" x="${x}" y="${y + 32}" text-anchor="middle">${NODE_RU[n.kind]}</text>
-        ${here}
-        <title>${NODE_RU[n.kind]}</title>
-      </g>`;
-    })
-    .join('');
-  return `<svg class="map" viewBox="0 0 850 240" role="img" aria-label="Карта похода">${edges}${nodes}</svg>`;
+  return new Set(canGo ? currentNode(run).next : []);
 }
 
-function intelHtml(node: MapNode): string {
-  if (!intelVisible(node)) return '';
-  const rows = foeIntel(foesForNode(node))
-    .map((i) => `<div><b>${esc(i.name)}</b> — ${i.lines.map(esc).join(' · ')}</div>`)
-    .join('');
-  return `<div class="intel"><span class="kicker">они тоже читают — принципы врага видны</span>${rows}</div>`;
+function trailStateOf(n: MapNode, open: Set<number>): TrailState {
+  if (n.id === run.at) return 'here';
+  if (visited.has(n.id)) return 'done';
+  if (open.has(n.id)) return 'open';
+  return 'far';
 }
 
-/** Мини-поле расстановки: зона партии слева, камни и высоты арены, враги при разведке. */
-function deployHtml(node: MapNode): string {
-  const layout = pickTerrain(battleSeed(run), arenaForNode(node));
-  // сценарий с фикс-спавнами (разбитый лагерь): расстановка не в руках игрока
-  const fixedSpawns = Boolean(scenarioForNode(node)?.heroSpawns);
-  const cells: string[] = [];
-  if (!fixedSpawns) {
-    for (let y = 0; y < layout.tiles.length; y++) {
-      for (let x = 0; x <= 2; x++) {
-        if (layout.tiles[y]![x]!.blocked) continue;
-        cells.push(
-          `<div class="dcell" data-action="deploy-cell" data-x="${x}" data-y="${y}" style="left:${x * CELL}%;top:${y * CELL}%"></div>`,
-        );
-      }
-    }
-  }
-  const heroTokens = run.heroes
-    .filter((h) => h.alive)
-    .map((h) => {
-      const p = deployedSpawn(run, h);
-      const pick = fixedSpawns ? '' : ` data-action="deploy-pick" data-hero="${h.id}"`;
-      return `<div class="btoken${deployPick === h.id ? ' pick' : ''}"${pick}
-        style="left:${p.x * CELL}%;top:${p.y * CELL}%"><span class="dm"><span>${esc(glyphOf(h.name))}</span></span></div>`;
+/** Тропа: слои — колонки, узлы — клетки на сквозной полосочке. */
+function trailHtml(): string {
+  const open = openNodeIds();
+  const layers: MapNode[][] = [];
+  for (const n of run.map) (layers[n.layer] ??= []).push(n);
+  const cols = layers
+    .map((nodes) => {
+      const cells = [...nodes]
+        .sort((a, b) => a.slot - b.slot)
+        .map((n) => {
+          const st = trailStateOf(n, open);
+          return `<div class="tnode ${st}${n.id === pickedId() ? ' sel' : ''}"
+            data-action="pick-node" data-node="${n.id}" title="${NODE_RU[n.kind]} — ${TRAIL_STATE_RU[st]}">
+            <span class="g">${NODE_GLYPH[n.kind]}</span>
+            <span class="k">${NODE_RU[n.kind]}</span>
+          </div>`;
+        })
+        .join('');
+      return `<div class="t-col">${cells}</div>`;
     })
     .join('');
-  const intel = intelVisible(node);
-  let foeTokens = '';
-  if (intel) {
-    // тот же сид и порядок спеков, что у боя, — превью совпадает с ареной
-    const foes = foeSpecs(run);
-    const names = new Map(foes.map((f) => [f.id, f.name]));
-    foeTokens = spawnPreview(battleSeed(run), [...heroSpecs(run), ...foes])
-      .filter((u) => names.has(u.id))
-      .map(
-        (u) => `<div class="btoken foe" style="left:${u.pos.x * CELL}%;top:${u.pos.y * CELL}%">
-          <span class="dm"><span>${esc(glyphOf(names.get(u.id)!))}</span></span></div>`,
-      )
-      .join('');
-  }
-  const hint = fixedSpawns
-    ? 'лагерь разбит: расстановка не в ваших руках'
-    : deployPick
-      ? 'поставь на клетку зоны'
-      : `расстановка: герой → клетка${intel ? '; врагов выдаёт разведка' : ''}`;
-  return `<div class="deploy">
-    <span class="arena-line"><b>${esc(layout.name)}</b> — ${esc(layout.scenario)}</span>
-    <span class="kicker">${hint}</span>
-    <div class="bfield mini" style="--cell:${CELL}%">
-      ${fixedSpawns ? '' : `<div class="dzone" style="width:${3 * CELL}%"></div>`}
-      ${tilesLayerHtml(layout.tiles)}${cells.join('')}${foeTokens}${heroTokens}
-    </div>
+  return `<div class="trail">${cols}</div>`;
+}
+
+function trailLegendHtml(): string {
+  const sw = (st: TrailState): string => `<span class="t-leg"><i class="sw ${st}"></i>${TRAIL_STATE_RU[st]}</span>`;
+  return `<div class="t-legend">
+    ${sw('done')}${sw('here')}${sw('open')}${sw('far')}
+    <span class="t-glyphs">${Object.entries(NODE_GLYPH)
+      .map(([k, g]) => `${g} ${NODE_RU[k as NodeKind]}`)
+      .join(' · ')}</span>
   </div>`;
 }
 
-function nodePanelHtml(): string {
-  const node = currentNode(run);
-  if (run.status !== 'ongoing') return '';
-  if (run.resolved) {
-    if (run.pendingReward) {
-      const items = run.pendingReward
-        .map((option, i) => {
-          const words = option
-            .map(
-              (c) => `<span class="s-title">${esc(CONCEPTS[c].label)}</span>
-              <span class="s-desc">${CAT_RU[CONCEPTS[c].category]} — новое слово для приказов</span>`,
-            )
-            .join('');
-          return `<button class="shop-item" data-action="reward-take" data-index="${i}">
-            <span style="flex:1;display:flex;flex-direction:column;gap:3px">${words}</span>
-            <span class="s-cost">${option.length > 1 ? `взять оба` : 'взять'}</span>
-          </button>`;
-        })
-        .join('');
-      const isBundle = run.pendingReward.some((o) => o.length > 1);
-      const desc = isBundle
-        ? 'В обозе врага — обрывки чужих наставлений. Пара расхожих слов — или одно редкое.'
-        : 'В обозе врага — обрывки чужих наставлений. Одно слово можно разобрать.';
-      return `<div class="node-panel">
-        <h2>Трофей боя</h2>
-        <div class="desc">${desc}</div>
-        <div class="shop">${items}</div>
-        <div class="btn-row"><button data-action="reward-skip">оставить на поле</button></div>
-      </div>`;
-    }
-    return `<div class="node-panel">
-      <h2>Куда дальше?</h2>
-      <div class="desc">Пути расходятся. Выбери следующий узел на карте — красный ромб зовёт.</div>
-    </div>`;
+/** Чипсы состояния забега в шапке тропы. */
+function runChipsHtml(): string {
+  const alive = run.heroes.filter((h) => h.alive).length;
+  return `<span class="run-chips">
+    <span class="chip ink">слов ${run.vocab.length}</span>
+    <span class="chip line">фокусы ${FOCUS_BUDGET - focusUsed(run)} из ${FOCUS_BUDGET}</span>
+    <span class="chip red">отряд ${alive} жив${alive === 1 ? '' : 'ы'}</span>
+  </span>`;
+}
+
+/** Дедлайн задачи узла в раундах — если сценарий его ставит. */
+function nodeDeadline(node: MapNode): number | null {
+  const o = scenarioForNode(node)?.setup.objective;
+  if (!o) return null;
+  if (o.kind === 'killBefore') return o.round;
+  if (o.kind === 'survive' || o.kind === 'holdZone') return o.rounds;
+  if (o.kind === 'protect') return o.rounds ?? null;
+  return null;
+}
+
+/** «что даст» — награда узла словами; пулы трофеев живут в run.ts. */
+function nodeReward(node: MapNode): string {
+  switch (node.kind) {
+    case 'lesson':
+      return 'пара обычных слов или одно редкое — первое настоящее решение забега';
+    case 'fight':
+      return 'три обычных слова на выбор — шире речь, а не глубже';
+    case 'elite':
+      return 'три редких слова на выбор — то, что меняет язык';
+    case 'scriptorium':
+      return 'слово в словарь либо +1 слот приказов герою — берут одно';
+    case 'rest':
+      return 'лечение всему отряду';
+    case 'event':
+      return 'встреча: слово, слот или наёмник взамен павшего';
+    case 'boss':
+      return 'забег пройден';
   }
-  if (FIGHT_KINDS.includes(node.kind)) {
-    // задача боя (план objectives) видна всегда — честная часть разведки
-    const scenario = scenarioForNode(node);
-    const taskHtml = scenario
-      ? `<div class="task-line"><span class="kicker">задача боя</span><b>⚑ ${esc(scenario.title)}</b> — ${esc(scenario.brief)}</div>`
-      : '';
-    const canMark = run.vocab.includes('sel.marked');
-    const foeRows = foesForNode(node)
-      .map((f) => {
-        const marked = run.marked === f.id;
-        const markBtn = canMark
-          ? `<button class="mini mark-btn ${marked ? 'on' : ''}" data-action="mark-foe" data-foe="${f.id}"
-               title="метка: правила «атаковать помеченного» целятся в него">${marked ? '◎ помечен' : '◎ пометить'}</button>`
-          : '';
-        return `<div class="foe-row"><b>${marked ? '◎ ' : ''}${esc(f.name)}</b> — ${statLine(f)}${markBtn}</div>`;
+}
+
+/** «чем грозит» — настоящая цена этого узла в этом забеге, одной строкой. */
+function nodeRisk(node: MapNode): string {
+  const parts: string[] = [];
+  const deadline = nodeDeadline(node);
+  if (deadline) parts.push(`дедлайн ${deadline} раундов`);
+  if (node.kind === 'lesson') {
+    parts.push('проиграть можно бесплатно: урок только учит');
+  } else if (FIGHT_KINDS.includes(node.kind)) {
+    const hurt = [...run.heroes]
+      .filter((h) => h.alive && h.hp < h.stats.maxHp)
+      .sort((a, b) => a.hp / a.stats.maxHp - b.hp / b.stats.maxHp)[0];
+    if (hurt) parts.push(`${hurt.name} входит с ${hurt.hp}/${hurt.stats.maxHp}`);
+    const fallen = run.heroes.filter((h) => !h.alive).length;
+    if (fallen) parts.push(`отряд неполон: павших ${fallen}`);
+    if (node.kind === 'boss') parts.push('второй попытки не будет');
+    if (parts.length === 0) parts.push('ран не лечат до привала');
+  } else if (node.kind === 'rest') {
+    parts.push('вместо слова — здоровье; выбор без второго шанса');
+  } else if (node.kind === 'scriptorium') {
+    parts.push('ничем — но и раны не залечит');
+  } else {
+    parts.push('за встречу платят временем, а не кровью');
+  }
+  return parts.join(' · ');
+}
+
+/** Описание узла: задача боя видна всегда — честная часть разведки. */
+function nodeDesc(node: MapNode): string {
+  const scenario = scenarioForNode(node);
+  if (FIGHT_KINDS.includes(node.kind)) return scenario ? scenario.brief : 'Перебей всех — задача без оговорок.';
+  switch (node.kind) {
+    case 'scriptorium':
+      return 'Полка чужих наставлений: слово в словарь или лишний слот приказа. Берут одно.';
+    case 'rest':
+      return 'Костёр, тишина, иголка с ниткой. Живые восстановят большую часть здоровья.';
+    default:
+      return 'Встреча на дороге: книжник, тайник или наёмник у костра.';
+  }
+}
+
+/** «кто ждёт» — состав врагов заранее только там, где интел даёт код. */
+function foeIntelHtml(node: MapNode): string {
+  if (!FIGHT_KINDS.includes(node.kind)) return '';
+  if (!intelVisible(node)) {
+    return `<div class="nc-hidden">кто ждёт — неизвестно: интел дают только урок, элитка и босс</div>`;
+  }
+  const chips = foesForNode(node)
+    .map((f) => `<span class="chip red">${esc(f.name)} ${f.maxHp}</span>`)
+    .join('');
+  return `<div class="nc-block">
+    <span class="kicker">кто ждёт · известно заранее</span>
+    <div class="chips">${chips}</div>
+  </div>`;
+}
+
+/** Узел, чья карточка открыта: клик по тропе, по умолчанию — текущий. */
+let mapPick: number | null = null;
+
+function pickedId(): number {
+  return mapPick !== null && run.map[mapPick] ? mapPick : run.at;
+}
+
+/** Действия текущего узла: трофей, бой, событие, привал. */
+function nodeActionsHtml(node: MapNode): string {
+  if (run.status !== 'ongoing') return '';
+  if (run.pendingReward) {
+    const items = run.pendingReward
+      .map((option, i) => {
+        const words = option
+          .map(
+            (c) => `<span class="s-title">${esc(CONCEPTS[c].label)}</span>
+            <span class="s-desc">${CAT_RU[CONCEPTS[c].category]} — новое слово для приказов</span>`,
+          )
+          .join('');
+        return `<button class="shop-item" data-action="reward-take" data-index="${i}">
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px">${words}</span>
+          <span class="s-cost">${option.length > 1 ? 'взять оба' : 'взять'}</span>
+        </button>`;
       })
       .join('');
-    const nudge = lessonNudge
-      ? `<div class="onboarding">Первый приказ почти никогда не выигрывает этот бой — так задумано.
-         В дневник вписано новое слово: «держать дистанцию».
-         Перепиши принципы под то, что видно в разведке, и переиграй: <b>кости те же</b>.</div>`
-      : node.kind === 'lesson'
-        ? `<div class="flavor">учебный бой: поражение ничего не стоит — экспериментируй.</div>`
-        : '';
-    return `<div class="node-panel">
-      <h2>${esc(nodeTitle(node))}</h2>
-      ${taskHtml}
-      <div class="node-cols">
-        <div class="node-cols-l">
-          <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
-          ${intelHtml(node)}
-        </div>
-        ${deployHtml(node)}
-      </div>
-      ${nudge}
-      <div class="btn-row"><button class="primary" data-action="fight">⚔ выступить</button>
-        <button data-action="open-editor">переписать приказы</button>
-        ${
-          node.kind === 'lesson'
-            ? `<button class="linkish" data-action="skip-lesson"
-                 title="забрать трофей урока и начать забег, не играя учебный бой">пропустить урок</button>`
-            : ''
-        }</div>
+    return `<div class="nc-block">
+      <span class="kicker">трофей боя · в обозе врага обрывки чужих наставлений</span>
+      <div class="shop">${items}</div>
+      <div class="btn-row"><button data-action="reward-skip">оставить на поле</button></div>
     </div>`;
+  }
+  if (run.resolved) {
+    return `<div class="nc-note">узел пройден — выбери на тропе, куда идти дальше</div>`;
+  }
+  if (FIGHT_KINDS.includes(node.kind)) {
+    return `<div class="btn-row"><button class="primary" data-action="prep">⚔ выступить</button>
+      <button data-action="open-editor">переписать приказы</button></div>`;
   }
   if (node.kind === 'event') {
     const offer = eventOffer(run);
     const names = heroNames(run);
     const parts: string[] = [];
     if (offer.concept) {
-      parts.push(`<div class="desc">Странствующий книжник готов растолковать концепт
+      parts.push(`<div class="nc-desc">Странствующий книжник готов растолковать концепт
         «${CONCEPTS[offer.concept].label}» — задаром, из любви к слову.</div>
         <div class="btn-row"><button class="primary" data-action="event-take">изучить</button></div>`);
     } else if (offer.slotHero) {
-      parts.push(`<div class="desc">В тайнике — чистый лист для полевого дневника:
+      parts.push(`<div class="nc-desc">В тайнике — чистый лист для полевого дневника:
         +1 слот приказа для ${names[offer.slotHero]}.</div>
         <div class="btn-row"><button class="primary" data-action="event-take">забрать</button></div>`);
     }
     if (offer.mercenary) {
-      parts.push(`<div class="desc">У костра сидит наёмник ${esc(offer.mercenary.name)}${
+      parts.push(`<div class="nc-desc">У костра сидит наёмник ${esc(offer.mercenary.name)}${
         debugLenses ? ` [${lensTag(offer.mercenary.lenses)}]` : ''
-      } — займёт место павшего, но прежние принципы
-        прочтёт по-своему.</div>
+      } — займёт место павшего, но прежние принципы прочтёт по-своему.</div>
         <div class="btn-row"><button data-action="event-hire">нанять</button></div>`);
     }
-    return `<div class="node-panel">
-      <h2>${esc(nodeTitle(node))}</h2>
-      ${parts.join('')}
-      <div class="btn-row"><button data-action="event-skip">пройти мимо</button></div>
-    </div>`;
+    return `${parts.join('')}<div class="btn-row"><button data-action="event-skip">пройти мимо</button></div>`;
   }
   if (node.kind === 'rest') {
-    return `<div class="node-panel">
-      <h2>${esc(nodeTitle(node))}</h2>
-      <div class="desc">Костёр, тишина, иголка с ниткой. Живые герои восстановят большую часть здоровья;
-        приказы можно переписывать сколько угодно.</div>
-      <div class="btn-row"><button class="primary" data-action="rest">отдохнуть</button>
-        <button data-action="open-editor">переписать приказы</button></div>
-    </div>`;
+    return `<div class="btn-row"><button class="primary" data-action="rest">отдохнуть</button>
+      <button data-action="open-editor">переписать приказы</button></div>`;
   }
   return '';
+}
+
+/** Карточка узла: что это, кто ждёт, что даст, чем грозит — и дорога туда. */
+function nodeCardHtml(): string {
+  const node = run.map[pickedId()]!;
+  const open = openNodeIds();
+  const state = trailStateOf(node, open);
+  const here = node.id === run.at;
+  const accent = node.kind === 'lesson' || node.kind === 'elite' || node.kind === 'boss' ? 'red' : 'ink';
+  const scenario = scenarioForNode(node);
+  const task = scenario
+    ? `<div class="task-line"><span class="kicker">задача боя</span><b>⚑ ${esc(scenario.title)}</b></div>`
+    : '';
+  const go = here
+    ? nodeActionsHtml(node)
+    : open.has(node.id)
+      ? `<div class="btn-row"><button class="primary" data-action="go-node" data-node="${node.id}">идти сюда</button></div>`
+      : `<div class="nc-note">туда дороги нет с этого узла</div>`;
+  return `<div class="node-card acc-${accent}">
+    <div class="nc-head">
+      <span class="nc-title">${NODE_GLYPH[node.kind]} ${esc(cap(NODE_RU[node.kind]))}</span>
+      <span class="nc-place">${esc(nodeTitle(node))}</span>
+      <span class="nc-state">${TRAIL_STATE_RU[state]}</span>
+    </div>
+    <div class="nc-body">
+      ${task}
+      <div class="nc-desc">${esc(nodeDesc(node))}</div>
+      ${foeIntelHtml(node)}
+      <div class="nc-block">
+        <span class="kicker">что даст</span>
+        <span class="nc-serif">${esc(nodeReward(node))}</span>
+      </div>
+      <div class="nc-block">
+        <span class="kicker">чем грозит</span>
+        <span class="nc-risk">${esc(nodeRisk(node))}</span>
+      </div>
+      ${go}
+    </div>
+  </div>`;
 }
 
 /** Кнопка теста «свободный режим» — на карте и в редакторе приказов. */
@@ -1638,15 +1720,16 @@ function mapScreenHtml(): string {
   return `<div class="spread">
     <div class="page-l">
       <div class="page-head">
-        <span class="title">Поход — западный тракт</span>
-        <span class="meta">fol. ${run.at + 1}r · seed ${run.runSeed}</span>
+        <span class="title">Тропа</span>
+        <span class="meta">слой ${currentNode(run).layer + 1} из ${
+          run.map[run.map.length - 1]!.layer + 1
+        } · seed ${run.runSeed}</span>
+        ${runChipsHtml()}
       </div>
-      ${mapSvg()}
-      ${nodePanelHtml()}
+      ${trailHtml()}
+      ${trailLegendHtml()}
+      ${nodeCardHtml()}
       <div class="foot">
-        <span>словарь: <b>${run.vocab.length}</b> слов</span><span>·</span>
-        <span>узел ${run.at + 1} из ${run.map.length}</span>
-        <span class="spacer"></span>
         <button class="linkish" data-action="toggle-debug">${debugLenses ? 'debug: скрыть характеры' : 'debug'}</button>
         <button class="linkish" data-action="open-debug" title="отладка: любой сценарий, партия и характеры">собрать бой</button>
         <button class="linkish" data-action="toggle-nerve" title="нерв: под давлением бойцы взвешивают решение неровно">${
@@ -1654,13 +1737,6 @@ function mapScreenHtml(): string {
         }</button>
         ${freeVocabBtnHtml()}
         <button class="linkish" data-action="export-journal">журнал плейтеста</button>
-        <span>${
-          run.resolved && run.status === 'ongoing'
-            ? run.pendingReward
-              ? 'сначала реши судьбу трофея'
-              : 'кликни следующий узел, чтобы идти'
-            : ''
-        }</span>
       </div>
     </div>
     <div class="gutter"></div>
@@ -1673,6 +1749,249 @@ function mapScreenHtml(): string {
       <div class="roster">${rosterHtml(false)}</div>
       <div class="foot solid">Приказы компилируются один раз, до боя. Сам бой — арифметика:
         те же кости, тот же исход, каждый раз.</div>
+    </div>
+  </div>`;
+}
+
+// ---------- экран: перед боем (разведка + расстановка) ----------
+
+/** Ромбы очков: ◆ доступное, ◇ истраченное — та же азбука, что цена приёмов. */
+function pipsHtml(left: number, total: number): string {
+  return `<span class="pips">${'◆'.repeat(Math.max(0, left))}${'◇'.repeat(Math.max(0, total - left))}</span>`;
+}
+
+/** Числа врага (покупка «◆ числа»): hp, КБ, слабейший спасбросок, реакция. */
+function foeNumbersLine(f: UnitSpec): string {
+  const d = f.defenses;
+  const saves: [SaveKind, number][] = [
+    ['fort', d?.fort ?? DEFAULT_SAVE],
+    ['ref', d?.ref ?? DEFAULT_SAVE],
+    ['will', d?.will ?? DEFAULT_SAVE],
+  ];
+  const weakest = saves.sort((a, b) => a[1] - b[1])[0]!;
+  const parts = [`hp ${f.maxHp}`, `КБ ${d?.ac ?? DEFAULT_AC}`, `${SAVE_RU[weakest[0]]} ${weakest[1]}`];
+  if (f.reaction) parts.push(`◇ ${REACTION_RU[f.reaction]}`);
+  return parts.join(' · ');
+}
+
+/** Приказы врага строками (покупка «◆ приказы») — уже с его характером. */
+function foeOrdersLines(f: UnitSpec): string[] {
+  return applyLens(f.lenses, f.rules).rules.map((r) =>
+    r.marks?.some((m) => m.kind === 'reword' || m.kind === 'recondition') ? `${r.source} → ${ruleRu(r)}` : r.source,
+  );
+}
+
+/** Поле перед боем: зона расстановки видна всегда, восток — под туманом до покупки карты. */
+function prepFieldHtml(node: MapNode): string {
+  const layout = pickTerrain(battleSeed(run), arenaForNode(node));
+  const open = run.intel.map;
+  // сценарий с фикс-спавнами (разбитый лагерь): расстановка не в руках игрока
+  const fixedSpawns = Boolean(scenarioForNode(node)?.heroSpawns);
+  const zoneW = PARTY_ZONE_MAX_X + 1;
+  const cells: string[] = [];
+  if (!fixedSpawns) {
+    for (let y = 0; y < layout.tiles.length; y++) {
+      for (let x = 0; x <= PARTY_ZONE_MAX_X; x++) {
+        if (layout.tiles[y]![x]!.blocked) continue;
+        cells.push(
+          `<div class="dcell" data-action="deploy-cell" data-x="${x}" data-y="${y}" style="left:${x * CELL}%;top:${y * CELL}%"></div>`,
+        );
+      }
+    }
+  }
+  const heroTokens = run.heroes
+    .filter((h) => h.alive)
+    .map((h) => {
+      const p = deployedSpawn(run, h);
+      const set = Boolean(run.deploy[h.id]);
+      const pick = fixedSpawns ? '' : ` data-action="deploy-pick" data-hero="${h.id}"`;
+      return `<div class="btoken${deployPick === h.id ? ' pick' : ''}${set ? '' : ' ghost'}"${pick}
+        style="left:${p.x * CELL}%;top:${p.y * CELL}%"><span class="dm"><span>${esc(glyphOf(h.name))}</span></span></div>`;
+    })
+    .join('');
+  let foeTokens = '';
+  if (open) {
+    // тот же сид и порядок спеков, что у боя, — превью совпадает с ареной
+    const foes = foeSpecs(run);
+    const names = new Map(foes.map((f) => [f.id, f.name]));
+    foeTokens = spawnPreview(battleSeed(run), [...heroSpecs(run), ...foes])
+      .filter((u) => names.has(u.id))
+      .map(
+        (u) => `<div class="btoken foe" style="left:${u.pos.x * CELL}%;top:${u.pos.y * CELL}%">
+          <span class="dm"><span>${esc(glyphOf(names.get(u.id)!))}</span></span></div>`,
+      )
+      .join('');
+  }
+  const fog = open
+    ? ''
+    : `<div class="fog" style="left:${zoneW * CELL}%;width:${(GRID_W - zoneW) * CELL}%"><span>туман войны</span></div>`;
+  const note = open
+    ? `<b>${esc(layout.name)}</b> — ${esc(layout.scenario)}`
+    : 'видна только зона расстановки';
+  const hint = fixedSpawns
+    ? 'лагерь разбит: расстановка не в ваших руках'
+    : deployPick
+      ? 'поставь на клетку зоны'
+      : 'расстановка: герой → клетка';
+  return `<div class="prep-field">
+    <div class="pf-head">
+      <span class="kicker">поле</span>
+      <span class="pf-meta">${GRID_W}×${GRID_H} · ${open ? 'открыто' : 'под туманом'}</span>
+    </div>
+    <div class="bfield mini" style="--cell:${CELL}%">
+      <div class="dzone" style="width:${zoneW * CELL}%"></div>
+      ${tilesLayerHtml(layout.tiles, open ? GRID_W - 1 : PARTY_ZONE_MAX_X)}
+      ${fixedSpawns ? '' : cells.join('')}${foeTokens}${heroTokens}${fog}
+    </div>
+    <div class="pf-foot">
+      <span class="pf-note">${note}</span>
+      ${
+        open
+          ? ''
+          : `<button class="buy" data-action="buy-intel" data-buy="map" ${
+              run.intel.points > 0 ? '' : 'disabled'
+            } title="карта даёт рельеф, расстановку врагов и полный состав">◆ открыть карту</button>`
+      }
+    </div>
+    <span class="kicker">${hint}</span>
+  </div>`;
+}
+
+/** Отряд врага: имена открыты всегда, числа и приказы — за очки. */
+function prepFoesHtml(): string {
+  const rows = visibleFoes(run)
+    .map((f) => {
+      const hasNumbers = run.intel.numbers.includes(f.id);
+      const hasOrders = run.intel.orders.includes(f.id);
+      const spent = run.intel.points <= 0;
+      const marked = run.marked === f.id;
+      const canMark = run.vocab.includes('sel.marked');
+      const buy = (kind: 'numbers' | 'orders', label: string): string =>
+        `<button class="buy" data-action="buy-intel" data-buy="${kind}" data-foe="${f.id}" ${
+          spent ? 'disabled' : ''
+        }>◆ ${label}</button>`;
+      const orders = hasOrders
+        ? `<div class="fo-orders">${foeOrdersLines(f)
+            .map((l) => `<span><i>·</i>${esc(l)}</span>`)
+            .join('')}</div>`
+        : '';
+      return `<div class="fo-row">
+        <div class="fo-head">
+          <span class="fo-mark${marked ? ' on' : ''}" ${
+            canMark ? `data-action="mark-foe" data-foe="${f.id}" title="метка: правила «атаковать помеченного» целятся в него"` : ''
+          }>◎</span>
+          <span class="fo-name">${esc(f.name)}</span>
+          <span class="fo-buys">
+            ${hasNumbers ? `<span class="chip ink">${esc(foeNumbersLine(f))}</span>` : buy('numbers', 'числа')}
+            ${hasOrders ? '' : buy('orders', 'приказы')}
+          </span>
+        </div>
+        ${orders}
+      </div>`;
+    })
+    .join('');
+  const tail = foesKnown(run)
+    ? ''
+    : `<div class="fo-rest"><span>?</span>кто-то ещё за камнями — карта покажет, сколько их всего</div>`;
+  return `<div class="prep-foes">${rows}${tail}</div>`;
+}
+
+/** Расстановка: кто уже стоит на поле и с каким текстом идёт. */
+function prepPartyHtml(node: MapNode): string {
+  const fixedSpawns = Boolean(scenarioForNode(node)?.heroSpawns);
+  const rows = run.heroes
+    .filter((h) => h.alive)
+    .map((h) => {
+      const set = Boolean(run.deploy[h.id]);
+      const orders = ordersSentence(h);
+      return `<div class="pp-row${deployPick === h.id ? ' pick' : ''}" ${
+        fixedSpawns ? '' : `data-action="deploy-pick" data-hero="${h.id}"`
+      }>
+        <span class="pp-who">
+          <span class="pp-name">${esc(h.name)}</span>
+          <span class="pp-class">${esc(heroArchetype(h.archetypeId).class)}</span>
+        </span>
+        <span class="pp-orders">${orders ? esc(orders) : '— приказов нет —'}</span>
+        <span class="pp-sets">${h.sets
+          .map(
+            (os, i) =>
+              `<button class="set-tab ${
+                i === h.activeSet ? 'on' : os.phrases.length === 0 ? 'empty' : ''
+              }" data-action="switch-set" data-hero="${h.id}" data-set="${i}" ${
+                os.phrases.length === 0 ? 'disabled title="пустой комплект — сперва напиши приказ в редакторе"' : ''
+              }>${ORDER_SETS[i]}</button>`,
+          )
+          .join('')}</span>
+        <span class="pp-state">${fixedSpawns ? 'по сценарию' : set ? 'встал сам' : 'по умолчанию'}</span>
+      </div>`;
+    })
+    .join('');
+  return `<div class="prep-party">
+    <span class="kicker">кто с каким комплектом идёт</span>
+    ${rows}
+  </div>`;
+}
+
+function prepScreenHtml(): string {
+  const node = currentNode(run);
+  const scenario = scenarioForNode(node);
+  const intel = run.intel;
+  const hint = !foesKnown(run)
+    ? 'состав отряда неполон — карта покажет, сколько их всего'
+    : intel.points > 0
+      ? 'осталось решить, чьи числа важнее чьих приказов'
+      : 'остальное придётся выяснять телом';
+  const task = scenario
+    ? `<div class="task-line"><span class="kicker">задача боя · открыта всегда</span>
+        <b>⚑ ${esc(scenario.title)}</b><br>${esc(scenario.brief)}</div>`
+    : `<div class="task-line"><span class="kicker">задача боя · открыта всегда</span>
+        <b>⚑ ${esc(cap(NODE_RU[node.kind]))}</b><br>Перебей всех — задача без оговорок.</div>`;
+  const nudge = lessonNudge
+    ? `<div class="onboarding">Первый приказ почти никогда не выигрывает этот бой — так задумано.
+       В дневник вписано новое слово: «держать дистанцию».
+       Перепиши принципы под то, что видно в разведке, и переиграй: <b>кости те же</b>.</div>`
+    : '';
+  return `<div class="spread">
+    <div class="page-l">
+      <div class="page-head">
+        <span class="title">Разведка</span>
+        <span class="meta">перед выступлением</span>
+        <span class="pips-line"><span class="kicker">очки разведки</span>${pipsHtml(
+          intel.points,
+          INTEL_POINTS,
+        )}</span>
+      </div>
+      ${task}
+      ${prepFieldHtml(node)}
+      ${nudge}
+      <div class="foot">
+        <button class="linkish" data-action="back-to-map">← к тропе</button>
+        <span class="spacer"></span>
+        <span class="prep-hint">${esc(hint)}</span>
+      </div>
+    </div>
+    <div class="gutter"></div>
+    <div class="page-r">
+      <div class="page-head">
+        <span class="title">Противник</span>
+        <span class="meta">${
+          foesKnown(run) ? `врагов ${foeSpecs(run).length}` : 'врагов ? — состав неполон'
+        } · числа и приказы за очки</span>
+      </div>
+      <div class="prep-cols">
+        ${prepFoesHtml()}
+        ${prepPartyHtml(node)}
+      </div>
+      <div class="btn-row">
+        <button class="primary grow" data-action="fight">⚔ выступить</button>
+        <button data-action="open-editor">переписать приказы</button>
+        ${
+          node.kind === 'lesson'
+            ? `<button class="linkish" data-action="skip-lesson"
+                 title="забрать трофей урока и начать забег, не играя учебный бой">пропустить урок</button>`
+            : ''
+        }
+      </div>
     </div>
   </div>`;
 }
@@ -1749,22 +2068,105 @@ function fmtFactors(factors: Frame['factors']): string {
   return '· ' + parts.join(' · ');
 }
 
-function marginLogHtml(): string {
+/** Цена решения ромбами: ◆ за очко хода, ◇ — реакция или то, что ходом не оплачено. */
+function costPips(cost: number): string {
+  return cost > 0 ? '◆'.repeat(cost) : '◇';
+}
+
+const RULE_PREFIX = 'правило:';
+
+/** Слово, которое сработало в этом кадре — самый весомый фактор-правило. */
+function firedRule(f: Frame): string | null {
+  const rules = f.factors.filter((x) => x.label.startsWith(RULE_PREFIX));
+  if (rules.length === 0) return null;
+  return [...rules].sort((a, b) => Math.abs(b.value) - Math.abs(a.value))[0]!.label.slice(RULE_PREFIX.length);
+}
+
+/** Строка «по твоему приказу»: чьё слово сработало и было ли оно твоим вообще. */
+function orderLine(f: Frame): string {
+  const side = f.units.find((u) => u.id === f.actorId)?.side;
+  const rule = firedRule(f);
+  if (side === 'foe') {
+    if (f.cost === 0) return 'его реакция, не твой приказ';
+    return rule ? `его приказ, не твой: «${rule}»` : 'его решение, не твой приказ';
+  }
+  if (rule) return `«${rule}»`;
+  return f.cost === 0 ? 'реакция — слова тут не спрашивают' : 'ни одно слово не сработало — достраивает сам';
+}
+
+/** Блок «сейчас · кто и почему»: цена, решение, чьё слово, реплика характера. */
+function nowBlockHtml(): string {
+  const f = frames[frameIdx]!;
+  if (!f.actorId) {
+    return `<div class="now-block">
+      <span class="kicker">сейчас · кто и почему</span>
+      <span class="nb-text">Отряд расставлен, приказы скомпилированы. Дальше — арифметика.</span>
+    </div>`;
+  }
+  // реплика характера — только там, где он проговорился впервые
+  const quip = battleReveals.find((r) => r.frame === frameIdx && r.unit === f.actorId);
+  return `<div class="now-block">
+    <span class="kicker">сейчас · кто и почему</span>
+    <span class="nb-act">
+      <span class="nb-cost">${costPips(f.cost)}</span>
+      <span class="nb-text"><b>${esc(f.actorName)}</b> ${esc(f.text)}</span>
+    </span>
+    <span class="nb-order">
+      <span class="kicker">по твоему приказу</span>
+      <span>${esc(orderLine(f))}</span>
+    </span>
+    ${quip ? `<span class="nb-voice ${quip.side === 'party' ? 'own' : 'foe'}">${esc(quip.quip)}</span>` : ''}
+  </div>`;
+}
+
+/** Лента решений: четыре последних кадра, текущий полным тоном. */
+function feedHtml(): string {
+  const from = Math.max(1, frameIdx - 3);
   const rows = frames
-    .slice(1, frameIdx + 1)
-    .slice(-7)
-    .reverse()
-    .map((f, i) => {
-      const fade = i === 0 ? 1 : Math.max(0.35, 1 - i * 0.12);
-      return `<div class="row" style="opacity:${fade}">
-        <span class="t">${f.round}.</span>
-        <span><b>${esc(f.actorName)}</b> ${esc(f.text)} <span class="why">${esc(fmtFactors(f.factors))}</span></span>
-      </div>`;
-    });
-  return rows.join('');
+    .slice(from, frameIdx + 1)
+    .map((f, i, arr) => {
+      const idx = from + i;
+      const cur = idx === frameIdx;
+      return `<span class="feed-row${cur ? ' cur' : ''}" data-feed="${idx}">
+        <span class="no">${f.round}.${idx}</span>
+        <span class="tx"><b>${esc(f.actorName)}</b> ${esc(f.text)}
+          ${tactician ? `<i class="why">${esc(fmtFactors(f.factors))}</i>` : ''}</span>
+      </span>`;
+    })
+    .join('');
+  return rows || '<span class="feed-row"><span class="tx">бой ещё не начался</span></span>';
+}
+
+/** Полоска кадров: засечка на кадр, пройденные ink, текущая red и выше. */
+function ticksHtml(): string {
+  return frames
+    .map((_, i) => `<span class="tick${i === frameIdx ? ' cur' : i < frameIdx ? ' done' : ''}"></span>`)
+    .join('');
+}
+
+/** Полоса отряда: имя и класс, hp числом и полоской, состояние. */
+function partyStripHtml(): string {
+  return run.heroes
+    .map((h) => {
+      const live = heroHpNow(h.id);
+      const pct = live ? Math.round((100 * Math.max(0, live.hp)) / live.maxHp) : 0;
+      const low = live !== null && live.hp / live.maxHp <= 0.5;
+      const note = !live || !live.alive ? 'пал(а)' : low ? 'на исходе' : ordersSentence(h) ? 'по приказу' : 'без приказов';
+      return `<span class="ps-col${!live || !live.alive ? ' dead' : ''}" data-party="${h.id}">
+        <span class="ps-head">
+          <span class="ps-name">${esc(h.name)}</span>
+          <span class="ps-class">${esc(heroArchetype(h.archetypeId).class)}</span>
+          <span class="ps-hp" data-hp="${h.id}">${live ? `${live.hp}/${live.maxHp}` : '—'}</span>
+        </span>
+        <span class="ps-bar"><span style="width:${pct}%" class="${low ? 'low' : ''}"></span></span>
+        <span class="ps-note">${esc(note)}</span>
+      </span>`;
+    })
+    .join('');
 }
 
 /** Подписи значков прикрытия: что даёт и почём. */
+
 const COVER_BADGE_TITLE: Record<NonNullable<FrameUnit['cover']>, string> = {
   half: 'прикрытие: +2 к КБ до своего хода',
   full: 'глухая оборона: +4 к КБ, ближний удар ловит рипост',
@@ -1849,10 +2251,11 @@ function zonesHtml(): string {
   return out.join('');
 }
 
-function tilesLayerHtml(tiles: readonly Tile[][]): string {
+function tilesLayerHtml(tiles: readonly Tile[][], maxX = GRID_W - 1): string {
   const out: string[] = [];
   tiles.forEach((row, y) =>
     row.forEach((t, x) => {
+      if (x > maxX) return;
       const at = `style="left:${x * CELL}%;top:${y * CELL}%"`;
       if (t.blocked) out.push(`<div class="rock" ${at}></div>`);
       else if (t.hazard) out.push(`<div class="hz ${t.hazard}" ${at} title="${t.hazard === 'spikes' ? 'шипы' : 'огонь'}"></div>`);
@@ -1871,22 +2274,18 @@ function battleScreenHtml(): string {
   const node = currentNode(run);
   const f = frames[frameIdx]!;
   const scenario = scenarioForNode(node);
-  const taskHtml = scenario
-    ? `<div class="task-line">⚑ <b>${esc(scenario.title)}</b> — ${esc(scenario.brief)}</div>`
-    : '';
-  const intel = intelVisible(node);
-  const enemyLines = intel
-    ? foeIntel(foesForNode(node))
-        .map((i) => `<div><b>${esc(i.name)}</b> — ${i.lines.map(esc).join(' · ')}</div>`)
-        .join('')
-    : `<div>${esc(foesForNode(node).map((f) => f.name).join(' · '))} — принципы скрыты</div>`;
+  const deadline = nodeDeadline(node);
   return `<div class="spread">
-    <div class="page-l" style="padding:20px 24px 14px 28px;gap:10px">
+    <div class="page-l" style="padding:20px 24px 14px 28px;gap:9px">
       <div class="page-head">
-        <span class="title">${esc(nodeTitle(node))}</span>
-        <span class="meta"><span id="turnlabel">ход ${f.round}</span> · ${esc(battle!.terrain.name)} · seed ${run.runSeed}</span>
+        <span class="title">⚑ ${esc(scenario ? scenario.title : cap(NODE_RU[node.kind]))}</span>
+        <span class="meta">${esc(NODE_RU[node.kind])} · слой ${node.layer + 1} · seed ${run.runSeed}</span>
+        <span class="run-chips">
+          <span class="chip ink" id="turnlabel">раунд ${f.round}</span>
+          ${deadline ? `<span class="chip red">дедлайн ${deadline}</span>` : ''}
+        </span>
       </div>
-      ${taskHtml}
+      ${scenario ? `<div class="task-line">${esc(scenario.brief)}</div>` : ''}
       <div class="bfield" id="bfield" style="--cell:${CELL}%">
         ${terrainHtml()}
         <div class="zones-layer" id="zoneslayer">${zonesHtml()}</div>
@@ -1894,32 +2293,34 @@ function battleScreenHtml(): string {
         <div class="fx-layer" id="fxlayer">${fxHtml()}</div>
         <span class="callout" id="callout" style="left:24%;top:90%">${esc(f.callout ?? '')}</span>
       </div>
+      <div class="frame-line">
+        <span class="kicker" id="framelabel">кадр ${frameIdx} из ${frames.length - 1}</span>
+        <span class="ticks" id="ticks">${ticksHtml()}</span>
+      </div>
       <div class="controls-row">
-        <button data-action="toggle-play" id="playbtn">${playing ? '❙❙' : '▶'}</button>
-        <button data-action="step-back">◂</button>
-        <button data-action="step-fwd">▸|</button>
-        <button data-action="cycle-speed" id="speedbtn">×${speed}</button>
-        <span class="progress"><span id="progressbar" style="width:${Math.round((100 * frameIdx) / Math.max(1, frames.length - 1))}%"></span></span>
-        <span id="framelabel">${frameIdx}/${frames.length - 1}</span>
-        <button data-action="open-log" title="полный лог боя">свиток</button>
+        <button data-action="step-back" title="кадр назад">‹</button>
+        <button data-action="step-fwd" title="кадр вперёд">›</button>
+        <button class="primary" data-action="toggle-play" id="playbtn">${playing ? '❙❙ пауза' : '▶ играть'}</button>
+        <span class="speeds">${[1, 2, 4]
+          .map((v) => `<button class="sp${speed === v ? ' on' : ''}" data-action="set-speed" data-sp="${v}">×${v}</button>`)
+          .join('')}</span>
+        <span class="ctl-hint">пробел — пауза, стрелки — по кадру</span>
       </div>
-      <div class="enemy-strip">
-        <span class="kicker">${intel ? 'они тоже читают — принципы врага видны' : 'противник'}</span>
-        ${enemyLines}
-      </div>
+      <div class="party-strip" id="partystrip">${partyStripHtml()}</div>
     </div>
     <div class="gutter"></div>
-    <div class="page-r" style="padding:20px 24px 14px 20px">
+    <div class="page-r" style="padding:20px 24px 14px 20px;gap:10px">
       <div class="page-head">
-        <span class="title">Действующие приказы</span>
+        <span class="title">Свиток</span>
         <button class="tact-btn ${tactician ? 'on' : ''}" data-action="toggle-tact">режим тактика</button>
       </div>
-      <div class="roster" style="overflow:visible;gap:9px" id="battle-roster">${rosterHtml(true)}</div>
-      <div class="margin-log">
-        <span class="kicker">на полях — почему они так поступили</span>
-        <div id="mlog">${marginLogHtml()}</div>
+      <div id="now-block">${nowBlockHtml()}</div>
+      <div class="feed">
+        <span class="kicker">лента решений</span>
+        <div id="feed">${feedHtml()}</div>
+        <button class="mini" data-action="open-log">весь свиток</button>
       </div>
-      <div class="btn-row">
+      <div class="btn-row" style="margin-top:auto">
         <button class="grow" data-action="open-editor">переписать приказы</button>
         <button class="grow primary" data-action="sparring">↻ те же кости</button>
       </div>
@@ -1958,34 +2359,218 @@ function syncBattleFrame(): void {
     const el = document.getElementById(id);
     if (el) el.textContent = text;
   };
-  set('turnlabel', `ход ${f.round}`);
-  set('framelabel', `${frameIdx}/${frames.length - 1}`);
+  set('turnlabel', `раунд ${f.round}`);
+  set('framelabel', `кадр ${frameIdx} из ${frames.length - 1}`);
   set('callout', f.callout ?? '');
+  const html = (id: string, markup: string): void => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = markup;
+  };
+  html('now-block', nowBlockHtml());
+  html('feed', feedHtml());
+  html('ticks', ticksHtml());
   const zl = document.getElementById('zoneslayer');
   if (zl) zl.innerHTML = zonesHtml();
   const play = document.getElementById('playbtn');
-  if (play) play.textContent = playing ? '❙❙' : '▶';
-  const bar = document.getElementById('progressbar');
-  if (bar) bar.style.width = `${Math.round((100 * frameIdx) / Math.max(1, frames.length - 1))}%`;
-  const mlog = document.getElementById('mlog');
-  if (mlog) mlog.innerHTML = marginLogHtml();
-  for (const h of run.heroes) {
-    const el = app.querySelector<HTMLElement>(`[data-hp="${h.id}"]`);
-    if (!el) continue;
-    const live = heroHpNow(h.id);
-    el.textContent = live ? `hp ${live.hp}/${live.maxHp}` : '—';
-    el.classList.toggle('low', live !== null && live.hp / live.maxHp <= 0.35);
-    const row = el.closest('.roster-row');
-    if (row) row.classList.toggle('dead', live === null || !live.alive);
-  }
+  if (play) play.textContent = playing ? '❙❙ пауза' : '▶ играть';
+  html('partystrip', partyStripHtml());
 }
 
 // ---------- оверлей: редактор приказов ----------
 
+/** Как герой прочтёт эту фразу: дословно или по-своему (содержание раскроет бой). */
+function understanding(hero: HeroState, draft: PhraseDraft): 'literal' | 'own' {
+  const r = compilePhrase(draft, run.vocab, heroNames(run));
+  if (!r.ok) return 'literal';
+  return applyLens(hero.lenses, [r.rule]).rules[0]?.marks?.length ? 'own' : 'literal';
+}
+
+/** Счётчик фокусов словами, а не дробью. */
+function focusNote(): string {
+  const free = FOCUS_BUDGET - focusUsed(run);
+  if (free === 0) return `занято ${FOCUS_BUDGET} из ${FOCUS_BUDGET}`;
+  return `${free} ${free === 1 ? 'свободен' : 'свободно'} из ${FOCUS_BUDGET}`;
+}
+
+/** Слоты героя ромбами: ◆ занятый, ◇ свободный. */
+function slotPips(hero: HeroState): string {
+  return '◆'.repeat(Math.min(hero.phrases.length, hero.slots)) + '◇'.repeat(Math.max(0, hero.slots - hero.phrases.length));
+}
+
+/** Переключатель комплектов A / B / C: активный залит, пустой — пунктир. */
+function orderSetsHtml(hero: HeroState): string {
+  const tabs = hero.sets
+    .map((set, i) => {
+      const cls = i === hero.activeSet ? 'on' : set.phrases.length === 0 ? 'empty' : '';
+      return `<button class="set-tab ${cls}" data-action="switch-set" data-hero="${hero.id}" data-set="${i}">${
+        ORDER_SETS[i]
+      }</button>`;
+    })
+    .join('');
+  const active = hero.sets[hero.activeSet]!;
+  const note = active.note || (active.phrases.length ? 'без подписи' : 'пустой комплект — здесь пока ничего не написано');
+  return `<div class="sets-row">${tabs}<span class="set-note">${esc(note)}</span></div>`;
+}
+
+/** Строка принципа: ромб фокуса · чипсы IR · статус понимания. Вес не показывается. */
+function principleRowHtml(hero: HeroState, i: number, ph: PhraseDraft): string {
+  // глубокие чипсы: условие фразы — цепочка до трёх уровней со связкой
+  // «и»/«или» (одна на фразу); следующий уровень появляется, когда выбран предыдущий
+  const chain: CondLinkDraft[] =
+    ph.condition.id === 'and' || ph.condition.id === 'or'
+      ? ph.condition.conds
+      : ph.condition.id === 'always'
+        ? []
+        : [ph.condition];
+  const op: 'and' | 'or' = ph.condition.id === 'or' ? 'or' : 'and';
+  const opChip = (lvl: number): string =>
+    lvl === 1
+      ? `<select class="op-select" data-hero="${hero.id}" data-idx="${i}">
+          <option value="and" ${op === 'and' ? 'selected' : ''}>и</option>
+          <option value="or" ${op === 'or' ? 'selected' : ''}>или</option>
+        </select>`
+      : `<span class="nest">${op === 'or' ? 'или' : 'и'}</span>`;
+  // «не» — грамматика при звене, а не чипс словаря: галочка рядом с выбором.
+  // У «всегда» отрицать нечего — галочка гаснет
+  const condChip = (lvl: number, opts: Opt<ConditionDraft>[]): string => {
+    const link = chain[lvl];
+    const neg = link?.id === 'not';
+    const value: ConditionDraft = neg ? link.cond : (link ?? { id: 'always' });
+    const off = value.id === 'always';
+    return `<label class="neg" title="если НЕ">
+        <input type="checkbox" class="neg-check" data-hero="${hero.id}" data-idx="${i}"
+          data-level="${lvl}" ${neg ? 'checked' : ''} ${off ? 'disabled' : ''}> не
+      </label>${selectHtml('cond-select', hero.id, i, opts, value, `data-level="${lvl}"`)}`;
+  };
+  const condSelects = [condChip(0, conditionOptions())];
+  for (let lvl = 1; lvl < 3 && chain.length >= lvl; lvl++) {
+    condSelects.push(`<span class="nest">⌞</span>${opChip(lvl)}${condChip(lvl, moreConditionOptions())}`);
+  }
+  const focused = (ph.weight ?? 1) >= 3;
+  const read = understanding(hero, ph);
+  return `<div class="pr-row${focused ? ' focused' : ''}">
+    <span class="pr-focus" data-action="toggle-focus" data-hero="${hero.id}" data-idx="${i}"
+      title="фокус — важнее остальных; бюджет общий на отряд">${focused ? '◆' : '◇'}</span>
+    <span class="fields">${condSelects.join('')}${selectHtml(
+      'pref-select',
+      hero.id,
+      i,
+      preferenceOptions(hero.id),
+      ph.preference,
+    )}</span>
+    <span class="pr-status${read === 'own' ? ' own' : ''}">${
+      focused ? 'фокус · ' : ''
+    }${read === 'own' ? 'понял по-своему' : 'понял дословно'}</span>
+    <button class="mini" data-action="clear-phrase" data-hero="${hero.id}" data-idx="${i}">стереть</button>
+  </div>`;
+}
+
+/** Модалка ввода текста: слева текст комплекта, справа эхо — как он это понял. */
+function textModalHtml(hero: HeroState): string {
+  const set = hero.sets[hero.activeSet]!;
+  const draft = heroText[hero.id] ?? set.text;
+  const unknown = heroUncertainty[hero.id] ?? [];
+  const empty = set.phrases.length === 0 && draft.trim() === '';
+  const echo = set.phrases
+    .map((ph) => {
+      const read = understanding(hero, ph);
+      return read === 'own'
+        ? `<div class="echo-row own"><span class="kicker">понял по-своему</span>
+            <span class="hand">это слово он читает по-своему — содержание раскроет свиток боя</span></div>`
+        : `<div class="echo-row"><span class="kicker">понял дословно</span>
+            <span>${esc(cap(describeDraft(ph, heroNames(run))))}</span></div>`;
+    })
+    .join('');
+  const notUnderstood = unknown.length
+    ? `<div class="echo-row miss"><span class="kicker">не понял вообще</span>
+        <span>${unknown.map(esc).join(' · ')}</span></div>`
+    : '';
+  return `<div class="overlay inner"><div class="modal text-modal">
+    <div class="head">
+      <span class="title">Твой текст · комплект ${ORDER_SETS[hero.activeSet]}</span>
+      <span class="meta">он знает ${run.vocab.length} слов</span>
+    </div>
+    <div class="tm-cols">
+      <div class="tm-in">
+        <textarea class="principle-text" data-hero="${hero.id}" rows="7"
+          placeholder="Опиши принципы словами — ${esc(hero.name)} поймёт по-своему">${esc(draft)}</textarea>
+        <span class="tm-note">незнакомые слова перепиши или оставь — в набор это просто не войдёт</span>
+      </div>
+      <div class="tm-echo">
+        ${empty ? '<div class="echo-row miss"><span class="hand">пока нечего понимать</span></div>' : echo}
+        ${notUnderstood}
+      </div>
+    </div>
+    <div class="foot-row">
+      <span class="tm-note">текст сохранится целиком — даже те слова, что он пока не понимает</span>
+      <span class="spacer"></span>
+      <button data-action="close-text">отмена</button>
+      <button class="primary" data-action="compile-text" data-hero="${hero.id}" ${
+        compiling[hero.id] || !(heroText[hero.id] ?? set.text).trim() ? 'disabled' : ''
+      }>${compiling[hero.id] ? '…понимает' : 'применить'}</button>
+    </div>
+  </div></div>`;
+}
+
+/** Словарь: что открыто, по ролям слова; закрытые — только счётом, без имён. */
+function vocabHtml(): string {
+  const open = Object.values(CONCEPTS).filter((c) => run.vocab.includes(c.id));
+  const cats = ['condition', 'selector', 'action', 'space'] as const;
+  const filters = [
+    `<button class="vf${vocabFilter === null ? ' on' : ''}" data-action="vocab-filter">все ${open.length}</button>`,
+    ...cats
+      .map((cat) => {
+        const n = open.filter((c) => c.category === cat).length;
+        return n
+          ? `<button class="vf${vocabFilter === cat ? ' on' : ''}" data-action="vocab-filter" data-cat="${cat}">${
+              CAT_RU[cat]
+            } ${n}</button>`
+          : '';
+      })
+      .filter(Boolean),
+  ].join('');
+  const shown = vocabFilter ? open.filter((c) => c.category === vocabFilter) : open;
+  const group = (title: string, list: typeof open, rare: boolean): string =>
+    list.length
+      ? `<div class="v-group">
+          <span class="kicker">${title}</span>
+          ${list
+            .map(
+              (c) => `<div class="v-row">
+                <span class="chip ${rare ? 'red' : 'line'}">${esc(c.label)}</span>
+                <span class="v-desc">${CAT_RU[c.category]}${rare ? ' · редкое' : ''}</span>
+              </div>`,
+            )
+            .join('')}
+        </div>`
+      : '';
+  const locked = Object.values(CONCEPTS).length - open.length;
+  return `<div class="overlay inner"><div class="modal vocab-modal">
+    <div class="head">
+      <span class="title">Словарь</span>
+      <span class="meta">${open.length} из ${Object.values(CONCEPTS).length} слов</span>
+      <span class="spacer"></span>
+      <button data-action="close-vocab">закрыть</button>
+    </div>
+    <div class="v-filters">${filters}<span class="v-hint">слова открываются трофеями и в скриптории</span></div>
+    <div class="v-scroll">
+      ${group('редкие', shown.filter((c) => RARE_WORDS.includes(c.id)), true)}
+      ${group('обычные', shown.filter((c) => !RARE_WORDS.includes(c.id)), false)}
+      ${
+        locked
+          ? `<div class="v-group"><span class="kicker">ещё не открыто</span>
+              <div class="v-row"><span class="chip unknown">? ещё ${locked}</span>
+              <span class="v-desc">имена закрытых слов не показываются — это спойлер трофея</span></div></div>`
+          : ''
+      }
+    </div>
+  </div></div>`;
+}
+
 function editorHtml(): string {
   const alive = run.heroes.filter((h) => h.alive);
   const eh = alive.find((h) => h.id === editHero) ?? alive[0]!;
-  const names = heroNames(run);
+  const arch = heroArchetype(eh.archetypeId);
   const heroCards = run.heroes
     .map((h) => {
       if (!h.alive) {
@@ -1995,105 +2580,61 @@ function editorHtml(): string {
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
         <div class="nm"><span>${esc(h.name)}</span>${lensTagHtml(h.lenses, 'ch')}</div>
-        <div class="sub klass-line">${esc(heroArchetype(h.archetypeId).class)}</div>
-        <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine({ ...h.stats, weapons: heroArchetype(h.archetypeId).weapons }, h.hp)}</div>
-        <div class="sub ability">${esc(abilityLine(h.archetypeId))}</div>
+        <div class="sub klass-line">${esc(heroArchetype(h.archetypeId).class)} · hp ${h.hp}/${h.stats.maxHp}</div>
+        <div class="sub">комплект ${ORDER_SETS[h.activeSet]} · ${h.phrases.length} из ${h.slots} слотов${
+          h.phrases.some((d) => (d.weight ?? 1) >= 3) ? ' · фокус' : ''
+        }</div>
       </div>`;
     })
     .join('');
 
-  const inTextMode = inText(eh.id);
-  // Ворота C: замысел словами до конструктора — уходит в журнал плейтеста.
-  // В текстовом режиме сам свободный текст и есть формулировка — блок не нужен.
-  const intentBlock = inTextMode
-    ? ''
-    : `<div class="intent-block">
-        <span class="kicker">сначала — замысел словами, в полевой журнал</span>
-        <textarea class="intent-text" data-hero="${eh.id}" rows="2"
-          placeholder="Чего ты хочешь от ${esc(eh.name)}? Напиши как думаешь — потом собери из чипсов.">${esc(
-            heroIntent[eh.id] ?? lastIntent(journal, eh.name),
-          )}</textarea>
-      </div>`;
-  const slotRows = inTextMode
-    ? `<textarea class="principle-text" data-hero="${eh.id}" rows="4"
-        placeholder="Опиши принципы словами — ${esc(eh.name)} поймёт по-своему">${esc(heroText[eh.id] ?? '')}</textarea>
-      <div class="btn-row"><button data-action="compile-text" data-hero="${eh.id}" ${compiling[eh.id] ? 'disabled' : ''}>
-        ${compiling[eh.id] ? '…понимает' : 'понять'}</button></div>`
-    : Array.from({ length: eh.slots })
-        .map((_, i) => {
-          const ph = eh.phrases[i];
-          if (!ph) {
-            return `<div class="slot-row empty">
-              <span class="mark">${NUM[i]}</span>
-              <span style="flex:1">— пустой слот —</span>
-              <button class="mini" data-action="add-phrase" data-hero="${eh.id}">заполнить</button>
-            </div>`;
-          }
-          // глубокие чипсы: условие фразы — цепочка до трёх уровней со связкой
-          // «и»/«или» (одна на фразу); следующий уровень появляется, когда
-          // выбран предыдущий
-          const chain: CondLinkDraft[] =
-            ph.condition.id === 'and' || ph.condition.id === 'or'
-              ? ph.condition.conds
-              : ph.condition.id === 'always'
-                ? []
-                : [ph.condition];
-          const op: 'and' | 'or' = ph.condition.id === 'or' ? 'or' : 'and';
-          const opChip = (lvl: number): string =>
-            lvl === 1
-              ? `<select class="op-select" data-hero="${eh.id}" data-idx="${i}">
-                  <option value="and" ${op === 'and' ? 'selected' : ''}>и</option>
-                  <option value="or" ${op === 'or' ? 'selected' : ''}>или</option>
-                </select>`
-              : `<span class="nest">${op === 'or' ? 'или' : 'и'}</span>`;
-          // «не» — грамматика при звене, а не чипс словаря: галочка рядом с
-          // выбором. У «всегда» отрицать нечего — галочка гаснет
-          const condChip = (lvl: number, opts: Opt<ConditionDraft>[]): string => {
-            const link = chain[lvl];
-            const neg = link?.id === 'not';
-            const value: ConditionDraft = neg ? link.cond : (link ?? { id: 'always' });
-            const off = value.id === 'always';
-            return `<label class="neg" title="если НЕ">
-                <input type="checkbox" class="neg-check" data-hero="${eh.id}" data-idx="${i}"
-                  data-level="${lvl}" ${neg ? 'checked' : ''} ${off ? 'disabled' : ''}> не
-              </label>${selectHtml('cond-select', eh.id, i, opts, value, `data-level="${lvl}"`)}`;
-          };
-          const condSelects = [condChip(0, conditionOptions())];
-          for (let lvl = 1; lvl < 3 && chain.length >= lvl; lvl++) {
-            condSelects.push(
-              `<span class="nest">⌞</span>${opChip(lvl)}${condChip(lvl, moreConditionOptions())}`,
-            );
-          }
-          return `<div class="slot-row">
-            <span class="mark">${NUM[i]}</span>
-            <span class="fields">
-              ${condSelects.join('')}
-              ${selectHtml('pref-select', eh.id, i, preferenceOptions(eh.id), ph.preference)}
-              <select class="weight-select" data-hero="${eh.id}" data-idx="${i}">
-                <option value="1" ${(ph.weight ?? 1) === 1 ? 'selected' : ''}>обычно</option>
-                <option value="2" ${(ph.weight ?? 1) === 2 ? 'selected' : ''}>важно</option>
-                <option value="3" ${(ph.weight ?? 1) === 3 ? 'selected' : ''}>фокус</option>
-              </select>
-            </span>
-            <button class="mini" data-action="clear-phrase" data-hero="${eh.id}" data-idx="${i}">стереть</button>
-          </div>`;
-        })
-        .join('');
+  const set = eh.sets[eh.activeSet]!;
+  const quote = set.text.trim() || ordersSentence(eh);
+  const canText = Boolean(API_KEY);
+  const quoteBlock = `<div class="quote-block">
+    <span class="q-text">${quote ? `«${esc(quote)}»` : 'здесь пока ничего не написано'}</span>
+    ${
+      canText
+        ? `<button class="mini" data-action="open-text" data-hero="${eh.id}">править текст</button>`
+        : `<span class="q-note">свободный текст без ключа компилятора недоступен — собирай приказ чипсами</span>`
+    }
+  </div>`;
+
+  const rows = eh.phrases.map((ph, i) => principleRowHtml(eh, i, ph)).join('');
+  const free = Array.from({ length: Math.max(0, eh.slots - eh.phrases.length) })
+    .map(
+      (_, k) => `<div class="pr-row empty" data-action="add-phrase" data-hero="${eh.id}">
+        <span class="pr-focus">◇</span>
+        <span class="fields">свободный слот — допиши приказ или оставь ему свободу</span>
+        <span class="pr-status">слот ${eh.phrases.length + k + 1} из ${eh.slots}</span>
+      </div>`,
+    )
+    .join('');
 
   // вне debug чипсы при живом компиляторе скрыты — тумблер не показываем
-  const toggle = API_KEY && debugLenses
-    ? `<button class="mini" data-action="toggle-text" data-hero="${eh.id}">${inTextMode ? '⬒ чипсы' : '✎ текстом'}</button>`
-    : '';
   const err = editError[eh.id] ? `<div class="error">${esc(editError[eh.id]!)}</div>` : '';
   const replay = battle
     ? `<button class="primary" data-action="sparring">↻ те же кости, новые приказы</button>`
-    : `<button class="primary" data-action="close-editor">к походу</button>`;
+    : `<button class="primary" data-action="close-editor">${
+        prepOpen ? '⚔ к разведке' : 'к походу'
+      }</button>`;
+  // Ворота C: замысел словами до конструктора — уходит в журнал плейтеста
+  const intentBlock = `<div class="intent-block">
+    <span class="kicker">сначала — замысел словами, в полевой журнал</span>
+    <textarea class="intent-text" data-hero="${eh.id}" rows="2"
+      placeholder="Чего ты хочешь от ${esc(eh.name)}? Напиши как думаешь — потом собери из чипсов.">${esc(
+        heroIntent[eh.id] ?? lastIntent(journal, eh.name),
+      )}</textarea>
+  </div>`;
 
   return `<div class="overlay">
     <div class="modal editor">
       <div class="head">
-        <span class="title">Пиши их приказы</span>
-        <span class="meta">компилируются до боя · каждый прочтёт по-своему</span>
+        <span class="title">Приказы · ${esc(eh.name)}</span>
+        <span class="sub">${esc(arch.class)} · слоты ${slotPips(eh)}</span>
+        <span class="spacer"></span>
+        <button class="mini" data-action="open-vocab">словарь · ${run.vocab.length} слов</button>
+        <span class="meta">фокусы: ${focusNote()}</span>
       </div>
       <div class="cols">
         <div class="heroes-col">
@@ -2101,13 +2642,11 @@ function editorHtml(): string {
           ${debugLenses ? `<div class="lens-hint">${eh.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>` : ''}
         </div>
         <div class="slots-col">
-          ${intentBlock}
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="kicker">слоты — занято ${eh.phrases.length} из ${eh.slots}</span>
-            <span class="spacer"></span>${toggle}
-          </div>
-          ${slotRows}
+          ${orderSetsHtml(eh)}
+          ${quoteBlock}
+          ${rows}${free}
           ${err}
+          ${intentBlock}
           <div class="readings">
             <span class="kicker">как прочёл ${esc(eh.name)}</span>
             ${readNoteHtml(readingLines(eh), false)}
@@ -2117,10 +2656,13 @@ function editorHtml(): string {
       <div class="foot-row">
         <button data-action="close-editor">закрыть</button>
         ${freeVocabBtnHtml()}
+        <span class="ed-state">комплект ${ORDER_SETS[eh.activeSet]} · переключение бесплатно и вне боя</span>
         <span class="spacer"></span>
         ${replay}
       </div>
     </div>
+    ${textOpen ? textModalHtml(eh) : ''}
+    ${vocabOpen ? vocabHtml() : ''}
   </div>`;
 }
 
@@ -2242,62 +2784,180 @@ function debugBuild(): void {
   debugError = '';
 }
 
-// ---------- оверлей: исход боя ----------
+// ---------- оверлей: разбор после боя ----------
+
+/** Кто в бою потратил реакцию — это знание игрок оплатил уроном, а не очками. */
+function reactorsInBattle(): Set<string> {
+  const out = new Set<string>();
+  if (!battle) return out;
+  for (const e of battle.events as BattleEvent[]) {
+    switch (e.t) {
+      case 'riposte':
+      case 'reactGuard':
+        out.add(e.by);
+        break;
+      case 'shieldBlock':
+      case 'intercept':
+      case 'reactHeal':
+      case 'reactStep':
+      case 'reactStrike':
+        out.add(e.unit);
+        break;
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
+/**
+ * Слова, которые написал игрок: `герой:источник правила`. Инстинкты архетипа
+ * сюда не входят — разбор говорит про твои слова, а не про врождённое.
+ */
+function heroWords(): Map<string, string> {
+  const names = heroNames(run);
+  const out = new Map<string, string>();
+  for (const h of run.heroes) {
+    for (const d of h.phrases) {
+      const r = compilePhrase(d, run.vocab, names);
+      if (r.ok) out.set(`${h.id}:${r.rule.source}`, h.name);
+    }
+  }
+  return out;
+}
+
+/** Слова героев, которые за бой не прозвучали ни разу. */
+function silentWords(): { name: string; word: string }[] {
+  const fired = new Set<string>();
+  for (const f of frames) {
+    for (const x of f.factors) {
+      if (x.label.startsWith(RULE_PREFIX)) fired.add(`${f.actorId}:${x.label.slice(RULE_PREFIX.length)}`);
+    }
+  }
+  return [...heroWords()]
+    .filter(([key]) => !fired.has(key))
+    .map(([key, name]) => ({ name, word: key.slice(key.indexOf(':') + 1) }));
+}
+
+/**
+ * «Разведка подтвердилась»: купленное — ink с ✓, открытое телом — red и
+ * «— ново», бесплатно известное — контуром. Единственное место, где знание
+ * о враге приходит без очков: плата за него уже внесена уроном.
+ */
+function intelDebriefHtml(): string {
+  const chips: string[] = [];
+  if (run.intel.map) chips.push('<span class="chip ink">✓ карта: рельеф и расстановка</span>');
+  const reacted = reactorsInBattle();
+  for (const f of foeSpecs(run)) {
+    if (run.intel.numbers.includes(f.id)) chips.push(`<span class="chip ink">✓ ${esc(f.name)}: числа</span>`);
+    if (run.intel.orders.includes(f.id)) chips.push(`<span class="chip ink">✓ ${esc(f.name)}: приказы</span>`);
+    if (f.reaction && reacted.has(f.id)) {
+      chips.push(`<span class="chip red">${esc(f.name)}: ${esc(REACTION_RU[f.reaction])} — ново</span>`);
+    }
+    const weak = Object.keys(f.defenses?.weak ?? {});
+    if (weak.length) {
+      chips.push(
+        `<span class="chip red">${esc(f.name)}: слаб к ${weak.map((w) => DAMAGE_TYPE_RU[w as DamageType]).join(', ')} — ново</span>`,
+      );
+    }
+  }
+  chips.push(`<span class="chip line">состав: врагов ${foeSpecs(run).length}</span>`);
+  return `<div class="ab-block">
+    <span class="kicker">разведка подтвердилась</span>
+    <div class="chips">${chips.join('')}</div>
+  </div>`;
+}
 
 function aftermathHtml(): string {
   if (!battle) return '';
   const node = currentNode(run);
   const won = battle.winner === 'party';
-  const fallen = battle.units
-    .filter((u) => u.side === 'party' && !u.alive)
-    .map((u) => u.name);
-  const title = won ? 'Поле за тобой' : battle.winner === 'draw' ? 'Ничья — бой увял' : 'Отряд разбит';
-  const quip = won
-    ? fallen.length
-      ? `Победа. ${fallen.join(' и ')} предпочли бы фразу почётче.`
-      : 'Победа — и они даже примерно сделали то, что ты просил.'
-    : 'Они выполнили твои приказы. Дословно. В землю.';
+  const deadline = nodeDeadline(node);
+  const scenario = scenarioForNode(node);
+  const fallen = battle.units.filter((u) => u.side === 'party' && !u.alive).map((u) => u.name);
+  const outcome = won ? 'поле за тобой' : battle.winner === 'draw' ? 'ничья' : 'отряд разбит';
+  const meta = `${scenario ? `${scenario.title.toLowerCase()} — ${won ? 'задача взята' : 'задача сорвалась'} · ` : ''}раунд ${
+    battle.rounds
+  }${deadline ? ` из ${deadline}` : ''}`;
+
+  // только те искажения, что реально сработали за бой, каждое по разу
+  const words = heroWords();
+  const twisted = battleReveals.filter((r) => r.side === 'party' && !r.drift && r.source && words.has(`${r.unit}:${r.source}`));
+  const seen = new Set<string>();
+  const twistRows = twisted
+    .filter((r) => !seen.has(`${r.unit}:${r.source}`) && seen.add(`${r.unit}:${r.source}`))
+    .map(
+      (r) => `<div class="ab-row">
+        <span class="ab-who">${esc(r.name)}</span>
+        <span class="ab-said"><span class="ab-word">${esc(r.source!)}</span> → ${esc(r.reading ?? '')}</span>
+      </div>
+      <div class="ab-voice">${esc(r.quip)}</div>`,
+    )
+    .join('');
+  // непроявившиеся слова — обязательный элемент: они объясняют, почему
+  // карточка героя до боя молчит
+  const silent = silentWords()
+    .map(
+      (w) => `<div class="ab-row silent">
+        <span class="ab-who">${esc(w.name)}</span>
+        <span class="ab-said"><span class="ab-word off">${esc(w.word)}</span>
+          не сработало ни разу — прочтение осталось загадкой</span>
+      </div>`,
+    )
+    .join('');
+
+  const drift = battleReveals.filter((r) => r.drift);
+  const driftHtml = drift.length
+    ? `<div class="ab-block">
+        <span class="kicker">характер сдвинулся по ходу боя</span>
+        ${drift
+          .map(
+            (r) => `<div class="ab-row"><span class="ab-mark">◈</span>
+              <span class="ab-said">${esc(r.name)}, раунд ${
+                r.round ?? '?'
+              } — характер защёлкнулся: до конца боя решает он${debugLenses ? ` (${LENS_RU[r.lens]})` : ''}</span></div>
+            <div class="ab-voice">${esc(r.quip)}</div>`,
+          )
+          .join('')}
+      </div>`
+    : '';
+
   const contLabel = won
     ? 'продолжить поход'
     : node.kind === 'lesson'
       ? 'вернуться к приказам'
       : 'принять поражение';
   const contHint = ordersDirty ? 'title="приказы переписаны — сперва переиграй с теми же костями"' : '';
-  const lessonLine =
-    !won && node.kind === 'lesson'
-      ? `<div>это ничего не стоило: урок прощает — перепиши приказ и переиграй</div>`
-      : '';
-  // разбор (план линз): только то, что реально сработало в этом бою —
-  // непроявившиеся прочтения остаются загадкой на следующий
-  const partyReveals = battleReveals.filter((r) => r.side === 'party');
-  const debrief = partyReveals.length
-    ? `<div class="a-debrief">
-        <span class="kicker">разбор — как они тебя поняли</span>
-        ${partyReveals
-          .map(
-            (r) =>
-              `<div><b>${esc(r.name)}</b> — «${esc(r.quip)}»${debugLenses ? ` <span class="why">(${LENS_RU[r.lens]})</span>` : ''}</div>`,
-          )
-          .join('')}
-      </div>`
-    : '';
   return `<div class="overlay">
     <div class="modal aftermath ${won ? '' : 'loss'}">
-      <div class="a-title">${title}</div>
-      <div class="a-quip">${esc(quip)}</div>
-      <div class="a-lines">
-        <div>раундов: ${battle.rounds} · seed ${run.runSeed} · те же кости доступны</div>
-        <div>${fallen.length ? `пали: ${esc(fallen.join(', '))}` : 'пали: никто'}</div>
-        ${lessonLine}
-        <div>перепиши одну фразу и переиграй тот же бой — в этом вся игра</div>
+      <div class="head">
+        <span class="title">Разбор</span>
+        <span class="meta">${esc(meta)}</span>
+        <span class="chip ${won ? 'ink' : 'red'}" style="margin-left:auto">${outcome}</span>
       </div>
-      ${debrief}
-      <div class="btn-row" style="margin-top:4px">
-        <button data-action="open-editor">переписать приказы</button>
-        <button data-action="sparring">↻ те же кости</button>
-        <button data-action="open-log">полный лог</button>
+      <div class="ab-body">
+        <div class="ab-block">
+          <span class="kicker">твои слова прочли по-своему</span>
+          ${twistRows || '<div class="ab-row silent"><span class="ab-said">ни одно слово не переиначили — читали дословно</span></div>'}
+          ${silent}
+        </div>
+        ${driftHtml}
+        ${intelDebriefHtml()}
+        <div class="ab-lines">
+          <span>${fallen.length ? `пали: ${esc(fallen.join(', '))}` : 'пали: никто'} · seed ${run.runSeed}</span>
+          ${
+            !won && node.kind === 'lesson'
+              ? '<span>это ничего не стоило: урок прощает — перепиши приказ и переиграй</span>'
+              : ''
+          }
+        </div>
+      </div>
+      <div class="foot-row">
+        <button class="primary" data-action="open-editor">переписать приказы</button>
+        <button data-action="sparring">те же кости — спарринг</button>
+        <button data-action="open-log">весь свиток</button>
         <span class="spacer"></span>
-        <button class="primary" data-action="accept" ${ordersDirty ? 'disabled' : ''} ${contHint}>${contLabel}</button>
+        <button data-action="accept" ${ordersDirty ? 'disabled' : ''} ${contHint}>${contLabel}</button>
       </div>
     </div>
   </div>`;
@@ -2955,9 +3615,11 @@ function unitCardHtml(id: string): string {
   const spec = foesForNode(node).find((f) => f.id === id);
   if (!spec) return '';
   const live = unitHpInBattle(id);
-  const principles = intelVisible(node)
-    ? foeIntel([spec])[0]!.lines.map((l) => `<div class="read-note">«${esc(l)}»</div>`).join('')
-    : `<div class="orders-text"><span class="empty">принципы скрыты — прочтёшь по ходу боя</span></div>`;
+  // принципы врага — покупка разведки (спека 2a), а не бесплатная справка узла
+  const bought = run.intel.orders.includes(id);
+  const principles = bought
+    ? foeOrdersLines(spec).map((l) => `<div class="read-note">«${esc(l)}»</div>`).join('')
+    : `<div class="orders-text"><span class="empty">принципы не куплены — прочтёшь по ходу боя</span></div>`;
   return `<div class="overlay"><div class="modal unit-card">
     <div class="head">
       <span class="title">${esc(spec.name)}</span>
@@ -2966,7 +3628,7 @@ function unitCardHtml(id: string): string {
     </div>
     <div class="stat-line">${statLine(spec, live?.hp)}</div>
     <div class="card-block">
-      <span class="kicker">${intelVisible(node) ? 'принципы — они тоже читают' : 'принципы'}</span>
+      <span class="kicker">${bought ? 'принципы — они тоже читают' : 'принципы'}</span>
       ${principles}
     </div>
     <div class="foot-row"><span class="spacer"></span><button class="primary" data-action="close-card">закрыть</button></div>
@@ -2975,34 +3637,103 @@ function unitCardHtml(id: string): string {
 
 // ---------- оверлей: свиток боя (полный лог) ----------
 
+/** Фактор решения человеческими словами: «твоё слово „…“», а не имя условия. */
+function factorRu(f: Frame['factors'][number], side: Side | undefined): string {
+  const base = f.label.startsWith(RULE_PREFIX)
+    ? side === 'party'
+      ? `твоё слово «${f.label.slice(RULE_PREFIX.length)}»`
+      : `его правило «${f.label.slice(RULE_PREFIX.length)}»`
+    : f.label;
+  const twisted =
+    f.label.startsWith(RULE_PREFIX) &&
+    battleReveals.some((r) => r.source === f.label.slice(RULE_PREFIX.length));
+  const tail = tactician ? ` · ${f.value >= 0 ? '+' : ''}${f.value.toFixed(1)}` : '';
+  return `${base}${twisted ? ' — понято по-своему' : ''}${tail}`;
+}
+
+/** Блок «почему так»: ровно три главных фактора по весу в решении. */
+function whyHtml(i: number, f: Frame): string {
+  const side = f.units.find((u) => u.id === f.actorId)?.side;
+  const top = [...f.factors].sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 3);
+  const gap = !f.factors.some((x) => x.label.startsWith(RULE_PREFIX));
+  const lens = battleReveals.find((r) => r.unit === f.actorId)?.lens;
+  const rows = top
+    .map((x, n) => `<div class="wy-row"><span class="n${n === 0 ? ' lead' : ''}">${n + 1}.</span>${esc(factorRu(x, side))}</div>`)
+    .join('');
+  return `<div class="log-why">
+    <span class="kicker">почему так · ${gap ? 'достройка пропуска' : 'три главных фактора'}</span>
+    ${rows || '<div class="wy-row">решение без слагаемых: выбора не было</div>'}
+    <div class="wy-acts">
+      <span class="wy-chip" data-action="log-jump" data-frame="${i}">↩ к этому кадру</span>
+      ${
+        side === 'party'
+          ? `<span class="wy-chip" data-action="log-rewrite" data-hero="${f.actorId}">переписать это слово</span>`
+          : ''
+      }
+      <span class="wy-chip off">${debugLenses && lens ? esc(LENS_RU[lens]) : 'имя характера — только в debug'}</span>
+    </div>
+  </div>`;
+}
+
+/** Остаток очков хода у героев в этом раунде — ромбами, той же азбукой. */
+function roundPipsHtml(round: number): string {
+  const spent = new Map<string, number>();
+  for (const f of frames) {
+    if (f.round === round && f.cost > 0) spent.set(f.actorId, (spent.get(f.actorId) ?? 0) + f.cost);
+  }
+  const parts = run.heroes
+    .filter((h) => h.alive)
+    .map((h) => {
+      const used = Math.min(AP_PER_TURN, spent.get(h.id) ?? 0);
+      return `${esc(h.name)} ${'◆'.repeat(AP_PER_TURN - used)}${'◇'.repeat(used)}`;
+    });
+  return parts.length ? `очки: ${parts.join(' · ')}` : '';
+}
+
 function battleLogHtml(): string {
   if (!battle) return '';
+  const node = currentNode(run);
+  const deadline = nodeDeadline(node);
   const rows: string[] = [];
   let round = 0;
   frames.forEach((f, i) => {
     if (i === 0) return;
     if (f.round !== round) {
       round = f.round;
-      rows.push(`<div class="log-round">— ход ${round} —</div>`);
+      rows.push(`<div class="log-round">
+        <span class="lr-t">— ход ${round} —</span><span class="lr-line"></span>
+        <span class="lr-pips">${roundPipsHtml(round)}</span>
+      </div>`);
     }
-    rows.push(`<div class="log-row ${i === frameIdx ? 'cur' : ''}" data-frame="${i}">
-      <span class="t">${f.round}.</span>
-      <span><b>${esc(f.actorName)}</b> ${esc(f.text)} <span class="why">${esc(fmtFactors(f.factors))}</span></span>
+    // реплика характера — только на первое срабатывание; дальше строка идёт сухо
+    const quip = battleReveals.find((r) => r.frame === i && r.unit === f.actorId);
+    const open = tactician || logRow === i;
+    rows.push(`<div class="log-item">
+      <div class="log-row ${i === frameIdx ? 'cur' : ''}${open ? ' open' : ''}" data-action="log-row" data-row="${i}">
+        <span class="t">${f.round}.${i}</span>
+        <span class="c">${costPips(f.cost)}</span>
+        <span class="x"><b>${esc(f.actorName)}</b> ${esc(f.text)}</span>
+      </div>
+      ${quip ? `<div class="log-voice ${quip.side === 'party' ? 'own' : 'foe'}">${esc(quip.quip)}</div>` : ''}
+      ${open ? whyHtml(i, f) : ''}
     </div>`);
   });
   const outcome =
     battle.winner === 'party' ? 'поле за тобой' : battle.winner === 'draw' ? 'ничья' : 'отряд разбит';
+  const cur = frames[frameIdx]!;
   return `<div class="overlay"><div class="modal battle-log">
     <div class="head">
       <span class="title">Свиток боя</span>
-      <span class="meta">${frames.length - 1} решений · seed ${run.runSeed} · клик по строке — к кадру</span>
+      <span class="meta">seed ${run.runSeed} · ${frames.length - 1} решений</span>
+      ${deadline ? `<span class="chip red" style="margin-left:auto">раунд ${cur.round} из ${deadline}</span>` : ''}
     </div>
     <div class="log-scroll">${rows.join('')}
       <div class="log-end">исход: ${outcome} · раундов: ${battle.rounds}</div>
     </div>
     <div class="foot-row">
-      <button class="tact-btn ${tactician ? 'on' : ''}" data-action="toggle-tact">режим тактика</button>
+      <span class="log-note">реплика — только на первое срабатывание; дальше та же строка идёт сухо, без спама</span>
       <span class="spacer"></span>
+      <button class="tact-btn ${tactician ? 'on' : ''}" data-action="toggle-tact">режим тактика</button>
       <button class="primary" data-action="close-log">закрыть</button>
     </div>
   </div></div>`;
@@ -3019,9 +3750,9 @@ function runEndHtml(): string {
   const lines = run.log.slice(-5).map((l) => `<div>${esc(l)}</div>`).join('');
   return `<div class="overlay">
     <div class="modal aftermath ${won ? '' : 'loss'}">
-      <div class="a-title">${title}</div>
-      <div class="a-quip">${esc(quip)}</div>
-      <div class="a-lines">${lines}</div>
+      <div class="head"><span class="title">${title}</span></div>
+      <div class="ab-voice" style="margin-left:0">${esc(quip)}</div>
+      <div class="ab-lines">${lines}</div>
       <div class="btn-row" style="margin-top:4px">
         <button data-action="export-build">${won ? 'вот мой билд, побей мой сид' : 'экспорт билда'}</button>
         <button data-action="export-journal">журнал плейтеста</button>
@@ -3045,11 +3776,14 @@ function bookTransform(): string {
 
 function render(): void {
   const node = currentNode(run);
+  const prep = prepOpen && run.status === 'ongoing' && !run.resolved && FIGHT_KINDS.includes(node.kind);
   const screen = battle
     ? battleScreenHtml()
-    : run.status === 'ongoing' && node.kind === 'scriptorium' && !run.resolved
-      ? scriptoriumHtml()
-      : mapScreenHtml();
+    : prep
+      ? prepScreenHtml()
+      : run.status === 'ongoing' && node.kind === 'scriptorium' && !run.resolved
+        ? scriptoriumHtml()
+        : mapScreenHtml();
   const cardHtml = unitCardId ? unitCardHtml(unitCardId) : '';
   const overlay = debugOpen
     ? debugPanelHtml()
@@ -3099,11 +3833,13 @@ function draftsFromEditor(heroId: string): PhraseDraft[] {
     const condition: ConditionDraft =
       conds.length === 0 ? { id: 'always' } : conds.length === 1 ? conds[0]! : { id: op, conds };
     const prefSel = app.querySelector<HTMLSelectElement>(`.pref-select[data-hero="${heroId}"][data-idx="${idx}"]`)!;
-    const wSel = app.querySelector<HTMLSelectElement>(`.weight-select[data-hero="${heroId}"][data-idx="${idx}"]`)!;
+    // вес игроку не показывается: единственный рычаг приоритета — фокус,
+    // и он живёт на самой фразе, а не в селекте важности
+    const kept = run.heroes.find((h) => h.id === heroId)?.phrases[Number(idx)]?.weight ?? 1;
     return {
       condition,
       preference: JSON.parse(prefSel.value) as PreferenceDraft,
-      weight: Number(wSel.value),
+      weight: kept,
     };
   });
 }
@@ -3174,18 +3910,6 @@ function bind(): void {
       });
     });
   }
-  for (const g of app.querySelectorAll<SVGGElement>('.mnode.selectable')) {
-    g.addEventListener('click', () => {
-      const to = Number(g.dataset.node);
-      if (advance(run, to).ok) {
-        visited.add(to);
-        fightsAtNode = 0;
-        rewroteSinceBattle = false;
-      }
-      lessonNudge = false;
-      render();
-    });
-  }
   for (const tok of app.querySelectorAll<HTMLElement>('.btoken[data-unit]')) {
     tok.addEventListener('click', () => {
       unitCardId = tok.dataset.unit!;
@@ -3196,26 +3920,75 @@ function bind(): void {
       render();
     });
   }
-  for (const row of app.querySelectorAll<HTMLElement>('.log-row[data-frame]')) {
-    row.addEventListener('click', () => {
-      frameIdx = Number(row.dataset.frame);
-      logOpen = false;
-      aftermathOpen = false;
-      playing = false;
-      stopTimer();
-      render();
-    });
-  }
   for (const el of app.querySelectorAll<HTMLElement>('[data-action]')) {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (ev) => {
+      // вложенные действия: кнопка комплекта внутри строки расстановки —
+      // срабатывает внутреннее, а не оба сразу
+      ev.stopPropagation();
       const a = el.dataset.action!;
       switch (a) {
+        case 'log-row': {
+          const n = Number(el.dataset.row);
+          logRow = logRow === n ? null : n;
+          render();
+          break;
+        }
+        case 'log-jump':
+          frameIdx = Number(el.dataset.frame);
+          logOpen = false;
+          logRow = null;
+          aftermathOpen = false;
+          playing = false;
+          stopTimer();
+          render();
+          break;
+        case 'log-rewrite':
+          editHero = el.dataset.hero!;
+          editorOpen = true;
+          logOpen = false;
+          playing = false;
+          stopTimer();
+          render();
+          break;
+        case 'prep':
+          prepOpen = true;
+          render();
+          break;
+        case 'back-to-map':
+          prepOpen = false;
+          deployPick = null;
+          render();
+          break;
+        case 'buy-intel': {
+          const kind = el.dataset.buy as 'map' | 'numbers' | 'orders';
+          buyIntel(run, kind === 'map' ? { kind } : { kind, foeId: el.dataset.foe! });
+          render();
+          break;
+        }
+        case 'pick-node':
+          mapPick = Number(el.dataset.node);
+          render();
+          break;
+        case 'go-node': {
+          const to = Number(el.dataset.node);
+          if (advance(run, to).ok) {
+            visited.add(to);
+            fightsAtNode = 0;
+            rewroteSinceBattle = false;
+            mapPick = null;
+            prepOpen = false;
+          }
+          lessonNudge = false;
+          render();
+          break;
+        }
         case 'fight':
           startBattle();
           break;
         case 'skip-lesson':
           skipLesson(run);
           lessonNudge = false;
+          prepOpen = false;
           render();
           break;
         case 'mark-foe': {
@@ -3280,6 +4053,8 @@ function bind(): void {
         }
         case 'close-editor':
           editorOpen = false;
+          textOpen = false;
+          vocabOpen = false;
           render();
           break;
         case 'sel-hero':
@@ -3308,13 +4083,58 @@ function bind(): void {
           render();
           break;
         }
-        case 'toggle-text': {
+        case 'switch-set': {
           const heroId = el.dataset.hero!;
-          textMode[heroId] = !inText(heroId);
+          const r = switchOrderSet(run, heroId, Number(el.dataset.set));
+          editError[heroId] = r.ok ? '' : r.error;
+          if (r.ok) {
+            ordersDirty = Boolean(battle);
+            rewroteSinceBattle = true;
+            delete heroUncertainty[heroId];
+            delete heroText[heroId];
+          }
+          render();
+          break;
+        }
+        case 'toggle-focus': {
+          const heroId = el.dataset.hero!;
+          const idx = Number(el.dataset.idx);
+          const hero = run.heroes.find((h) => h.id === heroId)!;
+          const on = (hero.phrases[idx]?.weight ?? 1) >= 3;
+          const r = setFocus(run, heroId, on ? null : idx);
+          editError[heroId] = r.ok ? '' : r.error;
+          if (r.ok) {
+            ordersDirty = Boolean(battle);
+            rewroteSinceBattle = true;
+          }
+          render();
+          break;
+        }
+        case 'open-text': {
+          const heroId = el.dataset.hero!;
+          const hero = run.heroes.find((h) => h.id === heroId)!;
+          heroText[heroId] ??= hero.sets[hero.activeSet]?.text ?? '';
+          textOpen = true;
           editError[heroId] = '';
           render();
           break;
         }
+        case 'close-text':
+          textOpen = false;
+          render();
+          break;
+        case 'open-vocab':
+          vocabOpen = true;
+          render();
+          break;
+        case 'close-vocab':
+          vocabOpen = false;
+          render();
+          break;
+        case 'vocab-filter':
+          vocabFilter = (el.dataset.cat as ConceptCategory | undefined) ?? null;
+          render();
+          break;
         case 'compile-text':
           void compileHeroText(el.dataset.hero!);
           break;
@@ -3382,11 +4202,10 @@ function bind(): void {
             render();
           }
           break;
-        case 'cycle-speed': {
-          speed = speed === 1 ? 2 : speed === 2 ? 4 : 1;
-          const b = document.getElementById('speedbtn');
-          if (b) b.textContent = `×${speed}`;
+        case 'set-speed': {
+          speed = Number(el.dataset.sp);
           if (playing) runTimer();
+          render();
           break;
         }
         case 'toggle-tact':
@@ -3485,6 +4304,42 @@ function bind(): void {
 }
 
 // ---------- старт ----------
+
+// ленту решений и полосу отряда перерисовывает syncBattleFrame на каждом кадре,
+// поэтому их клики и клавиши транспорта висят делегированно — один раз на всё
+app.addEventListener('click', (ev) => {
+  const el = (ev.target as HTMLElement).closest<HTMLElement>('[data-feed],[data-party]');
+  if (!el) return;
+  if (el.dataset.feed !== undefined) {
+    frameIdx = Number(el.dataset.feed);
+    playing = false;
+    stopTimer();
+  } else {
+    unitCardId = el.dataset.party!;
+    cardTab = 'moves';
+    cardMove = null;
+    playing = false;
+    stopTimer();
+  }
+  render();
+});
+
+window.addEventListener('keydown', (ev) => {
+  if (!battle || editorOpen || logOpen || debugOpen || unitCardId || aftermathOpen) return;
+  if (ev.key === ' ') {
+    ev.preventDefault();
+    playing = !playing;
+    if (playing) runTimer();
+    else stopTimer();
+    syncBattleFrame();
+  } else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+    ev.preventDefault();
+    playing = false;
+    stopTimer();
+    frameIdx = Math.min(frames.length - 1, Math.max(0, frameIdx + (ev.key === 'ArrowRight' ? 1 : -1)));
+    syncBattleFrame();
+  }
+});
 
 fitScale = computeFit();
 window.addEventListener('resize', () => {

@@ -20,6 +20,30 @@ import type { LensId, Pos } from './types.js';
  * приказ и переиграть с теми же костями (онбординг ядра игры).
  */
 
+/**
+ * Комплект приказов героя (спека редактора приказов): свой текст, свой набор
+ * принципов, свой фокус. Три на героя, переключение бесплатно и вне боя.
+ */
+export interface OrderSet {
+  /** Исходный текст игрока целиком — включая слова, которых герой не знает. */
+  text: string;
+  /** Короткая подпись комплекта: «штурм», «оборона». */
+  note: string;
+  phrases: PhraseDraft[];
+}
+
+/** Ярлыки комплектов — они же порядок вкладок. */
+export const ORDER_SETS = ['A', 'B', 'C'] as const;
+
+export const emptyOrderSets = (phrases: PhraseDraft[]): OrderSet[] =>
+  ORDER_SETS.map((_, i) => ({ text: '', note: '', phrases: i === 0 ? phrases.map((d) => ({ ...d })) : [] }));
+
+/**
+ * Фокус (спека редактора): единственный видимый игроку рычаг приоритета —
+ * вес 3 на фразе. Один фокус на героя, бюджет общий на отряд.
+ */
+export const FOCUS_BUDGET = 3;
+
 export interface HeroState {
   id: string;
   /** id архетипа из HERO_POOL — статы и способность; равен id героя. */
@@ -33,7 +57,12 @@ export interface HeroState {
   /** Текущее hp — переносится между боями; лечится на привале и перевязкой после победы. */
   hp: number;
   slots: number;
+  /** Действующий набор — его читает бой; зеркало `sets[activeSet].phrases`. */
   phrases: PhraseDraft[];
+  /** Три комплекта приказов; переключение бесплатно и вне боя. */
+  sets: OrderSet[];
+  /** Индекс активного комплекта в `sets`. */
+  activeSet: number;
 }
 
 export type NodeKind = 'lesson' | 'fight' | 'elite' | 'event' | 'rest' | 'scriptorium' | 'boss';
@@ -47,6 +76,27 @@ export interface MapNode {
   /** id узлов следующего слоя, в которые можно пойти. */
   next: number[];
 }
+
+/**
+ * Разведка узла (спека «Разведка перед боем»): очки и то, что уже куплено.
+ * Разведка — трата, а не справка: задача боя и имена врагов открыты всегда,
+ * остальное покупается очками. Живёт до ухода с узла, траты необратимы.
+ */
+export interface IntelState {
+  /** Нерастраченные очки разведки этого узла. */
+  points: number;
+  /** Карта куплена: рельеф, расстановка врагов и полный состав. */
+  map: boolean;
+  /** id врагов, чьи числа куплены. */
+  numbers: string[];
+  /** id врагов, чьи приказы куплены. */
+  orders: string[];
+}
+
+/** Очков разведки на узел. */
+export const INTEL_POINTS = 3;
+
+export const freshIntel = (): IntelState => ({ points: INTEL_POINTS, map: false, numbers: [], orders: [] });
 
 export interface RunState {
   runSeed: number;
@@ -75,6 +125,8 @@ export interface RunState {
    * обычные слова, элита — редкие. null — забран/нет.
    */
   pendingReward: ConceptId[][] | null;
+  /** Разведка текущего узла: очки и покупки. Сбрасывается при переходе. */
+  intel: IntelState;
   /**
    * Режим нерва (план nerve): амплитуда seeded-разброса весов решения в боях
    * забега. Отсутствие или 0 — режим выключен (обычный детерминированный счёт).
@@ -231,6 +283,45 @@ export function setMark(state: RunState, foeId: string | null): SetPhrasesResult
   return { ok: true };
 }
 
+// ---- Разведка узла ----
+
+export type IntelBuy = { kind: 'map' } | { kind: 'numbers'; foeId: string } | { kind: 'orders'; foeId: string };
+
+/** Состав врагов известен целиком: куплена карта или узел сам даёт интел. */
+export function foesKnown(state: RunState): boolean {
+  return state.intel.map || intelVisible(currentNode(state));
+}
+
+/**
+ * Кто виден до покупки карты. Количество врагов — тоже покупаемая информация,
+ * поэтому задние прячутся «за камнями»; на узлах с интелом (урок, элитка,
+ * босс) состав открыт заранее — это и есть их цена в выборе тропы.
+ */
+export function visibleFoes(state: RunState): UnitSpec[] {
+  const foes = foeSpecs(state);
+  if (foesKnown(state)) return foes;
+  return foes.slice(0, Math.max(1, foes.length - Math.ceil(foes.length / 3)));
+}
+
+/** Потратить очко разведки. Траты необратимы: отменять покупку нечем. */
+export function buyIntel(state: RunState, buy: IntelBuy): SetPhrasesResult {
+  const node = currentNode(state);
+  if (!FIGHT_KINDS.includes(node.kind) || state.resolved) return { ok: false, error: 'Разведка — только перед боем' };
+  const intel = state.intel;
+  if (intel.points <= 0) return { ok: false, error: 'Очки разведки кончились' };
+  if (buy.kind === 'map') {
+    if (intel.map) return { ok: false, error: 'Карта уже открыта' };
+    intel.map = true;
+  } else {
+    if (!foeSpecs(state).some((f) => f.id === buy.foeId)) return { ok: false, error: `На этом поле нет врага ${buy.foeId}` };
+    const list = buy.kind === 'numbers' ? intel.numbers : intel.orders;
+    if (list.includes(buy.foeId)) return { ok: false, error: 'Это уже куплено' };
+    list.push(buy.foeId);
+  }
+  intel.points--;
+  return { ok: true };
+}
+
 // ---- Старт и доступ ----
 
 export function startRun(runSeed: number): RunState {
@@ -247,6 +338,8 @@ export function startRun(runSeed: number): RunState {
     hp: arch.stats.maxHp,
     slots: START_SLOTS,
     phrases: defaultPhrasesFor(arch, party),
+    sets: emptyOrderSets(defaultPhrasesFor(arch, party)),
+    activeSet: 0,
   }));
   return {
     runSeed,
@@ -258,6 +351,7 @@ export function startRun(runSeed: number): RunState {
     marked: null,
     deploy: {},
     pendingReward: null,
+    intel: freshIntel(),
     status: 'ongoing',
     log: [],
   };
@@ -352,6 +446,48 @@ export function setPhrases(state: RunState, heroId: string, drafts: PhraseDraft[
     if (!r.ok) return { ok: false, error: `Закрытые концепты: ${r.missing.join(', ')}` };
   }
   hero.phrases = drafts.map((d) => ({ ...d }));
+  // активный комплект и действующий набор — одно и то же состояние
+  const set = hero.sets[hero.activeSet];
+  if (set) set.phrases = drafts.map((d) => ({ ...d }));
+  return { ok: true };
+}
+
+// ---- Комплекты приказов и фокус ----
+
+/** Переключить героя на другой комплект. Бесплатно, но не в бою. */
+export function switchOrderSet(state: RunState, heroId: string, index: number): SetPhrasesResult {
+  const hero = state.heroes.find((h) => h.id === heroId);
+  if (!hero) return { ok: false, error: `Нет героя ${heroId}` };
+  if (!hero.alive) return { ok: false, error: `${hero.name} мёртв` };
+  if (!hero.sets[index]) return { ok: false, error: 'Такого комплекта нет' };
+  const prev = hero.activeSet;
+  hero.activeSet = index;
+  const r = setPhrases(state, heroId, hero.sets[index]!.phrases);
+  if (!r.ok) hero.activeSet = prev;
+  return r;
+}
+
+/** Сколько фокусов отряда занято: фокус на героя — не больше одного. */
+export function focusUsed(state: RunState): number {
+  return state.heroes.filter((h) => h.alive && h.phrases.some((d) => (d.weight ?? 1) >= 3)).length;
+}
+
+/**
+ * Поставить фокус на фразу героя (null — снять). Фокус — вес 3: единственный
+ * рычаг приоритета, который игрок видит. Бюджет общий на отряд.
+ */
+export function setFocus(state: RunState, heroId: string, index: number | null): SetPhrasesResult {
+  const hero = state.heroes.find((h) => h.id === heroId);
+  if (!hero) return { ok: false, error: `Нет героя ${heroId}` };
+  if (!hero.alive) return { ok: false, error: `${hero.name} мёртв` };
+  if (index !== null && !hero.phrases[index]) return { ok: false, error: 'Такого приказа нет' };
+  const hadFocus = hero.phrases.some((d) => (d.weight ?? 1) >= 3);
+  if (index !== null && !hadFocus && focusUsed(state) >= FOCUS_BUDGET) {
+    return { ok: false, error: 'Фокусы кончились: сними у другого героя, если этот принцип важнее' };
+  }
+  hero.phrases = hero.phrases.map((d, i) => ({ ...d, weight: i === index ? 3 : 1 }));
+  const set = hero.sets[hero.activeSet];
+  if (set) set.phrases = hero.phrases.map((d) => ({ ...d }));
   return { ok: true };
 }
 
@@ -529,6 +665,7 @@ export function advance(state: RunState, toId: number): AdvanceResult {
   state.resolved = false;
   state.marked = null; // новый узел — новые враги, метка не переносится
   state.deploy = {}; // новая арена — расстановка заново
+  state.intel = freshIntel(); // новый узел — своя разведка, траты не переносятся
   return { ok: true };
 }
 
