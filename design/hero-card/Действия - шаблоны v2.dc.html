@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Caveat:wght@400;600&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #332f29; }
+  a { color: #9c3b28; text-decoration: none; border-bottom: 1px solid rgba(156,59,40,0.5); }
+  a:hover { color: #c04d33; }
+</style>
+</helmet>
+<section style="display:flex;flex-direction:column;gap:22px;padding:40px 44px;font-family:'EB Garamond',Georgia,serif;color:#1f1b16">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:920px">
+    <span style="font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.14em;text-transform:uppercase;color:rgba(240,232,213,0.45)">оборот 3 · сводка по оружию + попап приёма</span>
+    <h1 style="margin:0;font:500 26px/1.15 'EB Garamond',serif;letter-spacing:0.04em;color:#f0e8d5">Лёгкий список, подробности в попапе</h1>
+    <p style="margin:0;font:400 16px/1.45 'EB Garamond',serif;color:rgba(240,232,213,0.72);text-wrap:pretty">Основной вид — как <a href="Действия — шаблоны.dc.html#1b">1b</a>: группировка по оружию, строка = ромбы цены + имя + три ступени броска + урон. Пояснения и схемы из <a href="Действия — шаблоны.dc.html#2a">2a</a> уехали в попап: клик по приёму, оружию или реакции раскрывает карточку справа. Кликните любую строку.</p>
+  </div>
+
+  <div style="display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap">
+    <div id="3a" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:4px 6px">3a</span>
+        <span style="font:400 11px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;color:rgba(240,232,213,0.6)">карточка героя · клик по строке</span>
+      </div>
+
+      <div style="display:flex;gap:18px;align-items:flex-start">
+        <div style="width:440px;background:#f6efdd;box-shadow:0 20px 50px rgba(0,0,0,0.45);padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1.5px solid rgba(31,27,22,0.5);padding-bottom:7px">
+            <span style="font:500 15px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Яр</span>
+            <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">воин · мастер оружия</span>
+            <span style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.55)">hp 56 · КБ 17 · приказы 2/4</span>
+          </div>
+
+          <div style="display:flex;gap:0;border-bottom:1.5px solid rgba(31,27,22,0.5);margin-top:-4px">
+            <div data-tab="about" onClick="{{ setTab }}" style="{{ tabAboutStyle }}" style-hover="color:#9c3b28">Описание</div>
+            <div data-tab="moves" onClick="{{ setTab }}" style="{{ tabMovesStyle }}" style-hover="color:#9c3b28">Приёмы</div>
+            <div data-tab="bag" onClick="{{ setTab }}" style="{{ tabBagStyle }}" style-hover="color:#9c3b28">Инвентарь</div>
+          </div>
+
+          <sc-if value="{{ isAbout }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">характеристики</span>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;font:400 11px/1.5 'Courier Prime',monospace;color:rgba(31,27,22,0.75)">
+                <span style="display:flex;justify-content:space-between;border-bottom:1px dotted rgba(31,27,22,0.25)"><span>жизни</span><span style="color:#1f1b16">56</span></span>
+                <span style="display:flex;justify-content:space-between;border-bottom:1px dotted rgba(31,27,22,0.25)"><span>инициатива</span><span style="color:#1f1b16">5</span></span>
+                <span style="display:flex;justify-content:space-between;border-bottom:1px dotted rgba(31,27,22,0.25)"><span>шаг</span><span style="color:#1f1b16">2 клетки</span></span>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">защиты и спасброски</span>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">КБ 17</span>
+                <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">стойкость 10</span>
+                <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">реакция 7</span>
+                <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">воля 6</span>
+              </div>
+              <span style="font:400 13.5px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.7)">Слабая воля — падок на провокацию: враг со словом «раздразнить» уводит его от строя.</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">урон: как его берут</span>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;font:400 10px/1 'Courier Prime',monospace">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5;text-transform:uppercase;letter-spacing:0.05em">сопр 2</span>
+                <span style="font:400 13.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.8)">рубящий — кольчуга держит клинок</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1;text-transform:uppercase;letter-spacing:0.05em">слаб 3</span>
+                <span style="font:400 13.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.8)">огонь — горит дольше прочих, тик режет</span>
+                <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7);text-transform:uppercase;letter-spacing:0.05em">имм</span>
+                <span style="font:400 13.5px/1.3 'EB Garamond',serif;color:rgba(31,27,22,0.55)">нет</span>
+              </div>
+              <span style="font:400 14px/1.3 'Caveat',cursive;color:rgba(31,27,22,0.6)">Разведка открывает эту строку по бою: до первого попадания стоит «?».</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">характер · выучивается по бою</span>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase;color:rgba(31,27,22,0.65)">
+                <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.35)">горячка</span>
+                <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.35)">прямота</span>
+                <span style="padding:4px 6px;border:1px dashed rgba(31,27,22,0.3);color:rgba(31,27,22,0.4)">? ещё не открыто</span>
+              </div>
+              <span style="font:400 13.5px/1.35 'EB Garamond',serif;color:rgba(31,27,22,0.75)">Горячка тянет вперёд: приказ «держись за спинами» он исполнит хуже, чем «бей вожака».</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:3px;border-top:1px dotted rgba(31,27,22,0.35);padding-top:8px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">способность · врождённое правило</span>
+              <div style="font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">Вызов — признаёт только самого опасного противника.</div>
+            </div>
+          </div>
+          </sc-if>
+
+          <sc-if value="{{ isBag }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">носит с собой</span>
+              <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.08em;text-transform:uppercase;padding:3px 6px;background:rgba(31,27,22,0.12);border:1px dashed rgba(31,27,22,0.4);color:rgba(31,27,22,0.55)">в разработке</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;opacity:0.75">
+              <div style="display:flex;align-items:center;gap:9px;border:1px solid rgba(31,27,22,0.3);padding:8px 10px">
+                <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28">✦</span>
+                <span style="display:flex;flex-direction:column;gap:2px">
+                  <span style="font:600 16px/1.05 'EB Garamond',serif">молот</span>
+                  <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">оружие · дробящий 8 · даёт «пролом», «сплеча»</span>
+                </span>
+              </div>
+              <div style="display:flex;align-items:center;gap:9px;border:1px solid rgba(31,27,22,0.3);padding:8px 10px">
+                <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28">✦</span>
+                <span style="display:flex;flex-direction:column;gap:2px">
+                  <span style="font:600 16px/1.05 'EB Garamond',serif">свиток воинских тренировок</span>
+                  <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">слова · открывает «бить часто», «бить наверняка»</span>
+                </span>
+              </div>
+              <div style="display:flex;align-items:center;gap:9px;border:1px dashed rgba(31,27,22,0.3);padding:8px 10px;color:rgba(31,27,22,0.45)">
+                <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace">+</span>
+                <span style="font:400 14px/1.2 'Caveat',cursive">пустой слот — сюда ляжет добыча похода</span>
+              </div>
+            </div>
+            <span style="font:400 14px/1.35 'Caveat',cursive;color:rgba(31,27,22,0.6)">Смысл вкладки: предметы — источник приёмов и слов. Убрал молот из сумки — исчезли «пролом» и «сплеча» во вкладке приёмов.</span>
+          </div>
+          </sc-if>
+
+          <sc-if value="{{ isMoves }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div data-key="spear" onClick="{{ pick }}" style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:4px;cursor:pointer" style-hover="color:#9c3b28">
+              <span style="font:600 14px/1 'EB Garamond',serif;color:#9c3b28;text-transform:uppercase;letter-spacing:0.08em">Копьё</span>
+              <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">колющий · 6 · даль 2</span>
+              <span style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45)">+9</span>
+            </div>
+            <div data-key="spearJab" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:6px 4px;border-bottom:1px dotted rgba(31,27,22,0.25);cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28;letter-spacing:1px">◆</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">укол копьём</span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">+9 / +4 / −1</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">4</span>
+              </span>
+            </div>
+            <div data-key="spearSweep" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28;letter-spacing:1px">◆◆</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">отмах древком</span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">+9 / +4 / −1</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">5</span>
+              </span>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div data-key="sword" onClick="{{ pick }}" style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:4px;cursor:pointer">
+              <span style="font:600 14px/1 'EB Garamond',serif;color:#9c3b28;text-transform:uppercase;letter-spacing:0.08em">Меч</span>
+              <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">рубящий · 7 · в упор</span>
+              <span style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45)">+9</span>
+            </div>
+            <div data-key="swordFlurry" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28;letter-spacing:1px">◆</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">серия уколов</span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">+9 / +4 / −1</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">5</span>
+              </span>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div data-key="hammer" onClick="{{ pick }}" style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:4px;cursor:pointer">
+              <span style="font:600 14px/1 'EB Garamond',serif;color:#9c3b28;text-transform:uppercase;letter-spacing:0.08em">Молот</span>
+              <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">дробящий · 8 · в упор</span>
+              <span style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45)">+9</span>
+            </div>
+            <div data-key="hammerBreak" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:6px 4px;border-bottom:1px dotted rgba(31,27,22,0.25);cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28;letter-spacing:1px">◆◆</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">пролом</span>
+              <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.05em;color:rgba(31,27,22,0.5);border-bottom:1px dotted rgba(31,27,22,0.4)">пробивает укрытия</span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">+9 / +4 / −1</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">8</span>
+              </span>
+            </div>
+            <div data-key="hammerAllOut" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28;letter-spacing:1px">◆◆</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif;color:#9c3b28">сплеча</span>
+              <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.05em;color:#9c3b28;border-bottom:1px dotted rgba(156,59,40,0.5)">открывает</span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">+9 / +4 / −1</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">12</span>
+              </span>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:4px">
+              <span style="font:600 14px/1 'EB Garamond',serif;color:#9c3b28;text-transform:uppercase;letter-spacing:0.08em">Ход и оборона</span>
+              <span style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">общее для всех</span>
+            </div>
+            <div data-key="step" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:6px 4px;border-bottom:1px dotted rgba(31,27,22,0.25);cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28;letter-spacing:1px">◆</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">осторожный шаг</span>
+              <span style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.05em;padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">без ответа</span>
+            </div>
+            <div data-key="cover" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28;letter-spacing:1px">◆</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">прикрыться</span>
+              <span style="margin-left:auto;font:400 9.5px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.05em;padding:4px 6px;background:#1f1b16;color:#f0e8d5">+2 к КБ</span>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:4px">
+              <span style="font:600 14px/1 'EB Garamond',serif;color:#9c3b28;text-transform:uppercase;letter-spacing:0.08em">Реакция</span>
+              <span style="font:400 9.5px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">одна в раунд — на всё</span>
+              <span style="margin-left:auto;width:9px;height:9px;border:1.5px solid #9c3b28;transform:rotate(45deg)"></span>
+            </div>
+            <div data-key="reactiveStrike" onClick="{{ pick }}" style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;margin:0 -4px" style-hover="background:rgba(156,59,40,0.07)">
+              <span style="flex:none;width:26px;font:600 12px/1 'Courier Prime',monospace;color:#9c3b28">◇</span>
+              <span style="font:600 16px/1.05 'EB Garamond',serif">ответный удар</span>
+              <span style="margin-left:auto;display:flex;gap:4px;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">+9 · без повтора</span>
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">8</span>
+              </span>
+            </div>
+          </div>
+
+          </div>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+          <div style="width:330px;flex:none;background:#f0e8d5;border-top:4px solid #9c3b28;box-shadow:0 22px 55px rgba(0,0,0,0.5);padding:16px 18px;display:flex;flex-direction:column;gap:9px">
+            <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px">
+              <span style="font:600 19px/1.05 'EB Garamond',serif">{{ sel.name }}</span>
+              <button onClick="{{ close }}" style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:#1f1b16;background:transparent;border:1px solid rgba(31,27,22,0.45);padding:4px 6px;cursor:pointer;border-radius:0" style-hover="background:rgba(31,27,22,0.08)">закрыть</button>
+            </div>
+            <span style="font:400 9.5px/1.3 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.06em;color:rgba(31,27,22,0.55)">{{ sel.meta }}</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;font:400 9.5px/1 'Courier Prime',monospace;letter-spacing:0.05em;text-transform:uppercase">
+              <sc-if value="{{ sel.atk }}" hint-placeholder-val="{{ true }}">
+                <span style="padding:4px 6px;background:#1f1b16;color:#f0e8d5">{{ sel.atk }}</span>
+              </sc-if>
+              <sc-if value="{{ sel.dmg }}" hint-placeholder-val="{{ true }}">
+                <span style="padding:4px 6px;background:#9c3b28;color:#f7f0e1">{{ sel.dmg }}</span>
+              </sc-if>
+              <sc-if value="{{ sel.rider }}" hint-placeholder-val="{{ true }}">
+                <span style="padding:4px 6px;border:1px solid rgba(31,27,22,0.45);color:rgba(31,27,22,0.7)">{{ sel.rider }}</span>
+              </sc-if>
+            </div>
+            <p style="margin:0;font:400 15px/1.42 'EB Garamond',serif;color:rgba(31,27,22,0.88);text-wrap:pretty">{{ sel.text }}</p>
+            <sc-if value="{{ sel.figure }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:5px">
+                <div style="width:100%;height:76px;background-image:repeating-linear-gradient(135deg,rgba(31,27,22,0.16) 0 2px,transparent 2px 7px);border:1px solid rgba(31,27,22,0.35)"></div>
+                <span style="font:400 9.5px/1.4 'Courier Prime',monospace;color:rgba(31,27,22,0.5)">{{ sel.figure }}</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sel.word }}" hint-placeholder-val="{{ true }}">
+              <div style="border-top:1px dotted rgba(31,27,22,0.35);padding-top:7px;font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">{{ sel.word }}</div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+      <p style="margin:0;width:440px;font:400 14px/1.35 'Caveat',cursive;color:rgba(240,232,213,0.66)">Список остаётся сводкой на один взгляд; всё, что объяснялось абзацем, ждёт в попапе — включая место под схему.</p>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:900,&quot;height&quot;:760}}">
+const DETAILS = {
+  spear: {
+    name: 'Копьё',
+    meta: 'оружие · колющий · урон 6 · даль 2 · бонус +9',
+    rider: 'два приёма',
+    text: 'Единственное оружие Яра с дистанцией: и быстрый укол, и полный отмах достают через клетку. Ниша — бить из-за спины товарища, не входя в зону ответного удара.',
+    figure: 'схема арсенала: три оружия по осям «дальность / урон / пирс» — видно, что доминации нет',
+  },
+  spearJab: {
+    name: 'укол копьём',
+    meta: 'копьё · быстрый темп · 1 очко · колющий · даль 2',
+    atk: '+9 / +4 / −1',
+    dmg: 'урон 4',
+    text: 'Самый дешёвый удар на дистанции. Второй за ход бьёт со штрафом −5, третий −10 — и промах считается наравне с попаданием.',
+    figure: 'схема: три клетки — Яр, свой, цель; копьё достаёт поверх строя',
+  },
+  spearSweep: {
+    name: 'отмах древком',
+    meta: 'копьё · полный темп · 2 очка · колющий · даль 2',
+    atk: '+9 / +4 / −1',
+    dmg: 'урон 5',
+    text: 'Полный удар с дистанции — то, чего нет ни у меча, ни у молота. Цена ниши: урон вдвое ниже молота.',
+  },
+  sword: {
+    name: 'Меч',
+    meta: 'оружие · рубящий · урон 7 · в упор · бонус +9',
+    rider: 'один приём',
+    text: 'У меча только быстрый темп — он и есть лучший дешёвый удар в упор. Полного удара нет намеренно: при равной дальности он был бы строго хуже пролома молотом.',
+  },
+  swordFlurry: {
+    name: 'серия уколов',
+    meta: 'меч · быстрый темп · 1 очко · рубящий · в упор',
+    atk: '+9 / +4 / −1',
+    dmg: 'урон 5',
+    text: 'За одно очко — половина урона молота. Стойка «бить часто» смягчает ступень повтора, и три укола становятся техникой скорострельности, а не жадностью.',
+    word: 'слово «бить часто» заказывает этот темп.',
+  },
+  hammer: {
+    name: 'Молот',
+    meta: 'оружие · дробящий · урон 8 · в упор · бонус +9',
+    rider: 'два приёма',
+    text: 'Тяжёлый конец арсенала: пробивает укрытия и щиты и единственный умеет рискнуть. Дробящий тип — ответ на латника, которого меч не берёт.',
+  },
+  hammerBreak: {
+    name: 'пролом',
+    meta: 'молот · полный темп · 2 очка · дробящий · пробивает укрытия',
+    atk: '+9 / +4 / −1',
+    dmg: 'урон 8',
+    rider: 'пирс 0.3',
+    text: 'От бонуса обороны цели остаётся треть: против латника в КБ 19 за щитом решает больше, чем фланг. С пирсом стойки «наверняка» не складывается — берётся высший.',
+    figure: 'инфографика: КБ 19 → 17 — полоска, от которой откушен щит',
+  },
+  hammerAllOut: {
+    name: 'сплеча',
+    meta: 'молот · рисковый темп · 2 очка · дробящий · открывает',
+    atk: '+9 / +4 / −1',
+    dmg: 'урон 12',
+    rider: 'входящий ×1.35',
+    text: 'Самый тяжёлый удар и единственный настоящий размен: до своего следующего хода всё входящее по Яру идёт ×1.35 — от всех сразу, а не только от цели.',
+    word: 'слово «бить отчаянно» заказывает его; трус прочтёт как «бить наверняка», фанатик переведёт в него любую манеру.',
+  },
+  step: {
+    name: 'осторожный шаг',
+    meta: 'общее · 1 очко · до 2 клеток',
+    rider: 'не провоцирует',
+    text: 'Выйти из контакта, ничего не заплатив. Бегом то же расстояние стоит удара от всякого, у кого цела реакция.',
+    figure: 'схема: две клетки отхода — шагом чисто, бегом ловишь ответный удар',
+  },
+  cover: {
+    name: 'прикрыться',
+    meta: 'общее · 1 очко · до своего хода',
+    atk: '+2 к КБ',
+    text: 'Бонус обстоятельств. С камнем, приманкой и щитом союзника не складывается — берётся высший; за камнем плюс прикрытие поднимается ступенью выше, до +4.',
+  },
+  reactiveStrike: {
+    name: 'ответный удар',
+    meta: 'реакция · одна в раунд · дробящий',
+    atk: '+9 · без повтора',
+    dmg: 'урон 8',
+    text: 'Кто уходит бегом из-под носа — получает удар. В чужой ход штраф за повтор обнулён, поэтому бьёт в полную силу; но карман один — потратил на ответ, значит закрыть собой мага уже нечем.',
+    figure: 'схема кармана реакции: один ромб на блок, перехват и ответ',
+  },
+};
+
+class Component extends DCLogic {
+  state = { open: 'hammerBreak', tab: 'moves' };
+  renderVals() {
+    const key = this.state.open;
+    const tab = this.state.tab;
+    const tabStyle = (on) =>
+      "flex:1;text-align:center;padding:7px 4px;cursor:pointer;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;text-transform:uppercase;" +
+      (on
+        ? 'background:#1f1b16;color:#f0e8d5;'
+        : 'color:rgba(31,27,22,0.5);border:1px solid rgba(31,27,22,0.25);border-bottom:none;');
+    return {
+      isAbout: tab === 'about',
+      isMoves: tab === 'moves',
+      isBag: tab === 'bag',
+      tabAboutStyle: tabStyle(tab === 'about'),
+      tabMovesStyle: tabStyle(tab === 'moves'),
+      tabBagStyle: tabStyle(tab === 'bag'),
+      setTab: (e) => this.setState({ tab: e.currentTarget.dataset.tab }),
+      open: tab === 'moves' && !!key,
+      sel: DETAILS[key] || {},
+      pick: (e) => {
+        const k = e.currentTarget.dataset.key;
+        this.setState({ open: this.state.open === k ? null : k });
+      },
+      close: () => this.setState({ open: null }),
+    };
+  }
+}
+</script>
+</body>
+</html>
