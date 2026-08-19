@@ -489,7 +489,8 @@ button.primary:disabled:hover { background: var(--ink); }
 .btoken.foe .dm { background: transparent; color: var(--red); border-color: var(--red); }
 .btoken.leader .dm { background: var(--red); color: #f7f0e1; }
 .btoken.hero-lead .dm { background: var(--ink); color: #efe7d6; }
-.btoken.active .dm { box-shadow: 0 0 0 4px rgba(156, 59, 40, 0.28); }
+/* актор кадра — единственная подсветка поля: форма и контур, не третий цвет */
+.btoken.active .dm { box-shadow: 0 0 0 2px #f7f0e1, 0 0 0 3.5px var(--ink); }
 .hp-sliver {
   position: absolute;
   bottom: 1px;
@@ -704,45 +705,85 @@ button.buy:disabled { opacity: 0.4; border-style: dashed; }
 }
 .prep-hint { font: 400 14px/1.3 var(--hand); color: rgba(31, 27, 22, 0.62); text-transform: none; }
 
-/* ---- управление воспроизведением ---- */
+/* ---- экран боя: транспорт, лента решений, полоса отряда (спека 1a) ---- */
 .controls-row {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font: 400 10.5px/1 var(--mono);
-  color: rgba(31, 27, 22, 0.65);
+  gap: 6px;
   flex: none;
+  font: 400 10px/1 var(--mono);
+  color: var(--ink-55);
 }
-.controls-row button { padding: 6px 9px; border-width: 1px; border-color: var(--ink-45); min-width: 30px; text-align: center; }
-.progress { flex: 1; height: 3px; background: rgba(31, 27, 22, 0.15); position: relative; }
-.progress span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--red); }
+.controls-row button { padding: 7px 10px; border-width: 1px; border-color: var(--ink-45); }
+.speeds { display: flex; gap: 3px; }
+.speeds .sp { padding: 6px 7px; font-size: 9.5px; border-width: 1px; }
+.speeds .sp.on { background: var(--ink); color: var(--paper-l); border-color: var(--ink); }
+.ctl-hint { margin-left: auto; font: 400 13px/1.2 var(--hand); color: var(--ink-45); }
+.frame-line { display: flex; align-items: center; gap: 8px; flex: none; }
+/* полоска кадров: засечка на кадр, текущая красная и выше остальных */
+.ticks { flex: 1; min-width: 0; display: flex; align-items: flex-end; height: 8px; }
+.tick { flex: 1 1 0; min-width: 0; height: 3px; background: rgba(31, 27, 22, 0.15); }
+.tick.done { background: var(--ink-45); }
+.tick.cur { height: 8px; background: var(--red); }
 
-/* ---- полосы под сеткой и лог на полях ---- */
-.enemy-strip {
-  border-top: 1px solid var(--ink-30);
-  padding-top: 6px;
+.party-strip { display: flex; gap: 9px; flex: none; border-top: 1px dotted rgba(31, 27, 22, 0.35); padding-top: 9px; }
+.ps-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; cursor: pointer; }
+.ps-col.dead { opacity: 0.4; }
+.ps-head { display: flex; align-items: baseline; gap: 5px; }
+.ps-name { font: 600 13.5px/1.1 var(--serif); white-space: nowrap; }
+.ps-class {
+  font: 400 9px/1 var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--red);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-hp { margin-left: auto; font: 400 9px/1 var(--mono); color: var(--ink-55); white-space: nowrap; }
+.ps-bar { height: 4px; background: rgba(31, 27, 22, 0.15); display: flex; }
+.ps-bar span { display: block; height: 100%; background: var(--ink); }
+.ps-bar span.low { background: var(--red); }
+.ps-note { font: 400 9px/1 var(--mono); color: var(--ink-45); }
+
+/* блок «сейчас · кто и почему» — единственное место, где называется причина */
+.now-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: none;
+  background: var(--paper-l);
+  border-top: 3px solid var(--red);
+  padding: 9px 11px;
+}
+.nb-act { display: flex; align-items: baseline; gap: 6px; }
+.nb-cost { flex: none; font: 600 12px/1.3 var(--mono); color: var(--red); }
+.nb-text { font: 400 15px/1.3 var(--serif); }
+.nb-order {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font: 400 10.5px/1.35 var(--mono);
-  color: rgba(31, 27, 22, 0.6);
-  flex: none;
+  border-top: 1px dotted var(--ink-30);
+  padding-top: 5px;
+  font: 400 13px/1.3 var(--serif);
+  color: rgba(31, 27, 22, 0.8);
 }
-.margin-log {
-  flex: 1;
-  min-height: 0;
-  border-top: 1px solid var(--ink-30);
-  padding-top: 6px;
+.nb-voice { border-left: 2px solid var(--red); padding-left: 8px; font: 400 15px/1.25 var(--hand); color: var(--red); }
+.nb-voice.foe { border-left-color: var(--ink-45); color: rgba(31, 27, 22, 0.6); }
+
+.feed { display: flex; flex-direction: column; gap: 4px; min-height: 0; align-items: flex-start; }
+.feed #feed { align-self: stretch; }
+.feed-row {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font: 400 10.5px/1.35 var(--mono);
-  color: rgba(31, 27, 22, 0.75);
-  overflow: hidden;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px dotted rgba(31, 27, 22, 0.2);
+  cursor: pointer;
 }
-.margin-log .row { display: flex; gap: 7px; }
-.margin-log .t { color: rgba(31, 27, 22, 0.4); flex: none; }
-.margin-log .why { color: rgba(31, 27, 22, 0.5); }
+.feed-row .no { flex: none; width: 26px; font: 400 9px/1.5 var(--mono); color: var(--ink-45); }
+.feed-row .tx { font: 400 12.5px/1.25 var(--serif); color: var(--ink-55); }
+.feed-row.cur .tx { color: var(--ink); }
+.feed-row .why { font: 400 10px/1.3 var(--mono); color: var(--ink-45); font-style: normal; }
 .tact-btn { border-width: 1px; padding: 3px 6px; font-size: 9.5px; }
 .tact-btn.on { background: var(--ink); color: var(--paper-l); border-color: var(--ink); }
 .tact-btn.on:hover { background: var(--ink); }

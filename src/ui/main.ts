@@ -65,7 +65,6 @@ import {
   startRun,
 } from '../run.js';
 
-import { foeIntel } from '../foes.js';
 import { DEBUG_BATTLES, type DebugSetup, MAX_DEBUG_PARTY, debugBattleById, debugBrief, debugRun } from '../debug.js';
 import { scenarioForNode } from '../objectives.js';
 import { HERO_POOL, type HeroArchetype, heroArchetype } from '../heroes.js';
@@ -770,6 +769,8 @@ interface Frame {
   round: number;
   actorId: string;
   actorName: string;
+  /** Цена решения в очках хода: 0 — реакция или ожидание (ромб ◇). */
+  cost: number;
   text: string;
   factors: { label: string; value: number }[];
   units: FrameUnit[];
@@ -824,7 +825,9 @@ function buildFrames(
   const activeZones = new Map<string, { x: number; y: number }>();
   const out: Frame[] = [];
   let round = 0;
-  let pending: { actorId: string; factors: Frame['factors']; parts: string[]; fx: Fx[]; callout?: string } | null = null;
+  let pending:
+    | { actorId: string; cost: number; factors: Frame['factors']; parts: string[]; fx: Fx[]; callout?: string }
+    | null = null;
   // всплывающий текст над юнитом (его текущая клетка) — попадает в кадр pending
   const float = (unitId: string, text: string, tone: FxTone): void => {
     const u = units.get(unitId);
@@ -907,6 +910,7 @@ function buildFrames(
       round,
       actorId: pending.actorId,
       actorName: nm(pending.actorId),
+      cost: pending.cost,
       text: pending.parts.length ? pending.parts.join(', ') : 'медлит',
       factors: pending.factors,
       units: snap(),
@@ -938,7 +942,7 @@ function buildFrames(
         break;
       case 'decision': {
         flush();
-        pending = { actorId: e.unit, factors: e.factors, parts: [], fx: [] };
+        pending = { actorId: e.unit, cost: AP_COST[e.action] ?? 1, factors: e.factors, parts: [], fx: [] };
         // начало своего хода: действие прикрытия и щит союзника истекают
         if (e.ap === AP_PER_TURN) {
           const u = units.get(e.unit);
@@ -1047,7 +1051,7 @@ function buildFrames(
           // залп ритуала бьёт в начале хода кастера, до его решения — свой кадр;
           // «полымя» (holds) держит зону до последнего пульса
           flush();
-          pending = { actorId: e.unit, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`], fx: [] };
+          pending = { actorId: e.unit, cost: 0, factors: [], parts: [`ритуал обрушивается на ${cellName(e.at.x, e.at.y)}`], fx: [] };
           pending.fx.push({ kind: 'cells', cells: cellsAround(e.at, AOE_RITUAL_RADIUS), form: 'ritual' });
           if (!e.holds) activeZones.delete(e.unit);
         } else if (e.form === 'line') {
@@ -1122,6 +1126,7 @@ function buildFrames(
         units.get(e.unit)!.hp = e.hp;
         pending = {
           actorId: e.unit,
+          cost: 0,
           factors: [],
           parts: [e.quenched ? 'не зарастает: огонь не даёт' : `зарастает: +${e.amount}`],
           fx: [],
@@ -1141,6 +1146,7 @@ function buildFrames(
         units.get(e.unit)!.hp = e.hp;
         pending = {
           actorId: e.unit,
+          cost: 0,
           factors: [],
           parts: [`${persistRu(e.dmgType)}: −${e.dmg}`],
           fx: [],
@@ -1165,7 +1171,7 @@ function buildFrames(
         const quip = driftQuip(e.lens);
         const u = units.get(e.unit)!;
         reveals.push({ unit: e.unit, name: u.name, side: u.side, lens: e.lens, quip, frame: out.length });
-        pending = { actorId: e.unit, factors: [], parts: [`«${quip}»`], fx: [], callout: `${u.name}: «${quip}»` };
+        pending = { actorId: e.unit, cost: 0, factors: [], parts: [`«${quip}»`], fx: [], callout: `${u.name}: «${quip}»` };
         break;
       }
       case 'bless':
@@ -1271,6 +1277,7 @@ function buildFrames(
     round: 0,
     actorId: '',
     actorName: '',
+    cost: 0,
     text: '',
     factors: [],
     units: out.length ? out[0]!.units.map((u) => ({ ...u, hp: u.maxHp, alive: true })) : snap(),
@@ -2035,22 +2042,105 @@ function fmtFactors(factors: Frame['factors']): string {
   return '· ' + parts.join(' · ');
 }
 
-function marginLogHtml(): string {
+/** Цена решения ромбами: ◆ за очко хода, ◇ — реакция или то, что ходом не оплачено. */
+function costPips(cost: number): string {
+  return cost > 0 ? '◆'.repeat(cost) : '◇';
+}
+
+const RULE_PREFIX = 'правило:';
+
+/** Слово, которое сработало в этом кадре — самый весомый фактор-правило. */
+function firedRule(f: Frame): string | null {
+  const rules = f.factors.filter((x) => x.label.startsWith(RULE_PREFIX));
+  if (rules.length === 0) return null;
+  return [...rules].sort((a, b) => Math.abs(b.value) - Math.abs(a.value))[0]!.label.slice(RULE_PREFIX.length);
+}
+
+/** Строка «по твоему приказу»: чьё слово сработало и было ли оно твоим вообще. */
+function orderLine(f: Frame): string {
+  const side = f.units.find((u) => u.id === f.actorId)?.side;
+  const rule = firedRule(f);
+  if (side === 'foe') {
+    if (f.cost === 0) return 'его реакция, не твой приказ';
+    return rule ? `его приказ, не твой: «${rule}»` : 'его решение, не твой приказ';
+  }
+  if (rule) return `«${rule}»`;
+  return f.cost === 0 ? 'реакция — слова тут не спрашивают' : 'ни одно слово не сработало — достраивает сам';
+}
+
+/** Блок «сейчас · кто и почему»: цена, решение, чьё слово, реплика характера. */
+function nowBlockHtml(): string {
+  const f = frames[frameIdx]!;
+  if (!f.actorId) {
+    return `<div class="now-block">
+      <span class="kicker">сейчас · кто и почему</span>
+      <span class="nb-text">Отряд расставлен, приказы скомпилированы. Дальше — арифметика.</span>
+    </div>`;
+  }
+  // реплика характера — только там, где он проговорился впервые
+  const quip = battleReveals.find((r) => r.frame === frameIdx && r.unit === f.actorId);
+  return `<div class="now-block">
+    <span class="kicker">сейчас · кто и почему</span>
+    <span class="nb-act">
+      <span class="nb-cost">${costPips(f.cost)}</span>
+      <span class="nb-text"><b>${esc(f.actorName)}</b> ${esc(f.text)}</span>
+    </span>
+    <span class="nb-order">
+      <span class="kicker">по твоему приказу</span>
+      <span>${esc(orderLine(f))}</span>
+    </span>
+    ${quip ? `<span class="nb-voice ${quip.side === 'party' ? 'own' : 'foe'}">${esc(quip.quip)}</span>` : ''}
+  </div>`;
+}
+
+/** Лента решений: четыре последних кадра, текущий полным тоном. */
+function feedHtml(): string {
+  const from = Math.max(1, frameIdx - 3);
   const rows = frames
-    .slice(1, frameIdx + 1)
-    .slice(-7)
-    .reverse()
-    .map((f, i) => {
-      const fade = i === 0 ? 1 : Math.max(0.35, 1 - i * 0.12);
-      return `<div class="row" style="opacity:${fade}">
-        <span class="t">${f.round}.</span>
-        <span><b>${esc(f.actorName)}</b> ${esc(f.text)} <span class="why">${esc(fmtFactors(f.factors))}</span></span>
-      </div>`;
-    });
-  return rows.join('');
+    .slice(from, frameIdx + 1)
+    .map((f, i, arr) => {
+      const idx = from + i;
+      const cur = idx === frameIdx;
+      return `<span class="feed-row${cur ? ' cur' : ''}" data-feed="${idx}">
+        <span class="no">${f.round}.${idx}</span>
+        <span class="tx"><b>${esc(f.actorName)}</b> ${esc(f.text)}
+          ${tactician ? `<i class="why">${esc(fmtFactors(f.factors))}</i>` : ''}</span>
+      </span>`;
+    })
+    .join('');
+  return rows || '<span class="feed-row"><span class="tx">бой ещё не начался</span></span>';
+}
+
+/** Полоска кадров: засечка на кадр, пройденные ink, текущая red и выше. */
+function ticksHtml(): string {
+  return frames
+    .map((_, i) => `<span class="tick${i === frameIdx ? ' cur' : i < frameIdx ? ' done' : ''}"></span>`)
+    .join('');
+}
+
+/** Полоса отряда: имя и класс, hp числом и полоской, состояние. */
+function partyStripHtml(): string {
+  return run.heroes
+    .map((h) => {
+      const live = heroHpNow(h.id);
+      const pct = live ? Math.round((100 * Math.max(0, live.hp)) / live.maxHp) : 0;
+      const low = live !== null && live.hp / live.maxHp <= 0.5;
+      const note = !live || !live.alive ? 'пал(а)' : low ? 'на исходе' : ordersSentence(h) ? 'по приказу' : 'без приказов';
+      return `<span class="ps-col${!live || !live.alive ? ' dead' : ''}" data-party="${h.id}">
+        <span class="ps-head">
+          <span class="ps-name">${esc(h.name)}</span>
+          <span class="ps-class">${esc(heroArchetype(h.archetypeId).class)}</span>
+          <span class="ps-hp" data-hp="${h.id}">${live ? `${live.hp}/${live.maxHp}` : '—'}</span>
+        </span>
+        <span class="ps-bar"><span style="width:${pct}%" class="${low ? 'low' : ''}"></span></span>
+        <span class="ps-note">${esc(note)}</span>
+      </span>`;
+    })
+    .join('');
 }
 
 /** Подписи значков прикрытия: что даёт и почём. */
+
 const COVER_BADGE_TITLE: Record<NonNullable<FrameUnit['cover']>, string> = {
   half: 'прикрытие: +2 к КБ до своего хода',
   full: 'глухая оборона: +4 к КБ, ближний удар ловит рипост',
@@ -2158,22 +2248,18 @@ function battleScreenHtml(): string {
   const node = currentNode(run);
   const f = frames[frameIdx]!;
   const scenario = scenarioForNode(node);
-  const taskHtml = scenario
-    ? `<div class="task-line">⚑ <b>${esc(scenario.title)}</b> — ${esc(scenario.brief)}</div>`
-    : '';
-  const intel = intelVisible(node);
-  const enemyLines = intel
-    ? foeIntel(foesForNode(node))
-        .map((i) => `<div><b>${esc(i.name)}</b> — ${i.lines.map(esc).join(' · ')}</div>`)
-        .join('')
-    : `<div>${esc(foesForNode(node).map((f) => f.name).join(' · '))} — принципы скрыты</div>`;
+  const deadline = nodeDeadline(node);
   return `<div class="spread">
-    <div class="page-l" style="padding:20px 24px 14px 28px;gap:10px">
+    <div class="page-l" style="padding:20px 24px 14px 28px;gap:9px">
       <div class="page-head">
-        <span class="title">${esc(nodeTitle(node))}</span>
-        <span class="meta"><span id="turnlabel">ход ${f.round}</span> · ${esc(battle!.terrain.name)} · seed ${run.runSeed}</span>
+        <span class="title">⚑ ${esc(scenario ? scenario.title : cap(NODE_RU[node.kind]))}</span>
+        <span class="meta">${esc(NODE_RU[node.kind])} · слой ${node.layer + 1} · seed ${run.runSeed}</span>
+        <span class="run-chips">
+          <span class="chip ink" id="turnlabel">раунд ${f.round}</span>
+          ${deadline ? `<span class="chip red">дедлайн ${deadline}</span>` : ''}
+        </span>
       </div>
-      ${taskHtml}
+      ${scenario ? `<div class="task-line">${esc(scenario.brief)}</div>` : ''}
       <div class="bfield" id="bfield" style="--cell:${CELL}%">
         ${terrainHtml()}
         <div class="zones-layer" id="zoneslayer">${zonesHtml()}</div>
@@ -2181,32 +2267,34 @@ function battleScreenHtml(): string {
         <div class="fx-layer" id="fxlayer">${fxHtml()}</div>
         <span class="callout" id="callout" style="left:24%;top:90%">${esc(f.callout ?? '')}</span>
       </div>
+      <div class="frame-line">
+        <span class="kicker" id="framelabel">кадр ${frameIdx} из ${frames.length - 1}</span>
+        <span class="ticks" id="ticks">${ticksHtml()}</span>
+      </div>
       <div class="controls-row">
-        <button data-action="toggle-play" id="playbtn">${playing ? '❙❙' : '▶'}</button>
-        <button data-action="step-back">◂</button>
-        <button data-action="step-fwd">▸|</button>
-        <button data-action="cycle-speed" id="speedbtn">×${speed}</button>
-        <span class="progress"><span id="progressbar" style="width:${Math.round((100 * frameIdx) / Math.max(1, frames.length - 1))}%"></span></span>
-        <span id="framelabel">${frameIdx}/${frames.length - 1}</span>
-        <button data-action="open-log" title="полный лог боя">свиток</button>
+        <button data-action="step-back" title="кадр назад">‹</button>
+        <button data-action="step-fwd" title="кадр вперёд">›</button>
+        <button class="primary" data-action="toggle-play" id="playbtn">${playing ? '❙❙ пауза' : '▶ играть'}</button>
+        <span class="speeds">${[1, 2, 4]
+          .map((v) => `<button class="sp${speed === v ? ' on' : ''}" data-action="set-speed" data-sp="${v}">×${v}</button>`)
+          .join('')}</span>
+        <span class="ctl-hint">пробел — пауза, стрелки — по кадру</span>
       </div>
-      <div class="enemy-strip">
-        <span class="kicker">${intel ? 'они тоже читают — принципы врага видны' : 'противник'}</span>
-        ${enemyLines}
-      </div>
+      <div class="party-strip" id="partystrip">${partyStripHtml()}</div>
     </div>
     <div class="gutter"></div>
-    <div class="page-r" style="padding:20px 24px 14px 20px">
+    <div class="page-r" style="padding:20px 24px 14px 20px;gap:10px">
       <div class="page-head">
-        <span class="title">Действующие приказы</span>
+        <span class="title">Свиток</span>
         <button class="tact-btn ${tactician ? 'on' : ''}" data-action="toggle-tact">режим тактика</button>
       </div>
-      <div class="roster" style="overflow:visible;gap:9px" id="battle-roster">${rosterHtml(true)}</div>
-      <div class="margin-log">
-        <span class="kicker">на полях — почему они так поступили</span>
-        <div id="mlog">${marginLogHtml()}</div>
+      <div id="now-block">${nowBlockHtml()}</div>
+      <div class="feed">
+        <span class="kicker">лента решений</span>
+        <div id="feed">${feedHtml()}</div>
+        <button class="mini" data-action="open-log">весь свиток</button>
       </div>
-      <div class="btn-row">
+      <div class="btn-row" style="margin-top:auto">
         <button class="grow" data-action="open-editor">переписать приказы</button>
         <button class="grow primary" data-action="sparring">↻ те же кости</button>
       </div>
@@ -2245,26 +2333,21 @@ function syncBattleFrame(): void {
     const el = document.getElementById(id);
     if (el) el.textContent = text;
   };
-  set('turnlabel', `ход ${f.round}`);
-  set('framelabel', `${frameIdx}/${frames.length - 1}`);
+  set('turnlabel', `раунд ${f.round}`);
+  set('framelabel', `кадр ${frameIdx} из ${frames.length - 1}`);
   set('callout', f.callout ?? '');
+  const html = (id: string, markup: string): void => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = markup;
+  };
+  html('now-block', nowBlockHtml());
+  html('feed', feedHtml());
+  html('ticks', ticksHtml());
   const zl = document.getElementById('zoneslayer');
   if (zl) zl.innerHTML = zonesHtml();
   const play = document.getElementById('playbtn');
-  if (play) play.textContent = playing ? '❙❙' : '▶';
-  const bar = document.getElementById('progressbar');
-  if (bar) bar.style.width = `${Math.round((100 * frameIdx) / Math.max(1, frames.length - 1))}%`;
-  const mlog = document.getElementById('mlog');
-  if (mlog) mlog.innerHTML = marginLogHtml();
-  for (const h of run.heroes) {
-    const el = app.querySelector<HTMLElement>(`[data-hp="${h.id}"]`);
-    if (!el) continue;
-    const live = heroHpNow(h.id);
-    el.textContent = live ? `hp ${live.hp}/${live.maxHp}` : '—';
-    el.classList.toggle('low', live !== null && live.hp / live.maxHp <= 0.35);
-    const row = el.closest('.roster-row');
-    if (row) row.classList.toggle('dead', live === null || !live.alive);
-  }
+  if (play) play.textContent = playing ? '❙❙ пауза' : '▶ играть';
+  html('partystrip', partyStripHtml());
 }
 
 // ---------- оверлей: редактор приказов ----------
@@ -3242,9 +3325,11 @@ function unitCardHtml(id: string): string {
   const spec = foesForNode(node).find((f) => f.id === id);
   if (!spec) return '';
   const live = unitHpInBattle(id);
-  const principles = intelVisible(node)
-    ? foeIntel([spec])[0]!.lines.map((l) => `<div class="read-note">«${esc(l)}»</div>`).join('')
-    : `<div class="orders-text"><span class="empty">принципы скрыты — прочтёшь по ходу боя</span></div>`;
+  // принципы врага — покупка разведки (спека 2a), а не бесплатная справка узла
+  const bought = run.intel.orders.includes(id);
+  const principles = bought
+    ? foeOrdersLines(spec).map((l) => `<div class="read-note">«${esc(l)}»</div>`).join('')
+    : `<div class="orders-text"><span class="empty">принципы не куплены — прочтёшь по ходу боя</span></div>`;
   return `<div class="overlay"><div class="modal unit-card">
     <div class="head">
       <span class="title">${esc(spec.name)}</span>
@@ -3253,7 +3338,7 @@ function unitCardHtml(id: string): string {
     </div>
     <div class="stat-line">${statLine(spec, live?.hp)}</div>
     <div class="card-block">
-      <span class="kicker">${intelVisible(node) ? 'принципы — они тоже читают' : 'принципы'}</span>
+      <span class="kicker">${bought ? 'принципы — они тоже читают' : 'принципы'}</span>
       ${principles}
     </div>
     <div class="foot-row"><span class="spacer"></span><button class="primary" data-action="close-card">закрыть</button></div>
@@ -3693,11 +3778,10 @@ function bind(): void {
             render();
           }
           break;
-        case 'cycle-speed': {
-          speed = speed === 1 ? 2 : speed === 2 ? 4 : 1;
-          const b = document.getElementById('speedbtn');
-          if (b) b.textContent = `×${speed}`;
+        case 'set-speed': {
+          speed = Number(el.dataset.sp);
           if (playing) runTimer();
+          render();
           break;
         }
         case 'toggle-tact':
@@ -3796,6 +3880,42 @@ function bind(): void {
 }
 
 // ---------- старт ----------
+
+// ленту решений и полосу отряда перерисовывает syncBattleFrame на каждом кадре,
+// поэтому их клики и клавиши транспорта висят делегированно — один раз на всё
+app.addEventListener('click', (ev) => {
+  const el = (ev.target as HTMLElement).closest<HTMLElement>('[data-feed],[data-party]');
+  if (!el) return;
+  if (el.dataset.feed !== undefined) {
+    frameIdx = Number(el.dataset.feed);
+    playing = false;
+    stopTimer();
+  } else {
+    unitCardId = el.dataset.party!;
+    cardTab = 'moves';
+    cardMove = null;
+    playing = false;
+    stopTimer();
+  }
+  render();
+});
+
+window.addEventListener('keydown', (ev) => {
+  if (!battle || editorOpen || logOpen || debugOpen || unitCardId || aftermathOpen) return;
+  if (ev.key === ' ') {
+    ev.preventDefault();
+    playing = !playing;
+    if (playing) runTimer();
+    else stopTimer();
+    syncBattleFrame();
+  } else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+    ev.preventDefault();
+    playing = false;
+    stopTimer();
+    frameIdx = Math.min(frames.length - 1, Math.max(0, frameIdx + (ev.key === 'ArrowRight' ? 1 : -1)));
+    syncBattleFrame();
+  }
+});
 
 fitScale = computeFit();
 window.addEventListener('resize', () => {
