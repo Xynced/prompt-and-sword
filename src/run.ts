@@ -48,6 +48,27 @@ export interface MapNode {
   next: number[];
 }
 
+/**
+ * Разведка узла (спека «Разведка перед боем»): очки и то, что уже куплено.
+ * Разведка — трата, а не справка: задача боя и имена врагов открыты всегда,
+ * остальное покупается очками. Живёт до ухода с узла, траты необратимы.
+ */
+export interface IntelState {
+  /** Нерастраченные очки разведки этого узла. */
+  points: number;
+  /** Карта куплена: рельеф, расстановка врагов и полный состав. */
+  map: boolean;
+  /** id врагов, чьи числа куплены. */
+  numbers: string[];
+  /** id врагов, чьи приказы куплены. */
+  orders: string[];
+}
+
+/** Очков разведки на узел. */
+export const INTEL_POINTS = 3;
+
+export const freshIntel = (): IntelState => ({ points: INTEL_POINTS, map: false, numbers: [], orders: [] });
+
 export interface RunState {
   runSeed: number;
   map: MapNode[];
@@ -75,6 +96,8 @@ export interface RunState {
    * обычные слова, элита — редкие. null — забран/нет.
    */
   pendingReward: ConceptId[][] | null;
+  /** Разведка текущего узла: очки и покупки. Сбрасывается при переходе. */
+  intel: IntelState;
   /**
    * Режим нерва (план nerve): амплитуда seeded-разброса весов решения в боях
    * забега. Отсутствие или 0 — режим выключен (обычный детерминированный счёт).
@@ -231,6 +254,45 @@ export function setMark(state: RunState, foeId: string | null): SetPhrasesResult
   return { ok: true };
 }
 
+// ---- Разведка узла ----
+
+export type IntelBuy = { kind: 'map' } | { kind: 'numbers'; foeId: string } | { kind: 'orders'; foeId: string };
+
+/** Состав врагов известен целиком: куплена карта или узел сам даёт интел. */
+export function foesKnown(state: RunState): boolean {
+  return state.intel.map || intelVisible(currentNode(state));
+}
+
+/**
+ * Кто виден до покупки карты. Количество врагов — тоже покупаемая информация,
+ * поэтому задние прячутся «за камнями»; на узлах с интелом (урок, элитка,
+ * босс) состав открыт заранее — это и есть их цена в выборе тропы.
+ */
+export function visibleFoes(state: RunState): UnitSpec[] {
+  const foes = foeSpecs(state);
+  if (foesKnown(state)) return foes;
+  return foes.slice(0, Math.max(1, foes.length - Math.ceil(foes.length / 3)));
+}
+
+/** Потратить очко разведки. Траты необратимы: отменять покупку нечем. */
+export function buyIntel(state: RunState, buy: IntelBuy): SetPhrasesResult {
+  const node = currentNode(state);
+  if (!FIGHT_KINDS.includes(node.kind) || state.resolved) return { ok: false, error: 'Разведка — только перед боем' };
+  const intel = state.intel;
+  if (intel.points <= 0) return { ok: false, error: 'Очки разведки кончились' };
+  if (buy.kind === 'map') {
+    if (intel.map) return { ok: false, error: 'Карта уже открыта' };
+    intel.map = true;
+  } else {
+    if (!foeSpecs(state).some((f) => f.id === buy.foeId)) return { ok: false, error: `На этом поле нет врага ${buy.foeId}` };
+    const list = buy.kind === 'numbers' ? intel.numbers : intel.orders;
+    if (list.includes(buy.foeId)) return { ok: false, error: 'Это уже куплено' };
+    list.push(buy.foeId);
+  }
+  intel.points--;
+  return { ok: true };
+}
+
 // ---- Старт и доступ ----
 
 export function startRun(runSeed: number): RunState {
@@ -258,6 +320,7 @@ export function startRun(runSeed: number): RunState {
     marked: null,
     deploy: {},
     pendingReward: null,
+    intel: freshIntel(),
     status: 'ongoing',
     log: [],
   };
@@ -529,6 +592,7 @@ export function advance(state: RunState, toId: number): AdvanceResult {
   state.resolved = false;
   state.marked = null; // новый узел — новые враги, метка не переносится
   state.deploy = {}; // новая арена — расстановка заново
+  state.intel = freshIntel(); // новый узел — своя разведка, траты не переносятся
   return { ok: true };
 }
 

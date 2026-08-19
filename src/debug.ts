@@ -3,7 +3,7 @@ import type { PhraseDraft } from './constructor.js';
 import { type ConceptId, CONCEPTS } from './vocab.js';
 import { LENS_RU } from './lens.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype } from './heroes.js';
-import { type MapNode, type RunState, MAX_SLOTS, playFight, setPhrases } from './run.js';
+import { type MapNode, type RunState, MAX_SLOTS, freshIntel, playFight, setPhrases } from './run.js';
 import { scenarioForNode } from './objectives.js';
 import type { LensId } from './types.js';
 
@@ -138,6 +138,7 @@ export function debugRun(setup: DebugSetup): RunState {
     ...(setup.nerve ? { nerve: setup.nerve } : {}),
     deploy: {},
     pendingReward: null,
+    intel: freshIntel(),
     status: 'ongoing',
     log: [],
   };

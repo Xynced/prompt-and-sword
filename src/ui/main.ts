@@ -1,5 +1,5 @@
 import { type BattleEvent, type BattleResult, type UnitSpec, runBattle, spawnPreview } from '../battle.js';
-import { type Tile, pickTerrain } from '../terrain.js';
+import { PARTY_ZONE_MAX_X, type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
 import {
   describeActive,
@@ -10,6 +10,7 @@ import {
   describeReaction,
   moveMarks,
   REACTION_RU,
+  ruleRu,
   describeWeapons,
   driftQuip,
   lensQuip,
@@ -46,8 +47,12 @@ import {
   claimReward,
   currentNode,
   eventOffer,
+  INTEL_POINTS,
+  buyIntel,
   foeSpecs,
   foesForNode,
+  foesKnown,
+  visibleFoes,
   heroNames,
   heroSpecs,
   intelVisible,
@@ -59,6 +64,7 @@ import {
   skipLesson,
   startRun,
 } from '../run.js';
+
 import { foeIntel } from '../foes.js';
 import { DEBUG_BATTLES, type DebugSetup, MAX_DEBUG_PARTY, debugBattleById, debugBrief, debugRun } from '../debug.js';
 import { scenarioForNode } from '../objectives.js';
@@ -122,6 +128,9 @@ let tactician = false;
 let editorOpen = false;
 let editHero = run.heroes[0]!.id;
 let aftermathOpen = false;
+
+/** Экран перед боем: разведка и расстановка. */
+let prepOpen = false;
 /** Реплики характеров, раскрывшиеся в текущем бою, — для разбора после боя. */
 let battleReveals: Reveal[] = [];
 /** Оверлей «свиток боя» — полный лог решений. */
@@ -1328,6 +1337,7 @@ function startBattle(): void {
   logOpen = false;
   unitCardId = null;
   ordersDirty = false;
+  prepOpen = false;
   render();
   runTimer();
 }
@@ -1356,6 +1366,8 @@ function acceptOutcome(): void {
   playFight(run);
   if (run.status !== 'ongoing') recordEvent({ t: 'end', won: run.status === 'won' });
   lessonNudge = node.kind === 'lesson' && lost;
+  // проигранный урок не кончает узел — возвращаемся туда, где приказ переписывают
+  prepOpen = run.status === 'ongoing' && !run.resolved;
   battle = null;
   frames = [];
   aftermathOpen = false;
@@ -1567,68 +1579,6 @@ function foeIntelHtml(node: MapNode): string {
   </div>`;
 }
 
-function intelHtml(node: MapNode): string {
-  if (!intelVisible(node)) return '';
-  const rows = foeIntel(foesForNode(node))
-    .map((i) => `<div><b>${esc(i.name)}</b> — ${i.lines.map(esc).join(' · ')}</div>`)
-    .join('');
-  return `<div class="intel"><span class="kicker">они тоже читают — принципы врага видны</span>${rows}</div>`;
-}
-
-/** Мини-поле расстановки: зона партии слева, камни и высоты арены, враги при разведке. */
-function deployHtml(node: MapNode): string {
-  const layout = pickTerrain(battleSeed(run), arenaForNode(node));
-  // сценарий с фикс-спавнами (разбитый лагерь): расстановка не в руках игрока
-  const fixedSpawns = Boolean(scenarioForNode(node)?.heroSpawns);
-  const cells: string[] = [];
-  if (!fixedSpawns) {
-    for (let y = 0; y < layout.tiles.length; y++) {
-      for (let x = 0; x <= 2; x++) {
-        if (layout.tiles[y]![x]!.blocked) continue;
-        cells.push(
-          `<div class="dcell" data-action="deploy-cell" data-x="${x}" data-y="${y}" style="left:${x * CELL}%;top:${y * CELL}%"></div>`,
-        );
-      }
-    }
-  }
-  const heroTokens = run.heroes
-    .filter((h) => h.alive)
-    .map((h) => {
-      const p = deployedSpawn(run, h);
-      const pick = fixedSpawns ? '' : ` data-action="deploy-pick" data-hero="${h.id}"`;
-      return `<div class="btoken${deployPick === h.id ? ' pick' : ''}"${pick}
-        style="left:${p.x * CELL}%;top:${p.y * CELL}%"><span class="dm"><span>${esc(glyphOf(h.name))}</span></span></div>`;
-    })
-    .join('');
-  const intel = intelVisible(node);
-  let foeTokens = '';
-  if (intel) {
-    // тот же сид и порядок спеков, что у боя, — превью совпадает с ареной
-    const foes = foeSpecs(run);
-    const names = new Map(foes.map((f) => [f.id, f.name]));
-    foeTokens = spawnPreview(battleSeed(run), [...heroSpecs(run), ...foes])
-      .filter((u) => names.has(u.id))
-      .map(
-        (u) => `<div class="btoken foe" style="left:${u.pos.x * CELL}%;top:${u.pos.y * CELL}%">
-          <span class="dm"><span>${esc(glyphOf(names.get(u.id)!))}</span></span></div>`,
-      )
-      .join('');
-  }
-  const hint = fixedSpawns
-    ? 'лагерь разбит: расстановка не в ваших руках'
-    : deployPick
-      ? 'поставь на клетку зоны'
-      : `расстановка: герой → клетка${intel ? '; врагов выдаёт разведка' : ''}`;
-  return `<div class="deploy">
-    <span class="arena-line"><b>${esc(layout.name)}</b> — ${esc(layout.scenario)}</span>
-    <span class="kicker">${hint}</span>
-    <div class="bfield mini" style="--cell:${CELL}%">
-      ${fixedSpawns ? '' : `<div class="dzone" style="width:${3 * CELL}%"></div>`}
-      ${tilesLayerHtml(layout.tiles)}${cells.join('')}${foeTokens}${heroTokens}
-    </div>
-  </div>`;
-}
-
 /** Узел, чья карточка открыта: клик по тропе, по умолчанию — текущий. */
 let mapPick: number | null = null;
 
@@ -1664,36 +1614,8 @@ function nodeActionsHtml(node: MapNode): string {
     return `<div class="nc-note">узел пройден — выбери на тропе, куда идти дальше</div>`;
   }
   if (FIGHT_KINDS.includes(node.kind)) {
-    const canMark = run.vocab.includes('sel.marked');
-    const foeRows = foesForNode(node)
-      .map((f) => {
-        const marked = run.marked === f.id;
-        const markBtn = canMark
-          ? `<button class="mini mark-btn ${marked ? 'on' : ''}" data-action="mark-foe" data-foe="${f.id}"
-               title="метка: правила «атаковать помеченного» целятся в него">${marked ? '◎ помечен' : '◎ пометить'}</button>`
-          : '';
-        return `<div class="foe-row"><b>${marked ? '◎ ' : ''}${esc(f.name)}</b> — ${statLine(f)}${markBtn}</div>`;
-      })
-      .join('');
-    const nudge = lessonNudge
-      ? `<div class="onboarding">Первый приказ почти никогда не выигрывает этот бой — так задумано.
-         В дневник вписано новое слово: «держать дистанцию».
-         Перепиши принципы под то, что видно в разведке, и переиграй: <b>кости те же</b>.</div>`
-      : '';
-    return `<div class="nc-block">
-      <div class="foe-list"><span class="kicker">противник — разведка числом</span>${foeRows}</div>
-      ${intelHtml(node)}
-      ${deployHtml(node)}
-      ${nudge}
-      <div class="btn-row"><button class="primary" data-action="fight">⚔ выступить</button>
-        <button data-action="open-editor">переписать приказы</button>
-        ${
-          node.kind === 'lesson'
-            ? `<button class="linkish" data-action="skip-lesson"
-                 title="забрать трофей урока и начать забег, не играя учебный бой">пропустить урок</button>`
-            : ''
-        }</div>
-    </div>`;
+    return `<div class="btn-row"><button class="primary" data-action="prep">⚔ выступить</button>
+      <button data-action="open-editor">переписать приказы</button></div>`;
   }
   if (node.kind === 'event') {
     const offer = eventOffer(run);
@@ -1804,6 +1726,239 @@ function mapScreenHtml(): string {
       <div class="roster">${rosterHtml(false)}</div>
       <div class="foot solid">Приказы компилируются один раз, до боя. Сам бой — арифметика:
         те же кости, тот же исход, каждый раз.</div>
+    </div>
+  </div>`;
+}
+
+// ---------- экран: перед боем (разведка + расстановка) ----------
+
+/** Ромбы очков: ◆ доступное, ◇ истраченное — та же азбука, что цена приёмов. */
+function pipsHtml(left: number, total: number): string {
+  return `<span class="pips">${'◆'.repeat(Math.max(0, left))}${'◇'.repeat(Math.max(0, total - left))}</span>`;
+}
+
+/** Числа врага (покупка «◆ числа»): hp, КБ, слабейший спасбросок, реакция. */
+function foeNumbersLine(f: UnitSpec): string {
+  const d = f.defenses;
+  const saves: [SaveKind, number][] = [
+    ['fort', d?.fort ?? DEFAULT_SAVE],
+    ['ref', d?.ref ?? DEFAULT_SAVE],
+    ['will', d?.will ?? DEFAULT_SAVE],
+  ];
+  const weakest = saves.sort((a, b) => a[1] - b[1])[0]!;
+  const parts = [`hp ${f.maxHp}`, `КБ ${d?.ac ?? DEFAULT_AC}`, `${SAVE_RU[weakest[0]]} ${weakest[1]}`];
+  if (f.reaction) parts.push(`◇ ${REACTION_RU[f.reaction]}`);
+  return parts.join(' · ');
+}
+
+/** Приказы врага строками (покупка «◆ приказы») — уже с его характером. */
+function foeOrdersLines(f: UnitSpec): string[] {
+  return applyLens(f.lenses, f.rules).rules.map((r) =>
+    r.marks?.some((m) => m.kind === 'reword' || m.kind === 'recondition') ? `${r.source} → ${ruleRu(r)}` : r.source,
+  );
+}
+
+/** Поле перед боем: зона расстановки видна всегда, восток — под туманом до покупки карты. */
+function prepFieldHtml(node: MapNode): string {
+  const layout = pickTerrain(battleSeed(run), arenaForNode(node));
+  const open = run.intel.map;
+  // сценарий с фикс-спавнами (разбитый лагерь): расстановка не в руках игрока
+  const fixedSpawns = Boolean(scenarioForNode(node)?.heroSpawns);
+  const zoneW = PARTY_ZONE_MAX_X + 1;
+  const cells: string[] = [];
+  if (!fixedSpawns) {
+    for (let y = 0; y < layout.tiles.length; y++) {
+      for (let x = 0; x <= PARTY_ZONE_MAX_X; x++) {
+        if (layout.tiles[y]![x]!.blocked) continue;
+        cells.push(
+          `<div class="dcell" data-action="deploy-cell" data-x="${x}" data-y="${y}" style="left:${x * CELL}%;top:${y * CELL}%"></div>`,
+        );
+      }
+    }
+  }
+  const heroTokens = run.heroes
+    .filter((h) => h.alive)
+    .map((h) => {
+      const p = deployedSpawn(run, h);
+      const set = Boolean(run.deploy[h.id]);
+      const pick = fixedSpawns ? '' : ` data-action="deploy-pick" data-hero="${h.id}"`;
+      return `<div class="btoken${deployPick === h.id ? ' pick' : ''}${set ? '' : ' ghost'}"${pick}
+        style="left:${p.x * CELL}%;top:${p.y * CELL}%"><span class="dm"><span>${esc(glyphOf(h.name))}</span></span></div>`;
+    })
+    .join('');
+  let foeTokens = '';
+  if (open) {
+    // тот же сид и порядок спеков, что у боя, — превью совпадает с ареной
+    const foes = foeSpecs(run);
+    const names = new Map(foes.map((f) => [f.id, f.name]));
+    foeTokens = spawnPreview(battleSeed(run), [...heroSpecs(run), ...foes])
+      .filter((u) => names.has(u.id))
+      .map(
+        (u) => `<div class="btoken foe" style="left:${u.pos.x * CELL}%;top:${u.pos.y * CELL}%">
+          <span class="dm"><span>${esc(glyphOf(names.get(u.id)!))}</span></span></div>`,
+      )
+      .join('');
+  }
+  const fog = open
+    ? ''
+    : `<div class="fog" style="left:${zoneW * CELL}%;width:${(GRID_W - zoneW) * CELL}%"><span>туман войны</span></div>`;
+  const note = open
+    ? `<b>${esc(layout.name)}</b> — ${esc(layout.scenario)}`
+    : 'видна только зона расстановки';
+  const hint = fixedSpawns
+    ? 'лагерь разбит: расстановка не в ваших руках'
+    : deployPick
+      ? 'поставь на клетку зоны'
+      : 'расстановка: герой → клетка';
+  return `<div class="prep-field">
+    <div class="pf-head">
+      <span class="kicker">поле</span>
+      <span class="pf-meta">${GRID_W}×${GRID_H} · ${open ? 'открыто' : 'под туманом'}</span>
+    </div>
+    <div class="bfield mini" style="--cell:${CELL}%">
+      <div class="dzone" style="width:${zoneW * CELL}%"></div>
+      ${tilesLayerHtml(layout.tiles, open ? GRID_W - 1 : PARTY_ZONE_MAX_X)}
+      ${fixedSpawns ? '' : cells.join('')}${foeTokens}${heroTokens}${fog}
+    </div>
+    <div class="pf-foot">
+      <span class="pf-note">${note}</span>
+      ${
+        open
+          ? ''
+          : `<button class="buy" data-action="buy-intel" data-buy="map" ${
+              run.intel.points > 0 ? '' : 'disabled'
+            } title="карта даёт рельеф, расстановку врагов и полный состав">◆ открыть карту</button>`
+      }
+    </div>
+    <span class="kicker">${hint}</span>
+  </div>`;
+}
+
+/** Отряд врага: имена открыты всегда, числа и приказы — за очки. */
+function prepFoesHtml(): string {
+  const rows = visibleFoes(run)
+    .map((f) => {
+      const hasNumbers = run.intel.numbers.includes(f.id);
+      const hasOrders = run.intel.orders.includes(f.id);
+      const spent = run.intel.points <= 0;
+      const marked = run.marked === f.id;
+      const canMark = run.vocab.includes('sel.marked');
+      const buy = (kind: 'numbers' | 'orders', label: string): string =>
+        `<button class="buy" data-action="buy-intel" data-buy="${kind}" data-foe="${f.id}" ${
+          spent ? 'disabled' : ''
+        }>◆ ${label}</button>`;
+      const orders = hasOrders
+        ? `<div class="fo-orders">${foeOrdersLines(f)
+            .map((l) => `<span><i>·</i>${esc(l)}</span>`)
+            .join('')}</div>`
+        : '';
+      return `<div class="fo-row">
+        <div class="fo-head">
+          <span class="fo-mark${marked ? ' on' : ''}" ${
+            canMark ? `data-action="mark-foe" data-foe="${f.id}" title="метка: правила «атаковать помеченного» целятся в него"` : ''
+          }>◎</span>
+          <span class="fo-name">${esc(f.name)}</span>
+          <span class="fo-buys">
+            ${hasNumbers ? `<span class="chip ink">${esc(foeNumbersLine(f))}</span>` : buy('numbers', 'числа')}
+            ${hasOrders ? '' : buy('orders', 'приказы')}
+          </span>
+        </div>
+        ${orders}
+      </div>`;
+    })
+    .join('');
+  const tail = foesKnown(run)
+    ? ''
+    : `<div class="fo-rest"><span>?</span>кто-то ещё за камнями — карта покажет, сколько их всего</div>`;
+  return `<div class="prep-foes">${rows}${tail}</div>`;
+}
+
+/** Расстановка: кто уже стоит на поле и с каким текстом идёт. */
+function prepPartyHtml(node: MapNode): string {
+  const fixedSpawns = Boolean(scenarioForNode(node)?.heroSpawns);
+  const rows = run.heroes
+    .filter((h) => h.alive)
+    .map((h) => {
+      const set = Boolean(run.deploy[h.id]);
+      const orders = ordersSentence(h);
+      return `<div class="pp-row${deployPick === h.id ? ' pick' : ''}" ${
+        fixedSpawns ? '' : `data-action="deploy-pick" data-hero="${h.id}"`
+      }>
+        <span class="pp-who">
+          <span class="pp-name">${esc(h.name)}</span>
+          <span class="pp-class">${esc(heroArchetype(h.archetypeId).class)}</span>
+        </span>
+        <span class="pp-orders">${orders ? esc(orders) : '— приказов нет —'}</span>
+        <span class="pp-state">${fixedSpawns ? 'по сценарию' : set ? 'встал сам' : 'по умолчанию'}</span>
+      </div>`;
+    })
+    .join('');
+  return `<div class="prep-party">
+    <span class="kicker">кто и с каким текстом идёт</span>
+    ${rows}
+  </div>`;
+}
+
+function prepScreenHtml(): string {
+  const node = currentNode(run);
+  const scenario = scenarioForNode(node);
+  const intel = run.intel;
+  const hint = !foesKnown(run)
+    ? 'состав отряда неполон — карта покажет, сколько их всего'
+    : intel.points > 0
+      ? 'осталось решить, чьи числа важнее чьих приказов'
+      : 'остальное придётся выяснять телом';
+  const task = scenario
+    ? `<div class="task-line"><span class="kicker">задача боя · открыта всегда</span>
+        <b>⚑ ${esc(scenario.title)}</b><br>${esc(scenario.brief)}</div>`
+    : `<div class="task-line"><span class="kicker">задача боя · открыта всегда</span>
+        <b>⚑ ${esc(cap(NODE_RU[node.kind]))}</b><br>Перебей всех — задача без оговорок.</div>`;
+  const nudge = lessonNudge
+    ? `<div class="onboarding">Первый приказ почти никогда не выигрывает этот бой — так задумано.
+       В дневник вписано новое слово: «держать дистанцию».
+       Перепиши принципы под то, что видно в разведке, и переиграй: <b>кости те же</b>.</div>`
+    : '';
+  return `<div class="spread">
+    <div class="page-l">
+      <div class="page-head">
+        <span class="title">Разведка</span>
+        <span class="meta">перед выступлением</span>
+        <span class="pips-line"><span class="kicker">очки разведки</span>${pipsHtml(
+          intel.points,
+          INTEL_POINTS,
+        )}</span>
+      </div>
+      ${task}
+      ${prepFieldHtml(node)}
+      ${nudge}
+      <div class="foot">
+        <button class="linkish" data-action="back-to-map">← к тропе</button>
+        <span class="spacer"></span>
+        <span class="prep-hint">${esc(hint)}</span>
+      </div>
+    </div>
+    <div class="gutter"></div>
+    <div class="page-r">
+      <div class="page-head">
+        <span class="title">Противник</span>
+        <span class="meta">${
+          foesKnown(run) ? `врагов ${foeSpecs(run).length}` : 'врагов ? — состав неполон'
+        } · числа и приказы за очки</span>
+      </div>
+      <div class="prep-cols">
+        ${prepFoesHtml()}
+        ${prepPartyHtml(node)}
+      </div>
+      <div class="btn-row">
+        <button class="primary grow" data-action="fight">⚔ выступить</button>
+        <button data-action="open-editor">переписать приказы</button>
+        ${
+          node.kind === 'lesson'
+            ? `<button class="linkish" data-action="skip-lesson"
+                 title="забрать трофей урока и начать забег, не играя учебный бой">пропустить урок</button>`
+            : ''
+        }
+      </div>
     </div>
   </div>`;
 }
@@ -1980,10 +2135,11 @@ function zonesHtml(): string {
   return out.join('');
 }
 
-function tilesLayerHtml(tiles: readonly Tile[][]): string {
+function tilesLayerHtml(tiles: readonly Tile[][], maxX = GRID_W - 1): string {
   const out: string[] = [];
   tiles.forEach((row, y) =>
     row.forEach((t, x) => {
+      if (x > maxX) return;
       const at = `style="left:${x * CELL}%;top:${y * CELL}%"`;
       if (t.blocked) out.push(`<div class="rock" ${at}></div>`);
       else if (t.hazard) out.push(`<div class="hz ${t.hazard}" ${at} title="${t.hazard === 'spikes' ? 'шипы' : 'огонь'}"></div>`);
@@ -3176,11 +3332,14 @@ function bookTransform(): string {
 
 function render(): void {
   const node = currentNode(run);
+  const prep = prepOpen && run.status === 'ongoing' && !run.resolved && FIGHT_KINDS.includes(node.kind);
   const screen = battle
     ? battleScreenHtml()
-    : run.status === 'ongoing' && node.kind === 'scriptorium' && !run.resolved
-      ? scriptoriumHtml()
-      : mapScreenHtml();
+    : prep
+      ? prepScreenHtml()
+      : run.status === 'ongoing' && node.kind === 'scriptorium' && !run.resolved
+        ? scriptoriumHtml()
+        : mapScreenHtml();
   const cardHtml = unitCardId ? unitCardHtml(unitCardId) : '';
   const overlay = debugOpen
     ? debugPanelHtml()
@@ -3329,6 +3488,21 @@ function bind(): void {
     el.addEventListener('click', () => {
       const a = el.dataset.action!;
       switch (a) {
+        case 'prep':
+          prepOpen = true;
+          render();
+          break;
+        case 'back-to-map':
+          prepOpen = false;
+          deployPick = null;
+          render();
+          break;
+        case 'buy-intel': {
+          const kind = el.dataset.buy as 'map' | 'numbers' | 'orders';
+          buyIntel(run, kind === 'map' ? { kind } : { kind, foeId: el.dataset.foe! });
+          render();
+          break;
+        }
         case 'pick-node':
           mapPick = Number(el.dataset.node);
           render();
@@ -3340,6 +3514,7 @@ function bind(): void {
             fightsAtNode = 0;
             rewroteSinceBattle = false;
             mapPick = null;
+            prepOpen = false;
           }
           lessonNudge = false;
           render();
@@ -3351,6 +3526,7 @@ function bind(): void {
         case 'skip-lesson':
           skipLesson(run);
           lessonNudge = false;
+          prepOpen = false;
           render();
           break;
         case 'mark-foe': {
