@@ -3,10 +3,12 @@ import { type Tile, pickTerrain } from '../terrain.js';
 import { GRID_H, GRID_W } from '../grid.js';
 import {
   describeActive,
+  describeAoe,
   describeDefenses,
   describeShield,
   describePassives,
   describeReaction,
+  moveMarks,
   REACTION_RU,
   describeWeapons,
   driftQuip,
@@ -32,6 +34,7 @@ import { CONCEPTS, type ConceptId } from '../vocab.js';
 import {
   type MapNode,
   type NodeKind,
+  type HeroState,
   type RunState,
   advance,
   arenaForNode,
@@ -59,13 +62,34 @@ import {
 import { foeIntel } from '../foes.js';
 import { DEBUG_BATTLES, type DebugSetup, MAX_DEBUG_PARTY, debugBattleById, debugBrief, debugRun } from '../debug.js';
 import { scenarioForNode } from '../objectives.js';
-import { HERO_POOL, heroArchetype } from '../heroes.js';
+import { HERO_POOL, type HeroArchetype, heroArchetype } from '../heroes.js';
 import { type JournalEvent, appendEvent, journalReport, lastIntent } from '../playtest.js';
 import { exportBuild, importBuild } from '../share.js';
 import { LENS_RU, applyLens } from '../lens.js';
-import { AOE_BLAST_RADIUS, AOE_RITUAL_RADIUS, lineCells } from '../scoring.js';
-import { AP_PER_TURN, BRACE_AC, NERVE_AMP } from '../tuning.js';
-import type { LensId, Side, WeaponSpec } from '../types.js';
+import { AOE_BLAST_RADIUS, AOE_RITUAL_RADIUS, AP_COST, attackBonusOf, lineCells, movesOf } from '../scoring.js';
+import {
+  AP_PER_TURN,
+  ARCANE_SHIELD_AC,
+  ARCANE_SHIELD_SOAK,
+  BRACE_AC,
+  COVER_AC,
+  DEFAULT_AC,
+  DEFAULT_SAVE,
+  DEFLECT_AC,
+  DODGE_AC,
+  MAP_STEP,
+  MAP_STEP_AGILE,
+  NERVE_AMP,
+  PERSIST_DC,
+  PERSIST_DC_ASSISTED,
+  RIPOSTE_DMG,
+  SAVE_DC,
+  SELFLESS_VULN_MULT,
+  SUCCOR_HEAL,
+  mapPenalty,
+} from '../tuning.js';
+import { DAMAGE_TYPE_RU } from '../types.js';
+import type { DamageType, LensId, ReactionKind, SaveKind, Side, WeaponMove, WeaponSpec } from '../types.js';
 
 /**
  * UI по дизайн-прототипу «Prompt & Sword - Prototype.dc.html» (разворот кодекса,
@@ -104,6 +128,10 @@ let battleReveals: Reveal[] = [];
 let logOpen = false;
 /** Карточка юнита (герой или враг) — по клику на фишку или имя в реестре. */
 let unitCardId: string | null = null;
+/** Вкладка карточки героя; дефолт — приёмы (спека карточки, вариант 3a). */
+let cardTab: CardTab = 'moves';
+/** Раскрытая строка приёмов — попап справа от карточки; null — свёрнут. */
+let cardMove: string | null = null;
 /** Приказы переписаны после показанного боя — «продолжить» требует переигровки. */
 let ordersDirty = false;
 let editError: Record<string, string> = {};
@@ -740,6 +768,8 @@ interface Reveal {
   side: Side;
   lens: LensId;
   quip: string;
+  /** Кадр, в котором характер проговорился: до него линза в карточке скрыта. */
+  frame: number;
 }
 
 function buildFrames(
@@ -843,7 +873,7 @@ function buildFrames(
   const reveals: Reveal[] = [];
   const reveal = (unitId: string, lens: LensId, quip: string): void => {
     const u = units.get(unitId)!;
-    reveals.push({ unit: unitId, name: u.name, side: u.side, lens, quip });
+    reveals.push({ unit: unitId, name: u.name, side: u.side, lens, quip, frame: out.length });
     if (pending && pending.callout === undefined) pending.callout = `${u.name}: «${quip}»`;
   };
 
@@ -1110,7 +1140,7 @@ function buildFrames(
         flush();
         const quip = driftQuip(e.lens);
         const u = units.get(e.unit)!;
-        reveals.push({ unit: e.unit, name: u.name, side: u.side, lens: e.lens, quip });
+        reveals.push({ unit: e.unit, name: u.name, side: u.side, lens: e.lens, quip, frame: out.length });
         pending = { actorId: e.unit, factors: [], parts: [`«${quip}»`], fx: [], callout: `${u.name}: «${quip}»` };
         break;
       }
@@ -2281,35 +2311,644 @@ function unitHpInBattle(id: string): { hp: number; alive: boolean } | undefined 
   return u ? { hp: Math.max(0, u.hp), alive: u.alive } : undefined;
 }
 
+// ---------- карточка героя: вкладки, приёмы по оружию, попап ----------
+
+/*
+ * Дизайн-спека: `design/hero-card/Карточка героя - спека для кода.md`
+ * (утверждённый вариант 3a). Азбука карточки: ромб — очко хода, пустой ромб —
+ * реакция; три ступени броска прописаны числами; всё, что длиннее строки,
+ * уходит в попап — список остаётся сводкой на один взгляд.
+ */
+
+type CardTab = 'about' | 'moves' | 'bag';
+
+interface CardChip {
+  tone: 'ink' | 'red' | 'line';
+  text: string;
+}
+
+/** Попап строки: имя, мета, чипсы, абзац пояснения и слово-заказчик. */
+interface CardDetail {
+  name: string;
+  meta: string;
+  chips: CardChip[];
+  text: string;
+  /** Какое слово заказывает этот приём (план words) — рукописной строкой. */
+  word?: string;
+}
+
+interface CardRow {
+  key: string;
+  /** Цена ромбами: ◆ — очко хода, ◇ — реакция. */
+  cost: string;
+  name: string;
+  /** Райдеры пунктиром рядом с именем. */
+  marks: string[];
+  chips: CardChip[];
+  detail: CardDetail;
+}
+
+interface CardSection {
+  title: string;
+  meta: string;
+  /** Правый край заголовка: бонус атаки оружия или пометка «общее для всех». */
+  right: string;
+  /** У оружия заголовок кликабелен — у него свой попап. */
+  key?: string;
+  detail?: CardDetail;
+  rows: CardRow[];
+}
+
+const signed = (n: number): string => (n < 0 ? `−${-n}` : `+${n}`);
+const apRu = (ap: number): string => `${ap} ${ap === 1 ? 'очко' : 'очка'}`;
+const rangeRu = (r: number): string => (r > 1 ? `даль ${r}` : 'в упор');
+const dmgTypeRu = (t?: DamageType): string => (t ? DAMAGE_TYPE_RU[t] : 'без типа');
+
+const SLOT_RU: Record<WeaponMove['slot'], string> = {
+  weakAttack: 'быстрый',
+  attack: 'полный',
+  selflessAttack: 'рисковый',
+};
+
+/** Слово-заказчик темпа (план words): манера в приказе выбирает слот. */
+const SLOT_WORD: Record<WeaponMove['slot'], string> = {
+  weakAttack: 'слово «бить часто» заказывает этот темп.',
+  attack: 'слово «бить наверняка» заказывает этот темп.',
+  selflessAttack: 'слово «бить отчаянно» заказывает этот темп.',
+};
+
+/**
+ * Три ступени броска за ход (MAP, план action-economy): первым ударом, вторым
+ * и третьим. Числа, а не иконки — инвариант карточки.
+ */
+function mapLadder(w: WeaponSpec, arch: HeroArchetype): string {
+  const base = attackBonusOf(w);
+  return [0, 1, 2]
+    .map((i) => signed(base - mapPenalty(i, { agile: w.agile, flurry: arch.passives?.flurry })))
+    .join(' / ');
+}
+
+function weaponDetail(w: WeaponSpec, arch: HeroArchetype): CardDetail {
+  const moves = movesOf(w);
+  const slots = new Set(moves.map((m) => m.slot));
+  const parts: string[] = [];
+  parts.push(
+    w.range > 1
+      ? `Достаёт на ${w.range} — бьёт поверх строя, не входя в чужой контакт.`
+      : 'Бьёт только в упор.',
+  );
+  if (!slots.has('weakAttack')) parts.push('Быстрого темпа нет: частить этим оружием не выйдет.');
+  if (!slots.has('selflessAttack')) parts.push('Рискового темпа нет: этим оружием не открываются.');
+  if (w.agile) {
+    parts.push(
+      `Ловкое: ступень штрафа за повтор мягче (−${MAP_STEP_AGILE} вместо −${MAP_STEP}) — второй и третий удары за ход обходятся дешевле.`,
+    );
+  }
+  if (w.persist) {
+    parts.push(`Любой удар оставляет ${persistRu(w.persist.type ?? w.dmgType ?? 'fire')} −${w.persist.dmg}/ход.`);
+  }
+  if (w.aoe) parts.push(`Площадное: ${describeAoe(w.aoe)}. Без слова каста форма молчит.`);
+  return {
+    name: w.name,
+    meta: `оружие · ${dmgTypeRu(w.dmgType)} · урон ${w.dmg} · ${rangeRu(w.range)} · бонус ${signed(attackBonusOf(w))}`,
+    chips: [{ tone: 'line', text: `приёмов ${moves.length}` }],
+    text: parts.join(' '),
+  };
+}
+
+function moveDetail(w: WeaponSpec, m: WeaponMove, arch: HeroArchetype): CardDetail {
+  const ap = m.ap ?? AP_COST[m.slot];
+  const step = mapPenalty(1, { agile: w.agile, flurry: arch.passives?.flurry });
+  const type = m.dmgType ?? w.dmgType;
+  const parts: string[] = [];
+  parts.push(
+    m.slot === 'weakAttack'
+      ? `Быстрый темп — одно очко хода: таких за ход влезает ${AP_PER_TURN}.`
+      : m.slot === 'attack'
+        ? 'Полный темп — два очка: третье остаётся на шаг или оборону.'
+        : 'Рисковый темп — два очка: самый тяжёлый удар и настоящий размен.',
+  );
+  parts.push(
+    `Второй удар за ход идёт со штрафом −${step}, третий −${step * 2}, и промах стоит того же очка, что попадание.`,
+  );
+  if (m.pierce !== undefined) {
+    parts.push(
+      `Пробивает укрытия: цели остаётся ${Math.round(m.pierce * 100)}% бонуса обороны — против щита и камня это решает больше, чем фланг. Заодно расчётлив: на рипост глухой обороны не напарывается.`,
+    );
+  } else if (m.sure) {
+    parts.push('Расчётливый удар: на рипост глухой обороны не напарывается.');
+  }
+  if (m.expose) {
+    parts.push(
+      `Открывает: до своего следующего хода всё входящее по бьющему идёт ×${SELFLESS_VULN_MULT} — от всех сразу, а не только от цели.`,
+    );
+  }
+  if (m.push) parts.push('Толкает: цель сдвигается на клетку от бьющего — в шипы, с высоты, из строя; некуда — просто урон.');
+  if (m.gang !== undefined) parts.push(`Толпой больнее: +${m.gang} к множителю за каждого своего вплотную к цели.`);
+  if (m.stepBack) parts.push('С отходом: после удара шаг на клетку строго от цели, если та свободна и не опасна.');
+  if (m.twin) parts.push('По двум: удар делится между целью и ближайшим к бьющему другим врагом в той же дальности.');
+  if (m.pair) {
+    parts.push(
+      'Дважды: за одно действие два броска по одной цели, оба по текущему штрафу — штраф растёт уже после приёма.',
+    );
+  }
+  const persist = m.persist ?? w.persist;
+  if (persist) {
+    parts.push(
+      `Оставляет ${persistRu(persist.type ?? type ?? 'fire')} −${persist.dmg}/ход: тление гасится броском d20 ≥ ${PERSIST_DC} в конце хода жертвы, помощь «сбить пламя» роняет порог до ${PERSIST_DC_ASSISTED}.`,
+    );
+  }
+  if (m.ap !== undefined) parts.push('Весь ход в один приём: ни шага, ни обороны после него не останется.');
+  if (m.dmgType && m.dmgType !== w.dmgType) {
+    parts.push(`Тип урона — ${DAMAGE_TYPE_RU[m.dmgType]}, не как у оружия: против чужой брони это другой разговор.`);
+  }
+  return {
+    name: m.name,
+    meta: `${w.name} · ${SLOT_RU[m.slot]} темп · ${apRu(ap)} · ${dmgTypeRu(type)} · ${rangeRu(m.range ?? w.range)}`,
+    chips: [
+      { tone: 'ink', text: mapLadder(w, arch) },
+      { tone: 'red', text: `урон ${Math.round(w.dmg * m.mult)}` },
+      ...moveMarks(w, m).map((t): CardChip => ({ tone: 'line', text: t })),
+    ],
+    text: parts.join(' '),
+    word: SLOT_WORD[m.slot],
+  };
+}
+
+/** Чипс реакции класса: у ударных — бросок, у защитных — бонус к КБ. */
+function reactionChips(r: ReactionKind, arch: HeroArchetype): CardChip[] {
+  const melee = arch.weapons.find((w) => w.range === 1) ?? arch.weapons[0]!;
+  const shot = arch.weapons.find((w) => w.range > 1) ?? melee;
+  const strike = (w: WeaponSpec): CardChip[] => {
+    const moves = movesOf(w);
+    const m = moves.find((x) => x.slot === 'attack' && !x.ap) ?? moves[0]!;
+    return [
+      { tone: 'ink', text: `${signed(attackBonusOf(w))} · без повтора` },
+      { tone: 'red', text: `урон ${Math.round(w.dmg * m.mult)}` },
+    ];
+  };
+  switch (r) {
+    case 'reactiveStrike':
+    case 'noEscape':
+    case 'retributiveStrike':
+      return strike(melee);
+    case 'disruptPrey':
+      return strike(shot);
+    case 'succor':
+      return [{ tone: 'red', text: `+${SUCCOR_HEAL} hp` }];
+    case 'nimbleDodge':
+      return [{ tone: 'ink', text: `+${DODGE_AC} к КБ` }];
+    case 'deflectArrow':
+      return [{ tone: 'ink', text: `+${DEFLECT_AC} к КБ` }];
+    case 'arcaneShield':
+      return [
+        { tone: 'ink', text: `+${ARCANE_SHIELD_AC} к КБ` },
+        { tone: 'line', text: `гасит ${ARCANE_SHIELD_SOAK}` },
+      ];
+  }
+}
+
+/** Строки активов класса — та же азбука ромбов, что у приёмов. */
+function activeRows(arch: HeroArchetype): CardRow[] {
+  const a = arch.active;
+  if (!a) return [];
+  const rows: CardRow[] = [];
+  const row = (key: string, name: string, ap: number, chips: CardChip[], text: string): CardRow => ({
+    key,
+    cost: '◆'.repeat(ap),
+    name,
+    marks: ['гейт словом'],
+    chips,
+    detail: { name, meta: `актив класса · ${apRu(ap)}`, chips, text },
+  });
+  if (a.rage) {
+    rows.push(
+      row('act:rage', 'впасть в ярость', AP_COST.rage, [
+        { tone: 'red', text: `урон ×${a.rage.dmgMult}` },
+        { tone: 'line', text: `входящий ×${a.rage.vulnMult}` },
+      ], 'Раз в бой и до конца боя: бьёт крепче, но и получает больнее. Раз войдя — назад не выйти, поэтому вся цена в моменте.'),
+    );
+  }
+  if (a.wall) {
+    rows.push(
+      row('act:wall', 'стена', AP_COST.wall, [
+        { tone: 'ink', text: `+${COVER_AC} к КБ строю` },
+        { tone: 'line', text: `${a.wall.usesPerBattle} на бой` },
+      ], `Прикрытие себе и всем смежным своим до их следующего хода. Своего слова не просит — жмётся правилами «защищать» и «прикрывать отход».`),
+    );
+  }
+  if (a.heal) {
+    rows.push(
+      row('act:heal', 'лечить', AP_COST.heal, [
+        { tone: 'red', text: `+${a.heal.amount} hp` },
+        { tone: 'line', text: `даль ${a.heal.range}` },
+        { tone: 'line', text: `${a.heal.usesPerBattle} на бой` },
+      ], 'Своему в дальности — очки жизни назад, но не выше максимума. Гейт — слово «лечить»: условие и вес выбирает игрок.'),
+    );
+  }
+  if (a.bless) {
+    rows.push(
+      row('act:bless', 'благословить', AP_COST.bless, [
+        { tone: 'red', text: `урон своего ×${a.bless.dmgMult}` },
+        { tone: 'line', text: `даль ${a.bless.range}` },
+        { tone: 'line', text: `${a.bless.usesPerBattle} на бой` },
+      ], 'Атаки своего крепче до конца боя. Своего слова у благословения нет — жмётся врождённым правилом, цель выбирает скоринг.'),
+    );
+  }
+  if (a.feint) {
+    rows.push(
+      row('act:feint', 'финт', AP_COST.feint, [{ tone: 'line', text: `открывает ×${SELFLESS_VULN_MULT}` }],
+        'Смежный враг открыт до своего хода: входящее по нему идёт крепче — от всех сразу. Сетап под своих: «финт → все бьют».'),
+    );
+  }
+  return rows;
+}
+
+/**
+ * Строки площадных форм оружия (план aoe) — та же азбука ромбов: игрок видит
+ * цену и урон зоны до того, как возьмёт слово каста.
+ */
+function aoeRows(w: WeaponSpec, wi: number): CardRow[] {
+  const a = w.aoe;
+  if (!a) return [];
+  const rows: CardRow[] = [];
+  const save = `Зона бьёт всех, кто в ней, — своих тоже; каждая жертва бросает спасбросок против ${SAVE_DC}: успех — половина урона, крит-успех — ничего.`;
+  const add = (
+    id: string,
+    name: string,
+    ap: number,
+    mult: number,
+    dmgType: DamageType | undefined,
+    chips: CardChip[],
+    text: string,
+  ): void => {
+    const all: CardChip[] = [{ tone: 'red', text: `${Math.round(w.dmg * mult)}` }, ...chips];
+    rows.push({
+      key: `aoe:${wi}:${id}`,
+      cost: '◆'.repeat(ap),
+      name,
+      marks: ['гейт словом'],
+      chips: all,
+      detail: {
+        name,
+        meta: `${w.name} · площадное · ${apRu(ap)} · ${dmgTypeRu(dmgType ?? w.dmgType)}`,
+        chips: all,
+        text,
+      },
+    });
+  };
+  if (a.blast) {
+    add('blast', 'заряд 3×3', AP_COST.aoeBlast, a.blast.mult, a.blast.dmgType, [
+      { tone: 'line', text: `даль ${a.blast.range}` },
+      ...(a.blast.usesPerBattle ? [{ tone: 'line' as const, text: `${a.blast.usesPerBattle} на бой` }] : []),
+    ], `Мгновенный взрыв 3×3 вокруг выбранной клетки в дальности ${a.blast.range}. ${save}`);
+  }
+  if (a.line) {
+    add('line', `волна 1×${a.line.len}`, AP_COST.aoeLine, a.line.mult, a.line.dmgType, [
+      { tone: 'line', text: `длина ${a.line.len}` },
+    ], `Мгновенная полоса 1×${a.line.len} от себя в одном из восьми направлений; камень обрывает взмах. ${save}`);
+  }
+  if (a.ritual) {
+    const pulses = a.ritual.pulses && a.ritual.pulses > 1 ? ` Зона держится и жжёт ${a.ritual.pulses} хода подряд.` : '';
+    const limit = a.ritual.cooldown
+      ? `раз в ${a.ritual.cooldown} раунда`
+      : a.ritual.usesPerBattle
+        ? `${a.ritual.usesPerBattle} на бой`
+        : 'без лимита';
+    add('ritual', 'ритуал 5×5', AP_COST.aoeRitual, a.ritual.mult, a.ritual.dmgType, [
+      { tone: 'line', text: `даль ${a.ritual.range}` },
+      { tone: 'line', text: limit },
+    ], `Замах — весь ход: зона 5×5 объявлена и видна, а бьёт в начале следующего хода кастера, по тем, кто из неё не вышел. Смерть кастера отменяет замах.${pulses} ${save}`);
+  }
+  return rows;
+}
+
+/** Секции вкладки «Приёмы»: по оружию, затем общие действия и реакция. */
+function moveSections(arch: HeroArchetype): CardSection[] {
+  const sections: CardSection[] = arch.weapons.map((w, wi) => ({
+    title: w.name,
+    meta: `${dmgTypeRu(w.dmgType)} · ${w.dmg} · ${rangeRu(w.range)}`,
+    right: signed(attackBonusOf(w)),
+    key: `w:${wi}`,
+    detail: weaponDetail(w, arch),
+    rows: [...movesOf(w).map((m): CardRow => {
+      const detail = moveDetail(w, m, arch);
+      return {
+        key: `m:${wi}:${m.id}`,
+        cost: '◆'.repeat(m.ap ?? AP_COST[m.slot]),
+        name: m.name,
+        marks: moveMarks(w, m),
+        chips: [
+          { tone: 'ink', text: mapLadder(w, arch) },
+          { tone: 'red', text: String(Math.round(w.dmg * m.mult)) },
+        ],
+        detail,
+      };
+    }), ...aoeRows(w, wi)],
+  }));
+
+  const actives = activeRows(arch);
+  if (actives.length > 0) {
+    sections.push({ title: 'Классовое', meta: 'актив — раз в бой', right: 'своё у класса', rows: actives });
+  }
+
+  // цены общих действий — зеркало `apCostFor`: медленному осторожный шаг
+  // стоит два очка, бастиону глухая оборона — два вместо трёх
+  const stepAp = arch.stats.move <= 1 ? 2 : AP_COST.carefulStep;
+  const braceAp = arch.passives?.steadfast ? 2 : AP_COST.fullCover;
+  const common: CardRow[] = [
+    {
+      key: 'a:step',
+      cost: '◆'.repeat(stepAp),
+      name: 'осторожный шаг',
+      marks: [],
+      chips: [{ tone: 'line', text: 'без ответа' }],
+      detail: {
+        name: 'осторожный шаг',
+        meta: `общее · ${apRu(stepAp)} · до ${arch.stats.move} кл.`,
+        chips: [{ tone: 'line', text: 'не провоцирует' }],
+        text: 'Выйти из контакта, ничего не заплатив. Бегом то же расстояние стоит удара от всякого, у кого цела реакция.',
+      },
+    },
+    {
+      key: 'a:cover',
+      cost: '◆'.repeat(AP_COST.cover),
+      name: 'прикрыться',
+      marks: [],
+      chips: [{ tone: 'ink', text: `+${COVER_AC} к КБ` }],
+      detail: {
+        name: 'прикрыться',
+        meta: `общее · ${apRu(AP_COST.cover)} · до своего хода`,
+        chips: [{ tone: 'ink', text: `+${COVER_AC} к КБ` }],
+        text: `Бонус обстоятельств. С камнем, приманкой и щитом своего не складывается — берётся высший; за камнем прикрытие поднимается ступенью выше, до +${BRACE_AC}.`,
+      },
+    },
+    {
+      key: 'a:brace',
+      cost: '◆'.repeat(braceAp),
+      name: 'глухая оборона',
+      marks: ['весь ход'],
+      chips: [{ tone: 'ink', text: `+${BRACE_AC} к КБ` }],
+      detail: {
+        name: 'глухая оборона',
+        meta: `общее · ${apRu(braceAp)} · до своего хода`,
+        chips: [
+          { tone: 'ink', text: `+${BRACE_AC} к КБ` },
+          { tone: 'red', text: `рипост ${RIPOSTE_DMG}` },
+        ],
+        text: `Сегодня не воюю: ход уходит в защиту целиком. Ближний удар по стоящему в глухой ранит бьющего на ${RIPOSTE_DMG} — настойчивость врага превращается в его раны. Расчётливый приём (пирс) рипоста не ловит.`,
+      },
+    },
+  ];
+  if (arch.shield) {
+    const sh = arch.shield;
+    common.push({
+      key: 'a:shield',
+      cost: '◆'.repeat(AP_COST.raiseShield),
+      name: 'поднять щит',
+      marks: ['блок раз в раунд'],
+      chips: [
+        { tone: 'ink', text: `+${sh.ac} к КБ` },
+        { tone: 'line', text: `гасит ${sh.hardness}` },
+      ],
+      detail: {
+        name: 'поднять щит',
+        meta: `щит · ${apRu(AP_COST.raiseShield)} · до своего хода`,
+        chips: [
+          { tone: 'ink', text: `+${sh.ac} к КБ` },
+          { tone: 'line', text: `гасит ${sh.hardness}` },
+          { tone: 'line', text: `запас ${sh.hp}` },
+        ],
+        text: `Бонус к КБ и блок: раз в раунд щит съедает ${sh.hardness} урона, забирая вмятины себе. Запас ${sh.hp} — дальше щит разваливается, и герой воюет без него до конца забега.`,
+      },
+    });
+  }
+  sections.push({ title: 'Ход и оборона', meta: 'общее для всех', right: `${AP_PER_TURN} очка на ход`, rows: common });
+
+  if (arch.reaction) {
+    const r = arch.reaction;
+    const chips = reactionChips(r, arch);
+    sections.push({
+      title: 'Реакция',
+      meta: 'одна в раунд — на всё',
+      right: '◇',
+      rows: [
+        {
+          key: 'r:reaction',
+          cost: '◇',
+          name: REACTION_RU[r],
+          marks: [],
+          chips,
+          detail: {
+            name: REACTION_RU[r],
+            meta: `реакция · одна в раунд · в чужой ход`,
+            chips,
+            text: `${cap(describeReaction(r))}. Штраф за повтор в чужой ход обнулён — бьёт в полную силу; но карман один: потратил на ответ — закрыть собой своего уже нечем.`,
+          },
+        },
+      ],
+    });
+  }
+  return sections;
+}
+
+const chipHtml = (c: CardChip): string => `<span class="chip ${c.tone}">${esc(c.text)}</span>`;
+
+function cardRowHtml(row: CardRow, open: string | null): string {
+  return `<div class="mv-row ${open === row.key ? 'on' : ''}" data-action="card-move" data-move="${row.key}">
+    <span class="cost">${row.cost}</span>
+    <span class="nm">${esc(row.name)}</span>
+    ${row.marks.map((m) => `<span class="rider">${esc(m)}</span>`).join('')}
+    <span class="chips">${row.chips.map(chipHtml).join('')}</span>
+  </div>`;
+}
+
+function movesTabHtml(arch: HeroArchetype, open: string | null): string {
+  return moveSections(arch)
+    .map(
+      (s) => `<div class="mv-group">
+      <div class="mv-head ${s.key ? 'clickable' : ''} ${open === s.key ? 'on' : ''}" ${
+        s.key ? `data-action="card-move" data-move="${s.key}"` : ''
+      }>
+        <span class="nm">${esc(s.title)}</span>
+        <span class="meta">${esc(s.meta)}</span>
+        <span class="right">${esc(s.right)}</span>
+      </div>
+      ${s.rows.map((r) => cardRowHtml(r, open)).join('')}
+    </div>`,
+    )
+    .join('');
+}
+
+/** Попап выбранной строки — живёт только на вкладке «Приёмы». */
+function cardPopupHtml(arch: HeroArchetype, open: string | null): string {
+  if (!open) return '';
+  const sections = moveSections(arch);
+  const detail =
+    sections.find((s) => s.key === open)?.detail ??
+    sections.flatMap((s) => s.rows).find((r) => r.key === open)?.detail;
+  if (!detail) return '';
+  return `<div class="card-popup">
+    <div class="p-head">
+      <span class="nm">${esc(detail.name)}</span>
+      <button data-action="card-move" data-move="${open}">закрыть</button>
+    </div>
+    <span class="p-meta">${esc(detail.meta)}</span>
+    <div class="chips">${detail.chips.map(chipHtml).join('')}</div>
+    <p class="p-text">${esc(detail.text)}</p>
+    ${detail.word ? `<div class="p-word">${esc(detail.word)}</div>` : ''}
+  </div>`;
+}
+
+const SAVE_RU: Record<SaveKind, string> = { fort: 'стойкость', ref: 'реакция', will: 'воля' };
+
+/** Чем аукнется слабейший спасбросок: спасброски в бою бросают против площадных. */
+const SAVE_WEAK_NOTE: Record<SaveKind, string> = {
+  fort: 'ядовитые зоны и отрава берут его крепче прочих.',
+  ref: 'площадные залпы и волны накрывают его целиком.',
+  will: 'разумовые чары проходят по нему легче всего.',
+};
+
+function aboutTabHtml(hero: HeroState, arch: HeroArchetype, hp?: number): string {
+  const d = arch.defenses;
+  const saves: SaveKind[] = ['fort', 'ref', 'will'];
+  const saveVal = (k: SaveKind): number => d?.[k] ?? DEFAULT_SAVE;
+  const weakest = saves.reduce((a, b) => (saveVal(b) < saveVal(a) ? b : a));
+  const stat = (label: string, value: string): string =>
+    `<span class="s-row"><span>${label}</span><span class="v">${esc(value)}</span></span>`;
+
+  const dmgRows: string[] = [];
+  const line = (chip: CardChip, text: string): string =>
+    `${chipHtml(chip)}<span class="d-text">${esc(text)}</span>`;
+  for (const [t, n] of Object.entries(d?.resist ?? {})) {
+    dmgRows.push(line({ tone: 'ink', text: `сопр ${n}` }, `${DAMAGE_TYPE_RU[t as DamageType]} — каждое попадание слабее на ${n}`));
+  }
+  for (const [t, n] of Object.entries(d?.weak ?? {})) {
+    dmgRows.push(line({ tone: 'red', text: `слаб ${n}` }, `${DAMAGE_TYPE_RU[t as DamageType]} — каждое попадание крепче на ${n}`));
+  }
+  for (const t of d?.immune ?? []) {
+    dmgRows.push(line({ tone: 'line', text: 'имм' }, `${DAMAGE_TYPE_RU[t]} — не берёт вовсе`));
+  }
+
+  // характер выучивается по бою: до реплики в бою линза стоит вопросом
+  const revealed = (l: LensId): boolean =>
+    debugLenses ||
+    // характер открыт ровно с того кадра, где он проговорился, — раскрытия
+    // из ещё не показанной части боя не спойлерим
+    battleReveals.some((r) => r.unit === hero.id && r.lens === l && r.frame <= frameIdx);
+  const lensChips = hero.lenses
+    .map((l) =>
+      revealed(l)
+        ? `<span class="chip line">${esc(LENS_RU[l])}</span>`
+        : `<span class="chip unknown">? ещё не открыто</span>`,
+    )
+    .join('');
+  const lensNotes = hero.lenses
+    .filter(revealed)
+    .map((l) => `<div class="note">${LENS_HINT[l]}</div>`)
+    .join('');
+
+  return `<div class="card-body">
+    <div class="c-block">
+      <span class="kicker">характеристики</span>
+      <div class="stat-grid">
+        ${stat('жизни', hp === undefined ? `${arch.stats.maxHp}` : `${hp}/${arch.stats.maxHp}`)}
+        ${stat('инициатива', String(arch.stats.speed))}
+        ${stat('шаг', `${arch.stats.move} кл.`)}
+      </div>
+    </div>
+    <div class="c-block">
+      <span class="kicker">защиты и спасброски</span>
+      <div class="chips">
+        <span class="chip ink">КБ ${d?.ac ?? DEFAULT_AC}</span>
+        ${saves.map((k) => `<span class="chip line">${SAVE_RU[k]} ${saveVal(k)}</span>`).join('')}
+      </div>
+      <div class="note serif">Слабейший спасбросок — ${SAVE_RU[weakest]}: ${SAVE_WEAK_NOTE[weakest]}</div>
+    </div>
+    <div class="c-block">
+      <span class="kicker">урон: как его берут</span>
+      ${
+        dmgRows.length > 0
+          ? `<div class="dmg-grid">${dmgRows.join('')}</div>`
+          : '<div class="note serif">Особых сопротивлений нет: любой тип входит ровно.</div>'
+      }
+    </div>
+    <div class="c-block">
+      <span class="kicker">характер · выучивается по бою</span>
+      <div class="chips">${lensChips}</div>
+      ${lensNotes}
+    </div>
+    <div class="c-block ability">
+      <span class="kicker">способность · врождённое правило</span>
+      <div class="hand">${esc(arch.ability.name)} — ${esc(arch.ability.desc)}.</div>
+      ${arch.passives ? `<div class="note">пассивы · ${esc(describePassives(arch.passives))}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+/**
+ * Вкладка «Инвентарь» — заглушка: предметов в коде ещё нет, но смысл вкладки
+ * читается уже сейчас (оружие как источник приёмов).
+ */
+function bagTabHtml(arch: HeroArchetype): string {
+  const items = arch.weapons
+    .map(
+      (w) => `<div class="bag-row">
+        <span class="mark">✦</span>
+        <span class="b-body">
+          <span class="nm">${esc(w.name)}</span>
+          <span class="sub">оружие · ${esc(dmgTypeRu(w.dmgType))} ${w.dmg} · даёт ${esc(
+            movesOf(w)
+              .map((m) => `«${m.name}»`)
+              .join(', '),
+          )}</span>
+        </span>
+      </div>`,
+    )
+    .join('');
+  return `<div class="card-body bag">
+    <div class="c-head">
+      <span class="kicker">носит с собой</span>
+      <span class="chip unknown">в разработке</span>
+    </div>
+    <div class="bag-list">
+      ${items}
+      <div class="bag-row empty"><span class="mark">+</span><span class="hand">пустой слот — сюда ляжет добыча похода</span></div>
+    </div>
+    <div class="hand note">Предметы — источник приёмов и слов: уберёшь молот — исчезнут и его приёмы во вкладке «Приёмы».</div>
+  </div>`;
+}
+
 function unitCardHtml(id: string): string {
   const node = currentNode(run);
   const hero = run.heroes.find((h) => h.id === id);
   if (hero) {
+    const arch = heroArchetype(hero.archetypeId);
     const live = unitHpInBattle(id) ?? (hero.alive ? { hp: hero.hp, alive: true } : undefined);
-    const hints = debugLenses
-      ? `<div class="lens-hint">${hero.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>`
-      : '';
-    return `<div class="overlay"><div class="modal unit-card">
-      <div class="head">
-        <span class="title">${esc(hero.name)}</span>
-        ${classTag(hero.archetypeId)}
-        ${lensTagHtml(hero.lenses)}
-        <span class="meta">${live?.alive === false || !hero.alive ? 'пал(а)' : 'наш отряд'}</span>
+    // попап живёт только на вкладке приёмов — на прочих список не раскрывается
+    const open = cardTab === 'moves' ? cardMove : null;
+    const body =
+      cardTab === 'about'
+        ? aboutTabHtml(hero, arch, live?.hp)
+        : cardTab === 'bag'
+          ? bagTabHtml(arch)
+          : `<div class="card-body">${movesTabHtml(arch, open)}</div>`;
+    const tab = (t: CardTab, label: string): string =>
+      `<button class="c-tab ${cardTab === t ? 'on' : ''}" data-action="card-tab" data-tab="${t}">${label}</button>`;
+    return `<div class="overlay"><div class="card-wrap">
+      <div class="modal unit-card">
+        <div class="head">
+          <span class="title">${esc(hero.name)}</span>
+          <span class="sub">${esc(arch.class)} · ${esc(arch.title)}</span>
+          <span class="meta">${live?.alive === false || !hero.alive ? 'пал(а) · ' : ''}hp ${
+            live?.hp ?? hero.hp
+          }/${arch.stats.maxHp} · КБ ${arch.defenses?.ac ?? DEFAULT_AC} · приказы ${hero.phrases.length}/${hero.slots}</span>
+        </div>
+        <div class="c-tabs">${tab('about', 'Описание')}${tab('moves', 'Приёмы')}${tab('bag', 'Инвентарь')}</div>
+        ${body}
+        <div class="foot-row"><span class="spacer"></span><button class="primary" data-action="close-card">закрыть</button></div>
       </div>
-      <div class="stat-line">${statLine({ ...hero.stats, weapons: heroArchetype(hero.archetypeId).weapons }, live?.hp)}</div>
-      <div class="ability-note">способность · ${esc(abilityLine(hero.archetypeId))}</div>
-      <div class="card-block">
-        <span class="kicker">приказы</span>
-        <div class="orders-text">${
-          ordersSentence(hero) ? esc(ordersSentence(hero)) : '<span class="empty">— приказов нет —</span>'
-        }</div>
-      </div>
-      <div class="card-block">
-        <span class="kicker">как прочёл</span>
-        ${readNoteHtml(readingLines(hero), false)}
-      </div>
-      ${hints}
-      <div class="foot-row"><span class="spacer"></span><button class="primary" data-action="close-card">закрыть</button></div>
+      ${cardPopupHtml(arch, open)}
     </div></div>`;
   }
   if (!FIGHT_KINDS.includes(node.kind)) return '';
@@ -2550,6 +3189,8 @@ function bind(): void {
   for (const tok of app.querySelectorAll<HTMLElement>('.btoken[data-unit]')) {
     tok.addEventListener('click', () => {
       unitCardId = tok.dataset.unit!;
+      cardTab = 'moves';
+      cardMove = null;
       playing = false;
       stopTimer();
       render();
@@ -2598,6 +3239,8 @@ function bind(): void {
         }
         case 'unit-card':
           unitCardId = el.dataset.unit!;
+          cardTab = 'moves';
+          cardMove = null;
           playing = false;
           stopTimer();
           render();
@@ -2606,6 +3249,17 @@ function bind(): void {
           unitCardId = null;
           render();
           break;
+        case 'card-tab':
+          cardTab = el.dataset.tab as CardTab;
+          render();
+          break;
+        case 'card-move': {
+          // повторный клик по той же строке сворачивает попап
+          const key = el.dataset.move!;
+          cardMove = cardMove === key ? null : key;
+          render();
+          break;
+        }
         case 'open-log':
           logOpen = true;
           playing = false;

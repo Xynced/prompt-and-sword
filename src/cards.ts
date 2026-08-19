@@ -386,12 +386,10 @@ export function describeAoe(aoe: AoeSpec): string {
 }
 
 /**
- * Строка одного оружия (план классов) — для разведки врага и карточки героя:
- * имя, урон, дальность, площадные формы. Игрок видит оружие до того, как
- * возьмёт слова под него («накрыть скопление» берут, зная носителя).
+ * Райдеры приёма словами — общий список для текстовой строки кита и для
+ * карточки героя (там же они стоят пунктиром рядом с именем приёма).
  */
-/** Строка приёма кита: имя, урон (dmg × mult), дальность и райдеры в скобках. */
-function describeMove(w: WeaponSpec, m: WeaponMove): string {
+export function moveMarks(w: WeaponSpec, m: WeaponMove): string[] {
   const marks: string[] = [];
   const r = m.range ?? w.range;
   // тип урона приёма пишем, только если он спорит с оружейным: «щитом в
@@ -412,9 +410,20 @@ function describeMove(w: WeaponSpec, m: WeaponMove): string {
   const rider = m.persist ?? w.persist;
   if (rider) marks.push(`${persistRu(rider.type ?? m.dmgType ?? w.dmgType ?? 'fire')} −${rider.dmg}/ход`);
   if (m.ap !== undefined) marks.push('весь ход');
+  return marks;
+}
+
+/** Строка приёма кита: имя, урон (dmg × mult), дальность и райдеры в скобках. */
+function describeMove(w: WeaponSpec, m: WeaponMove): string {
+  const marks = moveMarks(w, m);
   return `${m.name} ${Math.round(w.dmg * m.mult)}${marks.length > 0 ? ` (${marks.join(', ')})` : ''}`;
 }
 
+/**
+ * Строка одного оружия (план классов) — для разведки врага и карточки героя:
+ * имя, урон, дальность, площадные формы. Игрок видит оружие до того, как
+ * возьмёт слова под него («накрыть скопление» берут, зная носителя).
+ */
 export function describeWeapon(w: WeaponSpec): string {
   const aoe = w.aoe ? ` · ${describeAoe(w.aoe)}` : '';
   // тип урона оружия (план damage-types) — рядом с именем: по нему игрок
