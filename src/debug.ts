@@ -3,7 +3,7 @@ import type { PhraseDraft } from './constructor.js';
 import { type ConceptId, CONCEPTS } from './vocab.js';
 import { LENS_RU } from './lens.js';
 import { PARTY_SPAWNS, defaultPhrasesFor, heroArchetype } from './heroes.js';
-import { type MapNode, type RunState, MAX_SLOTS, freshIntel, playFight, setPhrases } from './run.js';
+import { type MapNode, type RunState, MAX_SLOTS, emptyOrderSets, freshIntel, playFight, setPhrases } from './run.js';
 import { scenarioForNode } from './objectives.js';
 import type { LensId } from './types.js';
 
@@ -133,6 +133,8 @@ export function debugRun(setup: DebugSetup): RunState {
       // слотов сразу максимум: отладка не отыгрывает прогрессию, как и со словарём
       slots: MAX_SLOTS,
       phrases: [],
+      sets: emptyOrderSets([]),
+      activeSet: 0,
     })),
     marked: setup.marked ?? null,
     ...(setup.nerve ? { nerve: setup.nerve } : {}),

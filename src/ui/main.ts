@@ -31,7 +31,7 @@ import { type ModelCall, anthropicModelCall, compileFreeText } from '../compiler
 import type { CompilerCache } from '../compiler/cache.js';
 import type { CompilerOutput } from '../compiler/schema.js';
 import { ALLY_ROLE_RU, BATTLE_DRAGS_ROUND, type AllyRef, type AllyRole, type Rule } from '../ir.js';
-import { CONCEPTS, type ConceptId } from '../vocab.js';
+import { CONCEPTS, type ConceptCategory, type ConceptId, RARE_WORDS } from '../vocab.js';
 import {
   type MapNode,
   type NodeKind,
@@ -47,8 +47,13 @@ import {
   claimReward,
   currentNode,
   eventOffer,
+  FOCUS_BUDGET,
   INTEL_POINTS,
+  ORDER_SETS,
   buyIntel,
+  focusUsed,
+  setFocus,
+  switchOrderSet,
   foeSpecs,
   foesForNode,
   foesKnown,
@@ -125,6 +130,11 @@ let speed = 1;
 let timer: number | null = null;
 let tactician = false;
 let editorOpen = false;
+
+/** Оверлеи внутри редактора: модалка текста и словарь. */
+let textOpen = false;
+let vocabOpen = false;
+let vocabFilter: ConceptCategory | null = null;
 let editHero = run.heroes[0]!.id;
 let aftermathOpen = false;
 
@@ -202,7 +212,6 @@ const ENV = (import.meta as unknown as { env?: Record<string, string> }).env ?? 
 const API_KEY: string | undefined = ENV.VITE_COMPILER_API_KEY ?? ENV.VITE_ANTHROPIC_API_KEY;
 const COMPILER_MODEL: string | undefined = ENV.VITE_COMPILER_MODEL;
 const COMPILER_BASE_URL: string | undefined = ENV.VITE_COMPILER_BASE_URL;
-const textMode: Record<string, boolean> = {};
 
 /**
  * Debug-режим (план линз): игроку характеры не показываются — он выучивает их
@@ -224,13 +233,6 @@ function unlockAllWords(): void {
   }
 }
 
-/**
- * Свободный текст — режим по умолчанию, когда компилятор доступен; без ключа —
- * только чипсы. Вне debug-режима чипсы при живом компиляторе скрыты совсем:
- * игрок видит только свои слова и «как прочёл» (план линз).
- */
-const inText = (heroId: string): boolean =>
-  API_KEY ? !debugLenses || (textMode[heroId] ?? true) : false;
 const heroText: Record<string, string> = {};
 const heroUncertainty: Record<string, string[]> = {};
 const compiling: Record<string, boolean> = {};
@@ -308,6 +310,10 @@ async function compileHeroText(heroId: string): Promise<void> {
     const res = applyPhrases(heroId, r.phrases);
     editError[heroId] = res.ok ? '' : res.error;
     heroUncertainty[heroId] = r.uncertainty;
+    // текст хранится целиком — включая слова, которых герой не знает
+    const set = hero.sets[hero.activeSet];
+    if (set) set.text = heroText[heroId] ?? '';
+    if (res.ok) textOpen = false;
   } else {
     editError[heroId] = r.error;
   }
@@ -455,22 +461,12 @@ const LENS_HINT: Record<LensId, string> = {
   showman: 'позёр красуется перед строем врага — приманка без приказа.',
 };
 
-/** Подпись важности фразы: фокус (план nerve) держит приказ при разбросе весов. */
-const WEIGHT_NOTE: Record<number, string> = { 1: '', 2: ' (важно)', 3: ' (фокус)' };
-
 /**
- * Фокус (спека редактора приказов): единственный видимый игроку рычаг
- * приоритета — вес 3 на фразе. Один фокус на героя, бюджет общий на отряд.
+ * Подпись важности фразы. Вес игроку закрыт (спека редактора приказов):
+ * видно только фокус — единственный рычаг приоритета в его руках.
  */
-const FOCUS_BUDGET = 3;
+const WEIGHT_NOTE: Record<number, string> = { 1: '', 2: '', 3: ' (фокус)' };
 
-const isFocused = (d: PhraseDraft): boolean => (d.weight ?? 1) >= 3;
-
-/** Сколько фокусов отряда ещё свободно. */
-function focusFree(): number {
-  const used = run.heroes.filter((h) => h.alive && h.phrases.some(isFocused)).length;
-  return Math.max(0, FOCUS_BUDGET - used);
-}
 
 /** Приказы героя как связный текст (до линзы — как написано). */
 function ordersSentence(h: { phrases: PhraseDraft[] }): string {
@@ -1516,7 +1512,7 @@ function runChipsHtml(): string {
   const alive = run.heroes.filter((h) => h.alive).length;
   return `<span class="run-chips">
     <span class="chip ink">слов ${run.vocab.length}</span>
-    <span class="chip line">фокусы ${focusFree()} из ${FOCUS_BUDGET}</span>
+    <span class="chip line">фокусы ${FOCUS_BUDGET - focusUsed(run)} из ${FOCUS_BUDGET}</span>
     <span class="chip red">отряд ${alive} жив${alive === 1 ? '' : 'ы'}</span>
   </span>`;
 }
@@ -1916,12 +1912,22 @@ function prepPartyHtml(node: MapNode): string {
           <span class="pp-class">${esc(heroArchetype(h.archetypeId).class)}</span>
         </span>
         <span class="pp-orders">${orders ? esc(orders) : '— приказов нет —'}</span>
+        <span class="pp-sets">${h.sets
+          .map(
+            (os, i) =>
+              `<button class="set-tab ${
+                i === h.activeSet ? 'on' : os.phrases.length === 0 ? 'empty' : ''
+              }" data-action="switch-set" data-hero="${h.id}" data-set="${i}" ${
+                os.phrases.length === 0 ? 'disabled title="пустой комплект — сперва напиши приказ в редакторе"' : ''
+              }>${ORDER_SETS[i]}</button>`,
+          )
+          .join('')}</span>
         <span class="pp-state">${fixedSpawns ? 'по сценарию' : set ? 'встал сам' : 'по умолчанию'}</span>
       </div>`;
     })
     .join('');
   return `<div class="prep-party">
-    <span class="kicker">кто и с каким текстом идёт</span>
+    <span class="kicker">кто с каким комплектом идёт</span>
     ${rows}
   </div>`;
 }
@@ -2372,10 +2378,199 @@ function syncBattleFrame(): void {
 
 // ---------- оверлей: редактор приказов ----------
 
+/** Как герой прочтёт эту фразу: дословно или по-своему (содержание раскроет бой). */
+function understanding(hero: HeroState, draft: PhraseDraft): 'literal' | 'own' {
+  const r = compilePhrase(draft, run.vocab, heroNames(run));
+  if (!r.ok) return 'literal';
+  return applyLens(hero.lenses, [r.rule]).rules[0]?.marks?.length ? 'own' : 'literal';
+}
+
+/** Счётчик фокусов словами, а не дробью. */
+function focusNote(): string {
+  const free = FOCUS_BUDGET - focusUsed(run);
+  if (free === 0) return `занято ${FOCUS_BUDGET} из ${FOCUS_BUDGET}`;
+  return `${free} ${free === 1 ? 'свободен' : 'свободно'} из ${FOCUS_BUDGET}`;
+}
+
+/** Слоты героя ромбами: ◆ занятый, ◇ свободный. */
+function slotPips(hero: HeroState): string {
+  return '◆'.repeat(Math.min(hero.phrases.length, hero.slots)) + '◇'.repeat(Math.max(0, hero.slots - hero.phrases.length));
+}
+
+/** Переключатель комплектов A / B / C: активный залит, пустой — пунктир. */
+function orderSetsHtml(hero: HeroState): string {
+  const tabs = hero.sets
+    .map((set, i) => {
+      const cls = i === hero.activeSet ? 'on' : set.phrases.length === 0 ? 'empty' : '';
+      return `<button class="set-tab ${cls}" data-action="switch-set" data-hero="${hero.id}" data-set="${i}">${
+        ORDER_SETS[i]
+      }</button>`;
+    })
+    .join('');
+  const active = hero.sets[hero.activeSet]!;
+  const note = active.note || (active.phrases.length ? 'без подписи' : 'пустой комплект — здесь пока ничего не написано');
+  return `<div class="sets-row">${tabs}<span class="set-note">${esc(note)}</span></div>`;
+}
+
+/** Строка принципа: ромб фокуса · чипсы IR · статус понимания. Вес не показывается. */
+function principleRowHtml(hero: HeroState, i: number, ph: PhraseDraft): string {
+  // глубокие чипсы: условие фразы — цепочка до трёх уровней со связкой
+  // «и»/«или» (одна на фразу); следующий уровень появляется, когда выбран предыдущий
+  const chain: CondLinkDraft[] =
+    ph.condition.id === 'and' || ph.condition.id === 'or'
+      ? ph.condition.conds
+      : ph.condition.id === 'always'
+        ? []
+        : [ph.condition];
+  const op: 'and' | 'or' = ph.condition.id === 'or' ? 'or' : 'and';
+  const opChip = (lvl: number): string =>
+    lvl === 1
+      ? `<select class="op-select" data-hero="${hero.id}" data-idx="${i}">
+          <option value="and" ${op === 'and' ? 'selected' : ''}>и</option>
+          <option value="or" ${op === 'or' ? 'selected' : ''}>или</option>
+        </select>`
+      : `<span class="nest">${op === 'or' ? 'или' : 'и'}</span>`;
+  // «не» — грамматика при звене, а не чипс словаря: галочка рядом с выбором.
+  // У «всегда» отрицать нечего — галочка гаснет
+  const condChip = (lvl: number, opts: Opt<ConditionDraft>[]): string => {
+    const link = chain[lvl];
+    const neg = link?.id === 'not';
+    const value: ConditionDraft = neg ? link.cond : (link ?? { id: 'always' });
+    const off = value.id === 'always';
+    return `<label class="neg" title="если НЕ">
+        <input type="checkbox" class="neg-check" data-hero="${hero.id}" data-idx="${i}"
+          data-level="${lvl}" ${neg ? 'checked' : ''} ${off ? 'disabled' : ''}> не
+      </label>${selectHtml('cond-select', hero.id, i, opts, value, `data-level="${lvl}"`)}`;
+  };
+  const condSelects = [condChip(0, conditionOptions())];
+  for (let lvl = 1; lvl < 3 && chain.length >= lvl; lvl++) {
+    condSelects.push(`<span class="nest">⌞</span>${opChip(lvl)}${condChip(lvl, moreConditionOptions())}`);
+  }
+  const focused = (ph.weight ?? 1) >= 3;
+  const read = understanding(hero, ph);
+  return `<div class="pr-row${focused ? ' focused' : ''}">
+    <span class="pr-focus" data-action="toggle-focus" data-hero="${hero.id}" data-idx="${i}"
+      title="фокус — важнее остальных; бюджет общий на отряд">${focused ? '◆' : '◇'}</span>
+    <span class="fields">${condSelects.join('')}${selectHtml(
+      'pref-select',
+      hero.id,
+      i,
+      preferenceOptions(hero.id),
+      ph.preference,
+    )}</span>
+    <span class="pr-status${read === 'own' ? ' own' : ''}">${
+      focused ? 'фокус · ' : ''
+    }${read === 'own' ? 'понял по-своему' : 'понял дословно'}</span>
+    <button class="mini" data-action="clear-phrase" data-hero="${hero.id}" data-idx="${i}">стереть</button>
+  </div>`;
+}
+
+/** Модалка ввода текста: слева текст комплекта, справа эхо — как он это понял. */
+function textModalHtml(hero: HeroState): string {
+  const set = hero.sets[hero.activeSet]!;
+  const draft = heroText[hero.id] ?? set.text;
+  const unknown = heroUncertainty[hero.id] ?? [];
+  const empty = set.phrases.length === 0 && draft.trim() === '';
+  const echo = set.phrases
+    .map((ph) => {
+      const read = understanding(hero, ph);
+      return read === 'own'
+        ? `<div class="echo-row own"><span class="kicker">понял по-своему</span>
+            <span class="hand">это слово он читает по-своему — содержание раскроет свиток боя</span></div>`
+        : `<div class="echo-row"><span class="kicker">понял дословно</span>
+            <span>${esc(cap(describeDraft(ph, heroNames(run))))}</span></div>`;
+    })
+    .join('');
+  const notUnderstood = unknown.length
+    ? `<div class="echo-row miss"><span class="kicker">не понял вообще</span>
+        <span>${unknown.map(esc).join(' · ')}</span></div>`
+    : '';
+  return `<div class="overlay inner"><div class="modal text-modal">
+    <div class="head">
+      <span class="title">Твой текст · комплект ${ORDER_SETS[hero.activeSet]}</span>
+      <span class="meta">он знает ${run.vocab.length} слов</span>
+    </div>
+    <div class="tm-cols">
+      <div class="tm-in">
+        <textarea class="principle-text" data-hero="${hero.id}" rows="7"
+          placeholder="Опиши принципы словами — ${esc(hero.name)} поймёт по-своему">${esc(draft)}</textarea>
+        <span class="tm-note">незнакомые слова перепиши или оставь — в набор это просто не войдёт</span>
+      </div>
+      <div class="tm-echo">
+        ${empty ? '<div class="echo-row miss"><span class="hand">пока нечего понимать</span></div>' : echo}
+        ${notUnderstood}
+      </div>
+    </div>
+    <div class="foot-row">
+      <span class="tm-note">текст сохранится целиком — даже те слова, что он пока не понимает</span>
+      <span class="spacer"></span>
+      <button data-action="close-text">отмена</button>
+      <button class="primary" data-action="compile-text" data-hero="${hero.id}" ${
+        compiling[hero.id] || !(heroText[hero.id] ?? set.text).trim() ? 'disabled' : ''
+      }>${compiling[hero.id] ? '…понимает' : 'применить'}</button>
+    </div>
+  </div></div>`;
+}
+
+/** Словарь: что открыто, по ролям слова; закрытые — только счётом, без имён. */
+function vocabHtml(): string {
+  const open = Object.values(CONCEPTS).filter((c) => run.vocab.includes(c.id));
+  const cats = ['condition', 'selector', 'action', 'space'] as const;
+  const filters = [
+    `<button class="vf${vocabFilter === null ? ' on' : ''}" data-action="vocab-filter">все ${open.length}</button>`,
+    ...cats
+      .map((cat) => {
+        const n = open.filter((c) => c.category === cat).length;
+        return n
+          ? `<button class="vf${vocabFilter === cat ? ' on' : ''}" data-action="vocab-filter" data-cat="${cat}">${
+              CAT_RU[cat]
+            } ${n}</button>`
+          : '';
+      })
+      .filter(Boolean),
+  ].join('');
+  const shown = vocabFilter ? open.filter((c) => c.category === vocabFilter) : open;
+  const group = (title: string, list: typeof open, rare: boolean): string =>
+    list.length
+      ? `<div class="v-group">
+          <span class="kicker">${title}</span>
+          ${list
+            .map(
+              (c) => `<div class="v-row">
+                <span class="chip ${rare ? 'red' : 'line'}">${esc(c.label)}</span>
+                <span class="v-desc">${CAT_RU[c.category]}${rare ? ' · редкое' : ''}</span>
+              </div>`,
+            )
+            .join('')}
+        </div>`
+      : '';
+  const locked = Object.values(CONCEPTS).length - open.length;
+  return `<div class="overlay inner"><div class="modal vocab-modal">
+    <div class="head">
+      <span class="title">Словарь</span>
+      <span class="meta">${open.length} из ${Object.values(CONCEPTS).length} слов</span>
+      <span class="spacer"></span>
+      <button data-action="close-vocab">закрыть</button>
+    </div>
+    <div class="v-filters">${filters}<span class="v-hint">слова открываются трофеями и в скриптории</span></div>
+    <div class="v-scroll">
+      ${group('редкие', shown.filter((c) => RARE_WORDS.includes(c.id)), true)}
+      ${group('обычные', shown.filter((c) => !RARE_WORDS.includes(c.id)), false)}
+      ${
+        locked
+          ? `<div class="v-group"><span class="kicker">ещё не открыто</span>
+              <div class="v-row"><span class="chip unknown">? ещё ${locked}</span>
+              <span class="v-desc">имена закрытых слов не показываются — это спойлер трофея</span></div></div>`
+          : ''
+      }
+    </div>
+  </div></div>`;
+}
+
 function editorHtml(): string {
   const alive = run.heroes.filter((h) => h.alive);
   const eh = alive.find((h) => h.id === editHero) ?? alive[0]!;
-  const names = heroNames(run);
+  const arch = heroArchetype(eh.archetypeId);
   const heroCards = run.heroes
     .map((h) => {
       if (!h.alive) {
@@ -2385,105 +2580,61 @@ function editorHtml(): string {
       }
       return `<div class="eh-card ${h.id === eh.id ? 'sel' : ''}" data-action="sel-hero" data-hero="${h.id}">
         <div class="nm"><span>${esc(h.name)}</span>${lensTagHtml(h.lenses, 'ch')}</div>
-        <div class="sub klass-line">${esc(heroArchetype(h.archetypeId).class)}</div>
-        <div class="sub">${h.phrases.length}/${h.slots} приказов · ${statLine({ ...h.stats, weapons: heroArchetype(h.archetypeId).weapons }, h.hp)}</div>
-        <div class="sub ability">${esc(abilityLine(h.archetypeId))}</div>
+        <div class="sub klass-line">${esc(heroArchetype(h.archetypeId).class)} · hp ${h.hp}/${h.stats.maxHp}</div>
+        <div class="sub">комплект ${ORDER_SETS[h.activeSet]} · ${h.phrases.length} из ${h.slots} слотов${
+          h.phrases.some((d) => (d.weight ?? 1) >= 3) ? ' · фокус' : ''
+        }</div>
       </div>`;
     })
     .join('');
 
-  const inTextMode = inText(eh.id);
-  // Ворота C: замысел словами до конструктора — уходит в журнал плейтеста.
-  // В текстовом режиме сам свободный текст и есть формулировка — блок не нужен.
-  const intentBlock = inTextMode
-    ? ''
-    : `<div class="intent-block">
-        <span class="kicker">сначала — замысел словами, в полевой журнал</span>
-        <textarea class="intent-text" data-hero="${eh.id}" rows="2"
-          placeholder="Чего ты хочешь от ${esc(eh.name)}? Напиши как думаешь — потом собери из чипсов.">${esc(
-            heroIntent[eh.id] ?? lastIntent(journal, eh.name),
-          )}</textarea>
-      </div>`;
-  const slotRows = inTextMode
-    ? `<textarea class="principle-text" data-hero="${eh.id}" rows="4"
-        placeholder="Опиши принципы словами — ${esc(eh.name)} поймёт по-своему">${esc(heroText[eh.id] ?? '')}</textarea>
-      <div class="btn-row"><button data-action="compile-text" data-hero="${eh.id}" ${compiling[eh.id] ? 'disabled' : ''}>
-        ${compiling[eh.id] ? '…понимает' : 'понять'}</button></div>`
-    : Array.from({ length: eh.slots })
-        .map((_, i) => {
-          const ph = eh.phrases[i];
-          if (!ph) {
-            return `<div class="slot-row empty">
-              <span class="mark">${NUM[i]}</span>
-              <span style="flex:1">— пустой слот —</span>
-              <button class="mini" data-action="add-phrase" data-hero="${eh.id}">заполнить</button>
-            </div>`;
-          }
-          // глубокие чипсы: условие фразы — цепочка до трёх уровней со связкой
-          // «и»/«или» (одна на фразу); следующий уровень появляется, когда
-          // выбран предыдущий
-          const chain: CondLinkDraft[] =
-            ph.condition.id === 'and' || ph.condition.id === 'or'
-              ? ph.condition.conds
-              : ph.condition.id === 'always'
-                ? []
-                : [ph.condition];
-          const op: 'and' | 'or' = ph.condition.id === 'or' ? 'or' : 'and';
-          const opChip = (lvl: number): string =>
-            lvl === 1
-              ? `<select class="op-select" data-hero="${eh.id}" data-idx="${i}">
-                  <option value="and" ${op === 'and' ? 'selected' : ''}>и</option>
-                  <option value="or" ${op === 'or' ? 'selected' : ''}>или</option>
-                </select>`
-              : `<span class="nest">${op === 'or' ? 'или' : 'и'}</span>`;
-          // «не» — грамматика при звене, а не чипс словаря: галочка рядом с
-          // выбором. У «всегда» отрицать нечего — галочка гаснет
-          const condChip = (lvl: number, opts: Opt<ConditionDraft>[]): string => {
-            const link = chain[lvl];
-            const neg = link?.id === 'not';
-            const value: ConditionDraft = neg ? link.cond : (link ?? { id: 'always' });
-            const off = value.id === 'always';
-            return `<label class="neg" title="если НЕ">
-                <input type="checkbox" class="neg-check" data-hero="${eh.id}" data-idx="${i}"
-                  data-level="${lvl}" ${neg ? 'checked' : ''} ${off ? 'disabled' : ''}> не
-              </label>${selectHtml('cond-select', eh.id, i, opts, value, `data-level="${lvl}"`)}`;
-          };
-          const condSelects = [condChip(0, conditionOptions())];
-          for (let lvl = 1; lvl < 3 && chain.length >= lvl; lvl++) {
-            condSelects.push(
-              `<span class="nest">⌞</span>${opChip(lvl)}${condChip(lvl, moreConditionOptions())}`,
-            );
-          }
-          return `<div class="slot-row">
-            <span class="mark">${NUM[i]}</span>
-            <span class="fields">
-              ${condSelects.join('')}
-              ${selectHtml('pref-select', eh.id, i, preferenceOptions(eh.id), ph.preference)}
-              <select class="weight-select" data-hero="${eh.id}" data-idx="${i}">
-                <option value="1" ${(ph.weight ?? 1) === 1 ? 'selected' : ''}>обычно</option>
-                <option value="2" ${(ph.weight ?? 1) === 2 ? 'selected' : ''}>важно</option>
-                <option value="3" ${(ph.weight ?? 1) === 3 ? 'selected' : ''}>фокус</option>
-              </select>
-            </span>
-            <button class="mini" data-action="clear-phrase" data-hero="${eh.id}" data-idx="${i}">стереть</button>
-          </div>`;
-        })
-        .join('');
+  const set = eh.sets[eh.activeSet]!;
+  const quote = set.text.trim() || ordersSentence(eh);
+  const canText = Boolean(API_KEY);
+  const quoteBlock = `<div class="quote-block">
+    <span class="q-text">${quote ? `«${esc(quote)}»` : 'здесь пока ничего не написано'}</span>
+    ${
+      canText
+        ? `<button class="mini" data-action="open-text" data-hero="${eh.id}">править текст</button>`
+        : `<span class="q-note">свободный текст без ключа компилятора недоступен — собирай приказ чипсами</span>`
+    }
+  </div>`;
+
+  const rows = eh.phrases.map((ph, i) => principleRowHtml(eh, i, ph)).join('');
+  const free = Array.from({ length: Math.max(0, eh.slots - eh.phrases.length) })
+    .map(
+      (_, k) => `<div class="pr-row empty" data-action="add-phrase" data-hero="${eh.id}">
+        <span class="pr-focus">◇</span>
+        <span class="fields">свободный слот — допиши приказ или оставь ему свободу</span>
+        <span class="pr-status">слот ${eh.phrases.length + k + 1} из ${eh.slots}</span>
+      </div>`,
+    )
+    .join('');
 
   // вне debug чипсы при живом компиляторе скрыты — тумблер не показываем
-  const toggle = API_KEY && debugLenses
-    ? `<button class="mini" data-action="toggle-text" data-hero="${eh.id}">${inTextMode ? '⬒ чипсы' : '✎ текстом'}</button>`
-    : '';
   const err = editError[eh.id] ? `<div class="error">${esc(editError[eh.id]!)}</div>` : '';
   const replay = battle
     ? `<button class="primary" data-action="sparring">↻ те же кости, новые приказы</button>`
-    : `<button class="primary" data-action="close-editor">к походу</button>`;
+    : `<button class="primary" data-action="close-editor">${
+        prepOpen ? '⚔ к разведке' : 'к походу'
+      }</button>`;
+  // Ворота C: замысел словами до конструктора — уходит в журнал плейтеста
+  const intentBlock = `<div class="intent-block">
+    <span class="kicker">сначала — замысел словами, в полевой журнал</span>
+    <textarea class="intent-text" data-hero="${eh.id}" rows="2"
+      placeholder="Чего ты хочешь от ${esc(eh.name)}? Напиши как думаешь — потом собери из чипсов.">${esc(
+        heroIntent[eh.id] ?? lastIntent(journal, eh.name),
+      )}</textarea>
+  </div>`;
 
   return `<div class="overlay">
     <div class="modal editor">
       <div class="head">
-        <span class="title">Пиши их приказы</span>
-        <span class="meta">компилируются до боя · каждый прочтёт по-своему</span>
+        <span class="title">Приказы · ${esc(eh.name)}</span>
+        <span class="sub">${esc(arch.class)} · слоты ${slotPips(eh)}</span>
+        <span class="spacer"></span>
+        <button class="mini" data-action="open-vocab">словарь · ${run.vocab.length} слов</button>
+        <span class="meta">фокусы: ${focusNote()}</span>
       </div>
       <div class="cols">
         <div class="heroes-col">
@@ -2491,13 +2642,11 @@ function editorHtml(): string {
           ${debugLenses ? `<div class="lens-hint">${eh.lenses.map((l) => `<div>${LENS_HINT[l]}</div>`).join('')}</div>` : ''}
         </div>
         <div class="slots-col">
-          ${intentBlock}
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="kicker">слоты — занято ${eh.phrases.length} из ${eh.slots}</span>
-            <span class="spacer"></span>${toggle}
-          </div>
-          ${slotRows}
+          ${orderSetsHtml(eh)}
+          ${quoteBlock}
+          ${rows}${free}
           ${err}
+          ${intentBlock}
           <div class="readings">
             <span class="kicker">как прочёл ${esc(eh.name)}</span>
             ${readNoteHtml(readingLines(eh), false)}
@@ -2507,10 +2656,13 @@ function editorHtml(): string {
       <div class="foot-row">
         <button data-action="close-editor">закрыть</button>
         ${freeVocabBtnHtml()}
+        <span class="ed-state">комплект ${ORDER_SETS[eh.activeSet]} · переключение бесплатно и вне боя</span>
         <span class="spacer"></span>
         ${replay}
       </div>
     </div>
+    ${textOpen ? textModalHtml(eh) : ''}
+    ${vocabOpen ? vocabHtml() : ''}
   </div>`;
 }
 
@@ -3681,11 +3833,13 @@ function draftsFromEditor(heroId: string): PhraseDraft[] {
     const condition: ConditionDraft =
       conds.length === 0 ? { id: 'always' } : conds.length === 1 ? conds[0]! : { id: op, conds };
     const prefSel = app.querySelector<HTMLSelectElement>(`.pref-select[data-hero="${heroId}"][data-idx="${idx}"]`)!;
-    const wSel = app.querySelector<HTMLSelectElement>(`.weight-select[data-hero="${heroId}"][data-idx="${idx}"]`)!;
+    // вес игроку не показывается: единственный рычаг приоритета — фокус,
+    // и он живёт на самой фразе, а не в селекте важности
+    const kept = run.heroes.find((h) => h.id === heroId)?.phrases[Number(idx)]?.weight ?? 1;
     return {
       condition,
       preference: JSON.parse(prefSel.value) as PreferenceDraft,
-      weight: Number(wSel.value),
+      weight: kept,
     };
   });
 }
@@ -3767,7 +3921,10 @@ function bind(): void {
     });
   }
   for (const el of app.querySelectorAll<HTMLElement>('[data-action]')) {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (ev) => {
+      // вложенные действия: кнопка комплекта внутри строки расстановки —
+      // срабатывает внутреннее, а не оба сразу
+      ev.stopPropagation();
       const a = el.dataset.action!;
       switch (a) {
         case 'log-row': {
@@ -3896,6 +4053,8 @@ function bind(): void {
         }
         case 'close-editor':
           editorOpen = false;
+          textOpen = false;
+          vocabOpen = false;
           render();
           break;
         case 'sel-hero':
@@ -3924,13 +4083,58 @@ function bind(): void {
           render();
           break;
         }
-        case 'toggle-text': {
+        case 'switch-set': {
           const heroId = el.dataset.hero!;
-          textMode[heroId] = !inText(heroId);
+          const r = switchOrderSet(run, heroId, Number(el.dataset.set));
+          editError[heroId] = r.ok ? '' : r.error;
+          if (r.ok) {
+            ordersDirty = Boolean(battle);
+            rewroteSinceBattle = true;
+            delete heroUncertainty[heroId];
+            delete heroText[heroId];
+          }
+          render();
+          break;
+        }
+        case 'toggle-focus': {
+          const heroId = el.dataset.hero!;
+          const idx = Number(el.dataset.idx);
+          const hero = run.heroes.find((h) => h.id === heroId)!;
+          const on = (hero.phrases[idx]?.weight ?? 1) >= 3;
+          const r = setFocus(run, heroId, on ? null : idx);
+          editError[heroId] = r.ok ? '' : r.error;
+          if (r.ok) {
+            ordersDirty = Boolean(battle);
+            rewroteSinceBattle = true;
+          }
+          render();
+          break;
+        }
+        case 'open-text': {
+          const heroId = el.dataset.hero!;
+          const hero = run.heroes.find((h) => h.id === heroId)!;
+          heroText[heroId] ??= hero.sets[hero.activeSet]?.text ?? '';
+          textOpen = true;
           editError[heroId] = '';
           render();
           break;
         }
+        case 'close-text':
+          textOpen = false;
+          render();
+          break;
+        case 'open-vocab':
+          vocabOpen = true;
+          render();
+          break;
+        case 'close-vocab':
+          vocabOpen = false;
+          render();
+          break;
+        case 'vocab-filter':
+          vocabFilter = (el.dataset.cat as ConceptCategory | undefined) ?? null;
+          render();
+          break;
         case 'compile-text':
           void compileHeroText(el.dataset.hero!);
           break;

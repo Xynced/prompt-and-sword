@@ -696,6 +696,8 @@ button.buy:disabled { opacity: 0.4; border-style: dashed; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pp-sets { flex: none; display: flex; gap: 3px; }
+.pp-sets .set-tab { padding: 3px 5px; font-size: 9px; }
 .pp-state {
   flex: none;
   font: 400 9px/1 var(--mono);
@@ -830,10 +832,16 @@ button.buy:disabled { opacity: 0.4; border-style: dashed; }
   flex: none;
 }
 
-/* ---- редактор приказов ---- */
-.editor { width: 840px; }
+/* ---- редактор приказов (спека «Редактор приказов», вариант 2a) ---- */
+.editor { width: 860px; }
+.editor .head .sub {
+  font: 400 9.5px/1 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-55);
+}
 .editor .cols { display: flex; gap: 14px; min-height: 0; }
-.editor .heroes-col { flex: none; width: 240px; display: flex; flex-direction: column; gap: 8px; }
+.editor .heroes-col { flex: none; width: 210px; display: flex; flex-direction: column; gap: 8px; }
 .eh-card {
   border-left: 3px solid rgba(31, 27, 22, 0.25);
   padding: 6px 9px;
@@ -847,23 +855,101 @@ button.buy:disabled { opacity: 0.4; border-style: dashed; }
 .eh-card .sub { font: 400 10.5px/1.35 var(--mono); color: rgba(31, 27, 22, 0.6); }
 .lens-hint { margin-top: 6px; font: 400 14px/1.25 var(--hand); color: rgba(31, 27, 22, 0.6); }
 .editor .slots-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
-.slot-row {
+
+/* комплекты A / B / C: активный залит, пустой — пунктир */
+.sets-row { display: flex; align-items: center; gap: 4px; flex: none; }
+.set-tab { padding: 5px 10px; border-width: 1px; font-size: 10px; }
+.set-tab.on { background: var(--ink); color: var(--paper-l); border-color: var(--ink); }
+.set-tab.on:hover { background: var(--ink); }
+.set-tab.empty { border-style: dashed; color: var(--ink-45); }
+.set-note { margin-left: 8px; font: 400 14px/1.2 var(--hand); color: var(--ink-55); }
+
+/* цитата оригинала: то, что игрок написал, целиком */
+.quote-block {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  background: rgba(31, 27, 22, 0.06);
+  padding: 7px 10px;
+  flex: none;
+}
+.q-text { flex: 1; min-width: 0; font: italic 400 14px/1.35 var(--serif); color: rgba(31, 27, 22, 0.8); }
+.q-note { flex: none; font: 400 9.5px/1.3 var(--mono); color: var(--ink-45); max-width: 210px; }
+
+/* строка принципа: ромб фокуса · чипсы IR · статус понимания. Веса нет */
+.pr-row {
   display: flex;
   gap: 8px;
   align-items: center;
   border-bottom: 1px dotted var(--ink-30);
-  padding-bottom: 5px;
+  padding: 3px 0 5px;
   flex: none;
 }
-.slot-row .mark { font: 400 12px/1 var(--hand); color: var(--red); width: 16px; flex: none; }
-.slot-row .fields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.pr-row.focused { border-left: 2px solid var(--red); background: rgba(156, 59, 40, 0.08); padding-left: 6px; }
+.pr-focus { flex: none; width: 16px; font: 600 12px/1 var(--mono); color: var(--ink-45); cursor: pointer; }
+.pr-row.focused .pr-focus { color: var(--red); }
+.pr-focus:hover { color: var(--red); }
+.pr-row .fields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 /* глубокие чипсы: маркер вложенного уровня условия («и если …») */
-.slot-row .nest { color: var(--red); font: 400 12px/1 var(--hand); flex: none; opacity: 0.7; }
+.pr-row .nest { color: var(--red); font: 400 12px/1 var(--hand); flex: none; opacity: 0.7; }
 /* отрицание — грамматика при звене условия, а не чипс словаря */
-.slot-row .neg { display: flex; align-items: center; gap: 3px; flex: none; font: 400 12px/1 var(--hand); color: var(--red); }
-.slot-row .neg input { margin: 0; }
-.slot-row .neg:has(input:disabled) { opacity: 0.35; }
-.slot-row.empty { color: rgba(31, 27, 22, 0.4); font: 400 13.5px/1.35 var(--serif); }
+.pr-row .neg { display: flex; align-items: center; gap: 3px; flex: none; font: 400 12px/1 var(--hand); color: var(--red); }
+.pr-row .neg input { margin: 0; }
+.pr-row .neg:has(input:disabled) { opacity: 0.35; }
+.pr-status {
+  flex: none;
+  width: 108px;
+  font: 400 9px/1.3 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-45);
+  text-align: right;
+}
+.pr-status.own { color: var(--red); }
+.pr-row.empty {
+  border: 1px dashed var(--ink-30);
+  border-bottom: 1px dashed var(--ink-30);
+  color: rgba(31, 27, 22, 0.4);
+  font: 400 13.5px/1.35 var(--serif);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.pr-row.empty:hover { border-color: var(--red); color: var(--red); }
+.ed-state { font: 400 9.5px/1.3 var(--mono); color: var(--ink-45); }
+
+/* оверлей внутри оверлея: модалка текста и словарь лежат поверх редактора */
+.overlay.inner { background: rgba(31, 27, 22, 0.55); }
+.text-modal { width: 660px; }
+.tm-cols { display: flex; gap: 12px; min-height: 0; flex: 1; }
+.tm-in { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.tm-in textarea { flex: 1; font-size: 15.5px; font-family: var(--serif); }
+.tm-note { font: 400 9.5px/1.35 var(--mono); color: var(--ink-45); }
+.tm-echo {
+  flex: none;
+  width: 250px;
+  background: rgba(31, 27, 22, 0.06);
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.echo-row { display: flex; flex-direction: column; gap: 2px; font: 400 13.5px/1.3 var(--serif); }
+.echo-row .hand { font: 400 15px/1.25 var(--hand); color: var(--red); }
+.echo-row.own .kicker { color: var(--red); }
+.echo-row.miss { color: var(--ink-55); }
+
+.vocab-modal { width: 560px; height: 88%; }
+.v-filters { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; flex: none; }
+.vf { padding: 4px 7px; border-width: 1px; font-size: 9.5px; }
+.vf.on { background: var(--ink); color: var(--paper-l); border-color: var(--ink); }
+.vf.on:hover { background: var(--ink); }
+.v-hint { margin-left: auto; font: 400 13px/1.2 var(--hand); color: var(--ink-45); }
+.v-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.v-group { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.v-row { display: flex; align-items: baseline; gap: 9px; }
+.v-desc { font: 400 13px/1.3 var(--serif); color: rgba(31, 27, 22, 0.7); }
+
 /* ---- панель отладки: сборка боя ---- */
 .debug-panel { width: 640px; }
 .debug-panel .dbg-row { display: flex; align-items: center; gap: 14px; }

@@ -20,6 +20,30 @@ import type { LensId, Pos } from './types.js';
  * приказ и переиграть с теми же костями (онбординг ядра игры).
  */
 
+/**
+ * Комплект приказов героя (спека редактора приказов): свой текст, свой набор
+ * принципов, свой фокус. Три на героя, переключение бесплатно и вне боя.
+ */
+export interface OrderSet {
+  /** Исходный текст игрока целиком — включая слова, которых герой не знает. */
+  text: string;
+  /** Короткая подпись комплекта: «штурм», «оборона». */
+  note: string;
+  phrases: PhraseDraft[];
+}
+
+/** Ярлыки комплектов — они же порядок вкладок. */
+export const ORDER_SETS = ['A', 'B', 'C'] as const;
+
+export const emptyOrderSets = (phrases: PhraseDraft[]): OrderSet[] =>
+  ORDER_SETS.map((_, i) => ({ text: '', note: '', phrases: i === 0 ? phrases.map((d) => ({ ...d })) : [] }));
+
+/**
+ * Фокус (спека редактора): единственный видимый игроку рычаг приоритета —
+ * вес 3 на фразе. Один фокус на героя, бюджет общий на отряд.
+ */
+export const FOCUS_BUDGET = 3;
+
 export interface HeroState {
   id: string;
   /** id архетипа из HERO_POOL — статы и способность; равен id героя. */
@@ -33,7 +57,12 @@ export interface HeroState {
   /** Текущее hp — переносится между боями; лечится на привале и перевязкой после победы. */
   hp: number;
   slots: number;
+  /** Действующий набор — его читает бой; зеркало `sets[activeSet].phrases`. */
   phrases: PhraseDraft[];
+  /** Три комплекта приказов; переключение бесплатно и вне боя. */
+  sets: OrderSet[];
+  /** Индекс активного комплекта в `sets`. */
+  activeSet: number;
 }
 
 export type NodeKind = 'lesson' | 'fight' | 'elite' | 'event' | 'rest' | 'scriptorium' | 'boss';
@@ -309,6 +338,8 @@ export function startRun(runSeed: number): RunState {
     hp: arch.stats.maxHp,
     slots: START_SLOTS,
     phrases: defaultPhrasesFor(arch, party),
+    sets: emptyOrderSets(defaultPhrasesFor(arch, party)),
+    activeSet: 0,
   }));
   return {
     runSeed,
@@ -415,6 +446,48 @@ export function setPhrases(state: RunState, heroId: string, drafts: PhraseDraft[
     if (!r.ok) return { ok: false, error: `Закрытые концепты: ${r.missing.join(', ')}` };
   }
   hero.phrases = drafts.map((d) => ({ ...d }));
+  // активный комплект и действующий набор — одно и то же состояние
+  const set = hero.sets[hero.activeSet];
+  if (set) set.phrases = drafts.map((d) => ({ ...d }));
+  return { ok: true };
+}
+
+// ---- Комплекты приказов и фокус ----
+
+/** Переключить героя на другой комплект. Бесплатно, но не в бою. */
+export function switchOrderSet(state: RunState, heroId: string, index: number): SetPhrasesResult {
+  const hero = state.heroes.find((h) => h.id === heroId);
+  if (!hero) return { ok: false, error: `Нет героя ${heroId}` };
+  if (!hero.alive) return { ok: false, error: `${hero.name} мёртв` };
+  if (!hero.sets[index]) return { ok: false, error: 'Такого комплекта нет' };
+  const prev = hero.activeSet;
+  hero.activeSet = index;
+  const r = setPhrases(state, heroId, hero.sets[index]!.phrases);
+  if (!r.ok) hero.activeSet = prev;
+  return r;
+}
+
+/** Сколько фокусов отряда занято: фокус на героя — не больше одного. */
+export function focusUsed(state: RunState): number {
+  return state.heroes.filter((h) => h.alive && h.phrases.some((d) => (d.weight ?? 1) >= 3)).length;
+}
+
+/**
+ * Поставить фокус на фразу героя (null — снять). Фокус — вес 3: единственный
+ * рычаг приоритета, который игрок видит. Бюджет общий на отряд.
+ */
+export function setFocus(state: RunState, heroId: string, index: number | null): SetPhrasesResult {
+  const hero = state.heroes.find((h) => h.id === heroId);
+  if (!hero) return { ok: false, error: `Нет героя ${heroId}` };
+  if (!hero.alive) return { ok: false, error: `${hero.name} мёртв` };
+  if (index !== null && !hero.phrases[index]) return { ok: false, error: 'Такого приказа нет' };
+  const hadFocus = hero.phrases.some((d) => (d.weight ?? 1) >= 3);
+  if (index !== null && !hadFocus && focusUsed(state) >= FOCUS_BUDGET) {
+    return { ok: false, error: 'Фокусы кончились: сними у другого героя, если этот принцип важнее' };
+  }
+  hero.phrases = hero.phrases.map((d, i) => ({ ...d, weight: i === index ? 3 : 1 }));
+  const set = hero.sets[hero.activeSet];
+  if (set) set.phrases = hero.phrases.map((d) => ({ ...d }));
   return { ok: true };
 }
 
