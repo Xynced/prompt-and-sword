@@ -941,36 +941,41 @@ textarea.intent-text:focus { outline: none; border-color: var(--red); }
 .vocab-row .mark { font: 400 10px/1 var(--mono); color: rgba(31, 27, 22, 0.4); flex: none; width: 12px; }
 .vocab-row.locked { color: rgba(31, 27, 22, 0.35); }
 
-/* ---- исход боя / конец забега ---- */
-.aftermath { width: 520px; padding: 20px 24px; border-top: 4px solid var(--ink); }
+/* ---- разбор после боя (спека «Свиток боя», вариант 1b) ---- */
+.aftermath { width: 560px; max-height: 92%; padding: 18px 22px; border-top: 4px solid var(--ink); }
 .aftermath.loss { border-top-color: var(--red); }
-.aftermath .a-title {
-  font: 500 16px/1.1 var(--serif);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.aftermath .head .meta { margin-left: 0; }
+.aftermath .foot-row { flex-wrap: wrap; }
+.ab-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.ab-block { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.ab-row { display: flex; align-items: baseline; gap: 8px; }
+.ab-row.silent { color: var(--ink-55); }
+.ab-who { flex: none; width: 60px; font: 600 16px/1.15 var(--serif); }
+.ab-mark { flex: none; width: 14px; font: 600 12px/1 var(--mono); color: var(--red); }
+.ab-said { flex: 1; min-width: 0; font: 400 13.5px/1.35 var(--serif); }
+.ab-word {
+  font: 400 10.5px/1 var(--mono);
+  background: rgba(31, 27, 22, 0.1);
+  padding: 3px 5px;
+  margin-right: 3px;
+  white-space: nowrap;
 }
-.aftermath .a-quip { font: 400 18px/1.35 var(--hand); color: var(--red); }
-.aftermath .a-lines {
+.ab-word.off { background: transparent; border: 1px dashed var(--ink-30); color: var(--ink-45); }
+.ab-voice {
+  border-left: 2px solid var(--red);
+  margin-left: 68px;
+  padding-left: 8px;
+  font: 400 15px/1.25 var(--hand);
+  color: var(--red);
+}
+.ab-lines {
+  border-top: 1px dotted var(--ink-30);
+  padding-top: 7px;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font: 400 11px/1.4 var(--mono);
-  color: rgba(31, 27, 22, 0.7);
-  border-top: 1px dotted rgba(31, 27, 22, 0.35);
-  padding-top: 8px;
-}
-/* разбор после боя (план линз): реплики характеров, раскрывшиеся в бою */
-.aftermath .a-debrief {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  border-top: 1px dotted rgba(31, 27, 22, 0.35);
-  padding-top: 8px;
-  font: 400 13px/1.4 var(--hand);
-}
-.aftermath .a-debrief .why {
   font: 400 10.5px/1.4 var(--mono);
-  color: rgba(31, 27, 22, 0.55);
+  color: var(--ink-55);
 }
 
 /* ---- разведка числом, карточка юнита, свиток боя ---- */
@@ -1169,21 +1174,64 @@ textarea.intent-text:focus { outline: none; border-color: var(--red); }
 .bag-row.empty { border-style: dashed; color: rgba(31, 27, 22, 0.45); }
 .bag-row .hand { font: 400 14px/1.2 var(--hand); }
 .card-body.bag .hand.note { font: 400 14px/1.35 var(--hand); color: var(--ink-55); }
-.battle-log { width: 600px; height: 94%; }
+.battle-log { width: 620px; height: 94%; }
 .log-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  font: 400 10.5px/1.4 var(--mono);
-  color: rgba(31, 27, 22, 0.75);
+  gap: 2px;
 }
-.log-round { font: 400 13px/1.2 var(--hand); color: var(--ink-45); margin-top: 4px; flex: none; }
-.log-row { display: flex; gap: 7px; cursor: pointer; padding: 1px 4px; flex: none; }
+.log-round { display: flex; align-items: center; gap: 8px; margin-top: 7px; flex: none; }
+.lr-t {
+  font: 400 9px/1 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(31, 27, 22, 0.4);
+  flex: none;
+}
+.lr-line { flex: 1; height: 1px; background: rgba(31, 27, 22, 0.25); }
+.lr-pips { flex: none; font: 400 9.5px/1 var(--mono); color: var(--ink-45); }
+.log-item { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.log-row { display: flex; gap: 8px; align-items: baseline; cursor: pointer; padding: 2px 4px; }
 .log-row:hover { background: rgba(156, 59, 40, 0.08); }
 .log-row.cur { background: rgba(156, 59, 40, 0.12); }
-.log-row .t { color: rgba(31, 27, 22, 0.4); flex: none; }
-.log-row .why { color: rgba(31, 27, 22, 0.5); }
+.log-row .t { flex: none; width: 34px; font: 400 9.5px/1.5 var(--mono); color: rgba(31, 27, 22, 0.4); }
+.log-row .c { flex: none; font: 600 11px/1.4 var(--mono); color: var(--red); }
+.log-row .x { font: 400 15px/1.3 var(--serif); }
+.log-voice {
+  border-left: 2px solid var(--red);
+  margin-left: 47px;
+  padding-left: 8px;
+  font: 400 16px/1.25 var(--hand);
+  color: var(--red);
+}
+.log-voice.foe { border-left-color: var(--ink-45); color: rgba(31, 27, 22, 0.6); }
+/* «почему так» — по клику; одновременно раскрыта одна строка */
+.log-why {
+  margin: 3px 0 5px 47px;
+  background: rgba(31, 27, 22, 0.06);
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wy-row { display: flex; gap: 7px; font: 400 14px/1.3 var(--serif); color: rgba(31, 27, 22, 0.85); }
+.wy-row .n { flex: none; width: 14px; font: 400 10px/1.5 var(--mono); color: var(--ink-45); }
+.wy-row .n.lead { color: var(--red); }
+.wy-acts { display: flex; gap: 5px; margin-top: 3px; flex-wrap: wrap; }
+.wy-chip {
+  font: 400 9.5px/1 var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 4px 6px;
+  border: 1px solid var(--ink-45);
+  color: rgba(31, 27, 22, 0.7);
+  cursor: pointer;
+}
+.wy-chip:hover { border-color: var(--red); color: var(--red); }
+.wy-chip.off { border-style: dashed; border-color: var(--ink-30); color: var(--ink-45); cursor: default; }
+.wy-chip.off:hover { border-color: var(--ink-30); color: var(--ink-45); }
+.log-note { font: 400 14px/1.2 var(--hand); color: var(--ink-45); }
 .log-end { border-top: 1px dotted var(--ink-30); margin-top: 6px; padding-top: 5px; color: var(--ink); flex: none; }
