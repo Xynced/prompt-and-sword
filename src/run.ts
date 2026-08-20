@@ -65,6 +65,21 @@ export interface HeroState {
   activeSet: number;
 }
 
+/**
+ * Запись реестра павших. Пермасмерть: даже когда место героя занимает наёмник
+ * (тот же слот, новое имя), запись остаётся — комплекты павшего живут в книге.
+ */
+export interface FallenHero {
+  heroId: string;
+  name: string;
+  archetypeId: string;
+  /** Комплект, с которым герой шёл в последний бой: индекс и его подпись. */
+  set: number;
+  setNote: string;
+  /** Узел гибели — слой и сценарий читаются по нему из карты. */
+  node: number;
+}
+
 export type NodeKind = 'lesson' | 'fight' | 'elite' | 'event' | 'rest' | 'scriptorium' | 'boss';
 
 export interface MapNode {
@@ -107,6 +122,8 @@ export interface RunState {
   resolved: boolean;
   vocab: ConceptId[];
   heroes: HeroState[];
+  /** Павшие в порядке гибели: переживают наёмника, вставшего на их место. */
+  fallen: FallenHero[];
   /**
    * Метка фокус-огня: id врага текущего боевого узла, выбранный игроком до боя.
    * Правила «атаковать: помеченный» целятся в него. Живёт до ухода с узла —
@@ -348,6 +365,7 @@ export function startRun(runSeed: number): RunState {
     resolved: false,
     vocab: STARTING_VOCAB.slice(),
     heroes,
+    fallen: [],
     marked: null,
     deploy: {},
     pendingReward: null,
@@ -578,6 +596,14 @@ export function playFight(state: RunState): BattleResult {
     if (!u.alive && !u.fled) {
       hero.alive = false;
       hero.hp = 0;
+      state.fallen.push({
+        heroId: hero.id,
+        name: hero.name,
+        archetypeId: hero.archetypeId,
+        set: hero.activeSet,
+        setNote: hero.sets[hero.activeSet]?.note ?? '',
+        node: state.at,
+      });
       state.log.push(`✝ ${hero.name} погибает (узел ${state.at})`);
     } else {
       // ушедший с поля (задача прорыва) жив: hp на момент ухода + перевязка

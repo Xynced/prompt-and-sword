@@ -149,6 +149,8 @@ let logOpen = false;
 let logRow: number | null = null;
 /** Карточка юнита (герой или враг) — по клику на фишку или имя в реестре. */
 let unitCardId: string | null = null;
+/** Вкладка правой страницы похода: строй или реестр павших (спека «Наш отряд»). */
+let squadTab: 'party' | 'fallen' = 'party';
 /** Вкладка карточки героя; дефолт — приёмы (спека карточки, вариант 3a). */
 let cardTab: CardTab = 'moves';
 /** Раскрытая строка приёмов — попап справа от карточки; null — свёрнут. */
@@ -332,6 +334,11 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Значение в атрибут: сверх esc гасим кавычки — подпись комплекта пишет игрок. */
+function escAttr(s: string): string {
+  return esc(s).replace(/"/g, '&quot;');
+}
+
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -352,8 +359,6 @@ function applyPhrases(heroId: string, drafts: PhraseDraft[]): ReturnType<typeof 
 }
 
 // ---------- тексты ----------
-
-const NUM = ['i.', 'ii.', 'iii.', 'iv.', 'v.', 'vi.'];
 
 /** Азбука видов узла (спека карты забега): типографика, не иконки. */
 const NODE_GLYPH: Record<NodeKind, string> = {
@@ -1399,7 +1404,7 @@ function acceptOutcome(): void {
   render();
 }
 
-// ---------- правая страница: реестр приказов ----------
+// ---------- правая страница: наш отряд ----------
 
 /** hp героя в текущем кадре боя (если бой идёт) или из забега. */
 function heroHpNow(heroId: string): { hp: number; maxHp: number; alive: boolean } | null {
@@ -1412,40 +1417,118 @@ function heroHpNow(heroId: string): { hp: number; maxHp: number; alive: boolean 
   return hero.alive ? { hp: hero.hp, maxHp: hero.stats.maxHp, alive: true } : null;
 }
 
-function rosterHtml(compact: boolean): string {
-  return run.heroes
-    .map((h) => {
-      const live = heroHpNow(h.id);
-      const dead = !h.alive || (live !== null && !live.alive);
-      if (!h.alive) {
-        return `<div class="roster-row dead">
-          <div class="numerals">✝</div>
-          <div class="r-body"><div class="r-head"><span class="r-name">${esc(h.name)}</span>
-            ${lensTagHtml(h.lenses)}
-            <span class="r-hp">пал(а)</span></div></div>
-        </div>`;
-      }
-      const numerals = h.phrases.map((_, j) => NUM[j]).join('\n');
-      const hpTxt = live ? `hp ${live.hp}/${live.maxHp}` : '—';
-      const low = live !== null && live.hp / live.maxHp <= 0.35;
-      const orders = ordersSentence(h);
-      return `<div class="roster-row ${dead ? 'dead' : ''}">
-        <div class="numerals">${numerals}</div>
-        <div class="r-body">
-          <div class="r-head">
-            <span class="r-name clickable" data-action="unit-card" data-unit="${h.id}" title="карточка юнита">${esc(h.name)}</span>
-            ${classTag(h.archetypeId)}
-            ${lensTagHtml(h.lenses)}
-            <span class="r-hp ${low ? 'low' : ''}" data-hp="${h.id}">${hpTxt}</span>
-          </div>
-          <div class="orders-text" ${compact ? 'style="font-size:12.5px"' : ''}>${
-            orders ? esc(orders) : '<span class="empty">— приказов нет —</span>'
-          }</div>
-          ${readNoteHtml(readingLines(h), compact)}
-        </div>
+/** Быстрый доступ на карточке героя: лист открывается сразу на своей вкладке. */
+const HERO_JUMPS: [CardTab, string, string][] = [
+  ['about', '§', 'описание'],
+  ['moves', '⚔', 'действия'],
+  ['bag', '◎', 'инвентарь'],
+];
+
+/** Карточка героя: кнопка героя · быстрый доступ · полоска действующего набора. */
+function squadCardHtml(h: HeroState): string {
+  const live = heroHpNow(h.id);
+  const hp = live ?? { hp: h.hp, maxHp: h.stats.maxHp };
+  const low = hp.hp / hp.maxHp <= 0.35;
+  const pct = Math.round((100 * Math.max(0, hp.hp)) / hp.maxHp);
+  const jumps = HERO_JUMPS.map(
+    ([tab, glyph, label]) => `<button class="sq-jump" data-action="unit-card" data-unit="${h.id}"
+      data-card-tab="${tab}" title="лист героя · ${label}"><span class="g">${glyph}</span>${label}</button>`,
+  ).join('');
+  const set = h.sets[h.activeSet]!;
+  const tabs = h.sets
+    .map((s, i) => {
+      const cls = i === h.activeSet ? 'on' : s.phrases.length === 0 ? 'empty' : '';
+      const title =
+        i === h.activeSet
+          ? `комплект ${ORDER_SETS[i]} действует · двойной клик — правка`
+          : s.phrases.length === 0
+            ? `комплект ${ORDER_SETS[i]} пуст — приказов в нём нет`
+            : `перейти на комплект ${ORDER_SETS[i]} · ${s.phrases.length} прик.`;
+      return `<button class="sq-set ${cls}" data-action="switch-set" data-hero="${h.id}" data-set="${i}"
+        title="${title}">${ORDER_SETS[i]}</button>`;
+    })
+    .join('');
+  return `<div class="sq-card">
+    <button class="sq-hero" data-action="unit-card" data-unit="${h.id}" title="лист героя">
+      <span class="sq-col">
+        <span class="sq-name-row">
+          <span class="sq-name">${esc(h.name)}</span>
+          ${classTag(h.archetypeId)}
+        </span>
+        <span class="sq-hp-row">
+          <span class="sq-hp${low ? ' low' : ''}">hp ${hp.hp}/${hp.maxHp}</span>
+          <span class="sq-bar"><span style="width:${pct}%" class="${low ? 'low' : ''}"></span></span>
+          <span class="sq-slots">приказов ${h.phrases.length}/${h.slots}</span>
+        </span>
+      </span>
+      <span class="sq-chev">›</span>
+    </button>
+    <div class="sq-jumps">${jumps}</div>
+    <div class="sq-strip" data-action="edit-set" data-hero="${h.id}" title="клик по полоске — правка приказов">
+      <span class="sq-col">
+        <span class="kicker">набор ${ORDER_SETS[h.activeSet]} · ${set.phrases.length} прик.</span>
+        <span class="sq-note">«${esc(set.note.trim() || 'без подписи')}»</span>
+      </span>
+      <span class="sq-sets">${tabs}</span>
+    </div>
+  </div>`;
+}
+
+/** Где герой пал: вид узла, слой и задача сценария — читаются по карте. */
+function fallenWhere(nodeId: number): string {
+  const node = run.map[nodeId];
+  if (!node) return '';
+  const scenario = scenarioForNode(node);
+  return `${NODE_RU[node.kind]}, слой ${node.layer + 1}${scenario ? ` — «${scenario.title}»` : ''}`;
+}
+
+/** Реестр павших: пермасмерть, места не освобождают — наёмник встаёт в тот же слот. */
+function fallenHtml(): string {
+  const rows = run.fallen
+    .map((f) => {
+      const where = fallenWhere(f.node);
+      return `<div class="fl-row">
+        <span class="fl-cross">✝</span>
+        <span class="fl-body">
+          <span class="fl-head">
+            <span class="fl-name">${esc(f.name)}</span>
+            ${classTag(f.archetypeId)}
+            <span class="fl-set">набор: ${ORDER_SETS[f.set]}${f.setNote.trim() ? ` «${esc(f.setNote.trim())}»` : ''}</span>
+          </span>
+          ${where ? `<span class="fl-where">где: ${esc(where)}</span>` : ''}
+        </span>
       </div>`;
     })
     .join('');
+  return `<div class="fallen">
+    <span class="kicker">павшие товарищи · пермасмерть, места не освобождают</span>
+    ${rows}
+    <span class="flavor">Их наборы остаются в книге: наёмник прочтёт тот же текст по-своему.</span>
+  </div>`;
+}
+
+/** Вкладки «в строю / павшие»; пока павших нет — вкладки одной не бывает. */
+function squadTabsHtml(alive: number): string {
+  if (run.fallen.length === 0) return '';
+  const tab = (t: 'party' | 'fallen', label: string): string =>
+    `<button class="sq-tab ${squadTab === t ? 'on' : ''}" data-action="squad-tab" data-tab="${t}">${label}</button>`;
+  return `<div class="sq-tabs">${tab('party', `в строю ${alive}`)}${tab('fallen', `павшие ${run.fallen.length}`)}</div>`;
+}
+
+/** Правая страница похода: кто у меня есть и чем он сейчас играет. */
+function squadHtml(): string {
+  const alive = run.heroes.filter((h) => h.alive);
+  const onFallen = squadTab === 'fallen' && run.fallen.length > 0;
+  return `<div class="page-head">
+      <span class="title">Наш отряд</span>
+      <button class="linkish" data-action="export-build">экспорт билда</button>
+    </div>
+    ${squadTabsHtml(alive.length)}
+    ${onFallen ? fallenHtml() : `<div class="squad">${alive.map(squadCardHtml).join('')}</div>`}
+    <div class="foot sq-foot">
+      <span>клик по полоске набора — правка приказов; A/B/C — просто переключить.</span>
+      <span class="flavor">Те же кости, тот же исход, каждый раз.</span>
+    </div>`;
 }
 
 // ---------- экран: карта похода ----------
@@ -1740,16 +1823,7 @@ function mapScreenHtml(): string {
       </div>
     </div>
     <div class="gutter"></div>
-    <div class="page-r">
-      <div class="page-head">
-        <span class="title">Действующие приказы</span>
-        <button class="linkish" data-action="export-build">экспорт билда</button>
-        <button class="linkish" data-action="open-editor">переписать ▾</button>
-      </div>
-      <div class="roster">${rosterHtml(false)}</div>
-      <div class="foot solid">Приказы компилируются один раз, до боя. Сам бой — арифметика:
-        те же кости, тот же исход, каждый раз.</div>
-    </div>
+    <div class="page-r">${squadHtml()}</div>
   </div>`;
 }
 
@@ -2397,6 +2471,9 @@ function slotPips(hero: HeroState): string {
   return '◆'.repeat(Math.min(hero.phrases.length, hero.slots)) + '◇'.repeat(Math.max(0, hero.slots - hero.phrases.length));
 }
 
+/** Подпись комплекта — её же читает карточка отряда, там она обрезается. */
+const SET_NOTE_MAX = 24;
+
 /** Переключатель комплектов A / B / C: активный залит, пустой — пунктир. */
 function orderSetsHtml(hero: HeroState): string {
   const tabs = hero.sets
@@ -2408,8 +2485,11 @@ function orderSetsHtml(hero: HeroState): string {
     })
     .join('');
   const active = hero.sets[hero.activeSet]!;
-  const note = active.note || (active.phrases.length ? 'без подписи' : 'пустой комплект — здесь пока ничего не написано');
-  return `<div class="sets-row">${tabs}<span class="set-note">${esc(note)}</span></div>`;
+  const hint = active.phrases.length ? '' : '<span class="set-hint">пустой комплект — здесь пока ничего не написано</span>';
+  return `<div class="sets-row">${tabs}
+    <input class="set-note" data-hero="${hero.id}" maxlength="${SET_NOTE_MAX}" placeholder="без подписи"
+      title="подпись комплекта — её видно на карточке отряда" value="${escAttr(active.note)}">
+    ${hint}</div>`;
 }
 
 /** Строка принципа: ромб фокуса · чипсы IR · статус понимания. Вес не показывается. */
@@ -3900,6 +3980,13 @@ function bind(): void {
       if (apply) apply.disabled = Boolean(compiling[heroId]) || !ta.value.trim();
     });
   }
+  for (const inp of app.querySelectorAll<HTMLInputElement>('input.set-note')) {
+    inp.addEventListener('change', () => {
+      const hero = run.heroes.find((h) => h.id === inp.dataset.hero);
+      const set = hero?.sets[hero.activeSet];
+      if (set) set.note = inp.value.trim();
+    });
+  }
   for (const ta of app.querySelectorAll<HTMLTextAreaElement>('textarea.intent-text')) {
     ta.addEventListener('change', () => {
       const hero = run.heroes.find((h) => h.id === ta.dataset.hero);
@@ -3913,6 +4000,16 @@ function bind(): void {
         seed: run.runSeed,
         text: ta.value,
       });
+    });
+  }
+  // закладка A/B/C: клик переключает набор (обычный data-action), дабл-клик
+  // довозит до редактора — правка того набора, на который уже перешли
+  for (const el of app.querySelectorAll<HTMLElement>('.sq-set')) {
+    el.addEventListener('dblclick', (ev) => {
+      ev.stopPropagation();
+      editHero = el.dataset.hero!;
+      editorOpen = true;
+      render();
     });
   }
   for (const tok of app.querySelectorAll<HTMLElement>('.btoken[data-unit]')) {
@@ -4055,9 +4152,14 @@ function bind(): void {
           render();
           break;
         }
+        case 'squad-tab':
+          squadTab = el.dataset.tab as 'party' | 'fallen';
+          render();
+          break;
         case 'unit-card':
           unitCardId = el.dataset.unit!;
-          cardTab = 'moves';
+          // быстрый доступ с карточки отряда открывает лист сразу на своей вкладке
+          cardTab = (el.dataset.cardTab as CardTab | undefined) ?? 'moves';
           cardMove = null;
           playing = false;
           stopTimer();
@@ -4088,6 +4190,15 @@ function bind(): void {
           logOpen = false;
           render();
           break;
+        case 'edit-set': {
+          // полоска набора ведёт в редактор на этом герое; набор уже действующий
+          const heroId = el.dataset.hero!;
+          if (run.heroes.some((h) => h.alive && h.id === heroId)) editHero = heroId;
+          editorOpen = true;
+          playing = false;
+          render();
+          break;
+        }
         case 'open-editor': {
           const firstAlive = run.heroes.find((h) => h.alive);
           if (!run.heroes.find((h) => h.alive && h.id === editHero) && firstAlive) editHero = firstAlive.id;
