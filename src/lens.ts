@@ -1,6 +1,6 @@
 import type { Condition, LensMark, Rule } from './ir.js';
 import type { ActionKind, LensId } from './types.js';
-import { type Rng, shuffle } from './rng.js';
+import { type Rng, mix, mixStr, shuffle } from './rng.js';
 
 /** Дописать правилу след линзы; source не трогаем — он остаётся словами игрока. */
 const marked = (r: Rule, m: LensMark): LensMark[] => [...(r.marks ?? []), m];
@@ -90,6 +90,14 @@ export const LENS_RU: Record<LensId, string> = {
   paranoid: 'параноик',
   hothead: 'горячка',
   showman: 'позёр',
+  bully: 'задира',
+  miser: 'скупец',
+  gambler: 'азартный',
+  martyr: 'мученик',
+  loner: 'одиночка',
+  scatterbrain: 'рассеянный',
+  stubborn: 'упрямец',
+  superstitious: 'суеверный',
 };
 
 /** Пул случайной генерации: все линзы, кроме нейтральной plain. */
@@ -104,6 +112,14 @@ export const LENS_POOL: readonly LensId[] = [
   'paranoid',
   'hothead',
   'showman',
+  'bully',
+  'miser',
+  'gambler',
+  'martyr',
+  'loner',
+  'scatterbrain',
+  'stubborn',
+  'superstitious',
 ];
 
 /** 1–3 случайные линзы без повторов; детерминировано от rng. */
@@ -125,6 +141,16 @@ interface InstinctMods {
 }
 
 /**
+ * Ключ розыгрыша упрямца: сид боя + id юнита. Ситуационный хеш, а не
+ * rng-поток (см. rng.ts): выбор любимого правила не сдвигает расстановку,
+ * а карточка, зная тот же сид, воспроизводит тот же выбор, что и бой.
+ */
+export interface LensPick {
+  seed: number;
+  unitId: string;
+}
+
+/**
  * Линза характера: детерминированная трансформация IR + инстинкты.
  * Применяется на компиляции, до боя. Следы трансформаций — структурные
  * пометки marks на правилах (source остаётся словами игрока); из них
@@ -132,14 +158,17 @@ interface InstinctMods {
  *
  * У персонажа 1–3 линзы; они применяются по порядку списка: правила
  * трансформируются последовательно, множители инстинктов перемножаются.
+ *
+ * pick нужен только упрямцу (любимое правило боя); без него упрямец
+ * правил не трогает — контексты без сида боя не должны его выдумывать.
  */
-export function applyLens(lenses: readonly LensId[], rules: Rule[]): CompiledBehavior {
+export function applyLens(lenses: readonly LensId[], rules: Rule[], pick?: LensPick): CompiledBehavior {
   let out = rules.slice();
   // actionBias копируем отдельно: без этого все вызовы делили бы один объект
   // с BASE и накапливали в нём тягу каждой применённой линзы навсегда
   const instincts: Instincts = { ...BASE, actionBias: { ...BASE.actionBias } };
   for (const lens of lenses) {
-    const step = applyOne(lens, out);
+    const step = applyOne(lens, out, pick);
     out = step.rules;
     instincts.aggression *= step.mods.aggression ?? 1;
     instincts.survival *= step.mods.survival ?? 1;
@@ -217,12 +246,48 @@ function driftFor(lens: LensId, rules: Rule[], base: Instincts): MoodDrift | und
         instincts: inst,
       };
     }
+    case 'miser': {
+      // бой затянулся — хватка отпускает: припасённое идёт в дело
+      // (множители возвращают тягу 0.4 → 1.5 и 0.6 → 1.2 поверх композиции)
+      const inst = cloneInstincts(base);
+      for (const a of ['heal', 'bless', 'wall', 'aoeRitual'] as const) {
+        inst.actionBias[a] = (inst.actionBias[a] ?? 1) * 3.75;
+      }
+      inst.actionBias.aoeBlast = (inst.actionBias.aoeBlast ?? 1) * 2;
+      return { lens, trigger: { kind: 'battleDrags' }, rules: rules.slice(), instincts: inst };
+    }
+    case 'martyr': {
+      // довели до края — «мой час настал»: жертвенность без остатка
+      const inst = cloneInstincts(base);
+      inst.survival *= 0.6;
+      inst.actionBias.selflessAttack = (inst.actionBias.selflessAttack ?? 1) * 1.5;
+      inst.actionBias.shieldAlly = (inst.actionBias.shieldAlly ?? 1) * 1.3;
+      return {
+        lens,
+        trigger: { kind: 'hpBelow', who: 'self', frac: 0.3 },
+        rules: rules.slice(),
+        instincts: inst,
+      };
+    }
+    case 'superstitious': {
+      // колдовство забрало нашего — дурной знак: жмётся и осторожничает
+      const inst = cloneInstincts(base);
+      inst.survival *= 1.4;
+      inst.caution *= 1.5;
+      inst.aggression *= 0.8;
+      return {
+        lens,
+        trigger: { kind: 'and', conds: [{ kind: 'allyFallen' }, { kind: 'enemyCasters' }] },
+        rules: rules.slice(),
+        instincts: inst,
+      };
+    }
     default:
       return undefined;
   }
 }
 
-function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctMods } {
+function applyOne(lens: LensId, rules: Rule[], pick?: LensPick): { rules: Rule[]; mods: InstinctMods } {
   switch (lens) {
     case 'plain':
       return { rules: rules.slice(), mods: {} };
@@ -612,6 +677,255 @@ function applyOne(lens: LensId, rules: Rule[]): { rules: Rule[]; mods: InstinctM
       return {
         rules: out,
         mods: { aggression: 1.1, survival: 0.9, actionBias: { selflessAttack: 1.5 } },
+      };
+    }
+
+    case 'bully': {
+      // бьёт слабых, пасует перед сильными
+      const out: Rule[] = rules.flatMap((r): Rule[] => {
+        if (r.then.kind === 'attack' && r.then.target !== 'weakest') {
+          const weak: Rule = {
+            ...r,
+            then: { kind: 'attack', target: 'weakest' },
+            marks: marked(r, { lens: 'bully', kind: 'reword', from: r.then }),
+          };
+          // контекстное прочтение: врагов больше — куража как не бывало,
+          // держит дистанцию; условные правила не расщепляем (прецедент труса)
+          if (r.when.kind !== 'always') return [weak];
+          return [
+            weak,
+            {
+              ...r,
+              when: { kind: 'outnumbered' },
+              then: { kind: 'standoff' },
+              weight: r.weight * 1.2,
+              marks: marked(r, { lens: 'bully', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        if (r.then.kind === 'taunt') {
+          // подначивать — его стихия
+          return [
+            {
+              ...r,
+              weight: r.weight * 1.4,
+              marks: marked(r, { lens: 'bully', kind: 'reweight', mult: 1.4 }),
+            },
+          ];
+        }
+        return [r];
+      });
+      // толкнуть слабого — первое, что приходит в голову; на чужой выкрик ведётся
+      return { rules: out, mods: { aggression: 1.1, provocable: 1.5, actionBias: { shove: 2 } } };
+    }
+
+    case 'miser':
+      // приказы не трогает — прижимистость живёт в тяге: всё лимитированное
+      // «раз в бой» придерживает на чёрный день; дрейф «бой затянулся»
+      // отпускает хватку
+      return {
+        rules: rules.slice(),
+        mods: { actionBias: { heal: 0.4, bless: 0.4, wall: 0.4, aoeRitual: 0.4, aoeBlast: 0.6 } },
+      };
+
+    case 'gambler': {
+      // играет от счёта: в выигрыше скучает, в проигрыше поднимает ставки
+      const out: Rule[] = rules.flatMap((r): Rule[] => {
+        if (r.then.kind === 'strikeHard' && r.when.kind === 'always') {
+          // примеряется, пока счёт ровный; нас меньше — ва-банк
+          return [
+            r,
+            {
+              ...r,
+              when: { kind: 'outnumbered' },
+              then: { kind: 'strikeDesperate' },
+              weight: r.weight * 1.5,
+              marks: marked(r, { lens: 'gambler', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        return [r];
+      });
+      out.push({
+        when: { kind: 'weOutnumber' },
+        then: { kind: 'bait' },
+        weight: 1.1,
+        scope: 'self',
+        source: 'инстинкт: победа скучна — красуюсь',
+        marks: [{ lens: 'gambler', kind: 'instinct' }],
+      });
+      out.push({
+        when: { kind: 'outnumbered' },
+        then: { kind: 'trade' },
+        weight: 1.5,
+        scope: 'self',
+        source: 'инстинкт: всё на кон',
+        marks: [{ lens: 'gambler', kind: 'instinct' }],
+      });
+      return {
+        rules: out,
+        mods: { survival: 0.9, caution: 0.7, actionBias: { selflessAttack: 1.5, carefulStep: 0.6 } },
+      };
+    }
+
+    case 'martyr': {
+      // пострадать за своих — не долг, а потребность
+      const out: Rule[] = rules.flatMap((r): Rule[] => {
+        if (r.then.kind === 'retreat') {
+          // уходить — только прикрывая чужой отход
+          return [
+            {
+              ...r,
+              then: { kind: 'coverRetreat' },
+              marks: marked(r, { lens: 'martyr', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        if (r.then.kind === 'protect' || r.then.kind === 'screen' || r.then.kind === 'swap') {
+          return [
+            {
+              ...r,
+              weight: r.weight * 1.4,
+              marks: marked(r, { lens: 'martyr', kind: 'reweight', mult: 1.4 }),
+            },
+          ];
+        }
+        return [r];
+      });
+      out.push({
+        when: { kind: 'allyHurt' },
+        then: { kind: 'bait' },
+        weight: 1.2,
+        scope: 'self',
+        source: 'инстинкт: пусть бьют меня, а не их',
+        marks: [{ lens: 'martyr', kind: 'instinct' }],
+      });
+      // закрыть собой, поменяться местами, разменять свою кровь — всё родное;
+      // отсиживаться в глухом укрытии, когда своих бьют, — не для него
+      return {
+        rules: out,
+        mods: {
+          survival: 0.7,
+          actionBias: { shieldAlly: 2, swap: 1.8, selflessAttack: 1.6, wall: 1.5, fullCover: 0.5 },
+        },
+      };
+    }
+
+    case 'loner': {
+      const out: Rule[] = rules.flatMap((r): Rule[] => {
+        if (r.then.kind === 'fallback') {
+          // за чужие спины не прячется — уходит сам по себе
+          return [
+            {
+              ...r,
+              then: { kind: 'retreat' },
+              marks: marked(r, { lens: 'loner', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        if (r.then.kind === 'regroup') {
+          // плечом к плечу? лучше один — и сбоку
+          return [
+            {
+              ...r,
+              then: { kind: 'outflank' },
+              marks: marked(r, { lens: 'loner', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        if (r.then.kind === 'flank' || r.then.kind === 'outflank' || r.then.kind === 'pin') {
+          return [
+            {
+              ...r,
+              weight: r.weight * 1.3,
+              marks: marked(r, { lens: 'loner', kind: 'reweight', mult: 1.3 }),
+            },
+          ];
+        }
+        if (r.then.kind === 'attack' && r.when.kind === 'always') {
+          // контекстное прочтение: остался один — вот теперь развернётся
+          return [
+            r,
+            {
+              ...r,
+              when: { kind: 'alone' },
+              weight: r.weight * 1.4,
+              marks: marked(r, { lens: 'loner', kind: 'reword', from: r.then }),
+            },
+          ];
+        }
+        return [r];
+      });
+      // собой не меняется и щитом никого не кроет — каждый сам за себя;
+      // на чужие выкрики оборачивается неохотно
+      return {
+        rules: out,
+        mods: { provocable: 0.7, actionBias: { swap: 0, shieldAlly: 0.3, heal: 0.7, bless: 0.7 } },
+      };
+    }
+
+    case 'scatterbrain': {
+      // забывает «если»: условие теряется, остаётся смутное «что-то надо
+      // делать» — исполняет всегда, но вполсилы; чужие инстинкты не трогает
+      // (характер — не приказ, его не забыть)
+      const out: Rule[] = rules.map((r) =>
+        r.when.kind !== 'always' && !r.marks?.some((m) => m.kind === 'instinct')
+          ? {
+              ...r,
+              when: { kind: 'always' },
+              weight: r.weight * 0.6,
+              marks: marked(r, { lens: 'scatterbrain', kind: 'recondition', from: r.when }),
+            }
+          : r,
+      );
+      return { rules: out, mods: {} };
+    }
+
+    case 'stubborn': {
+      // каждый бой одно правило игрока — «самое главное»; какое — решает
+      // ключ (сид боя, юнит): ситуационный хеш, а не rng-поток, поэтому
+      // выбор не сдвигает расстановку, а карточка воспроизводит его по сиду
+      const out = rules.slice();
+      if (pick) {
+        const own = out
+          .map((r, i) => [r, i] as const)
+          .filter(([r]) => !r.marks?.some((m) => m.kind === 'instinct'));
+        if (own.length) {
+          const h = mixStr(mix(pick.seed >>> 0, 0x0bd571ff), pick.unitId);
+          const [fav, at] = own[h % own.length]!;
+          out[at] = {
+            ...fav,
+            weight: fav.weight * 2.5,
+            marks: marked(fav, { lens: 'stubborn', kind: 'reweight', mult: 2.5 }),
+          };
+        }
+      }
+      // упёрся — не переубедить: чужие выкрики мимо ушей
+      return { rules: out, mods: { provocable: 0 } };
+    }
+
+    case 'superstitious': {
+      const out = rules.slice();
+      out.push({
+        when: { kind: 'enemyCasters' },
+        then: { kind: 'attack', target: 'caster' },
+        weight: 1.6,
+        scope: 'self',
+        source: 'инстинкт: убить колдуна, пока не наколдовал',
+        marks: [{ lens: 'superstitious', kind: 'instinct' }],
+      });
+      out.push({
+        when: { kind: 'always' },
+        then: { kind: 'avoidHazard' },
+        weight: 1.2,
+        scope: 'self',
+        source: 'инстинкт: проклятых мест не касаться',
+        marks: [{ lens: 'superstitious', kind: 'instinct' }],
+      });
+      // ступает с оглядкой; свой ритуал — тоже колдовство, тянется к нему вполсилы
+      return {
+        rules: out,
+        mods: { survival: 1.1, actionBias: { carefulStep: 1.3, aoeRitual: 0.5 } },
       };
     }
   }

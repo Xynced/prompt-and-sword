@@ -379,7 +379,15 @@ export type LensId =
   | 'guardian'
   | 'paranoid'
   | 'hothead'
-  | 'showman';
+  | 'showman'
+  | 'bully'
+  | 'miser'
+  | 'gambler'
+  | 'martyr'
+  | 'loner'
+  | 'scatterbrain'
+  | 'stubborn'
+  | 'superstitious';
 
 /** Юнит в бою — общий вид для IR-условий, скоринга и сима. */
 export interface CombatUnit {

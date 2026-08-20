@@ -75,7 +75,7 @@ describe('условия-триггеры плана линз', () => {
 });
 
 describe('дрейф: компиляция', () => {
-  it('дрейф есть у мстителя, труса, горячки, славолюба; стабильные без него', () => {
+  it('дрейф есть у мстителя, труса, горячки, славолюба, скупца, мученика, суеверного; стабильные без него', () => {
     expect(applyLens(['avenger'], [attack()]).drift?.trigger).toEqual({ kind: 'allyFallen' });
     expect(applyLens(['coward'], [attack()]).drift?.trigger).toEqual({
       kind: 'hpBelow',
@@ -84,7 +84,17 @@ describe('дрейф: компиляция', () => {
     });
     expect(applyLens(['hothead'], [attack()]).drift?.trigger).toEqual({ kind: 'firstBlood' });
     expect(applyLens(['gloryhound'], [attack()]).drift?.trigger).toEqual({ kind: 'leaderDown' });
-    for (const lens of ['plain', 'fanatic', 'literalist', 'duelist', 'guardian', 'paranoid', 'showman'] as const) {
+    expect(applyLens(['miser'], [attack()]).drift?.trigger).toEqual({ kind: 'battleDrags' });
+    expect(applyLens(['martyr'], [attack()]).drift?.trigger).toEqual({
+      kind: 'hpBelow',
+      who: 'self',
+      frac: 0.3,
+    });
+    expect(applyLens(['superstitious'], [attack()]).drift?.trigger).toEqual({
+      kind: 'and',
+      conds: [{ kind: 'allyFallen' }, { kind: 'enemyCasters' }],
+    });
+    for (const lens of ['plain', 'fanatic', 'literalist', 'duelist', 'guardian', 'paranoid', 'showman', 'bully', 'gambler', 'loner', 'scatterbrain', 'stubborn'] as const) {
       expect(applyLens([lens], [attack()]).drift).toBeUndefined();
     }
   });
@@ -106,6 +116,22 @@ describe('дрейф: компиляция', () => {
     const drift = applyLens(['coward'], [attack()]).drift!;
     const flee = drift.rules.find((r) => r.then.kind === 'retreat')!;
     expect(flee.when).toEqual({ kind: 'always' });
+  });
+
+  it('режим скупца: тяга к лимитированному возвращается поверх композиции', () => {
+    const drift = applyLens(['miser'], [attack()]).drift!;
+    expect(drift.instincts.actionBias.heal).toBeCloseTo(1.5);
+    expect(drift.instincts.actionBias.wall).toBeCloseTo(1.5);
+    expect(drift.instincts.actionBias.aoeBlast).toBeCloseTo(1.2);
+  });
+
+  it('режим мученика: жертвенность без остатка', () => {
+    const base = applyLens(['martyr'], [attack()]);
+    const drift = base.drift!;
+    expect(drift.instincts.survival).toBeLessThan(base.instincts.survival);
+    expect(drift.instincts.actionBias.selflessAttack).toBeGreaterThan(
+      base.instincts.actionBias.selflessAttack!,
+    );
   });
 });
 
