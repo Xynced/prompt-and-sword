@@ -2485,7 +2485,7 @@ function textModalHtml(hero: HeroState): string {
     ? `<div class="echo-row miss"><span class="kicker">не понял вообще</span>
         <span>${unknown.map(esc).join(' · ')}</span></div>`
     : '';
-  return `<div class="overlay inner"><div class="modal text-modal">
+  return `<div class="overlay inner" data-close="text"><div class="modal text-modal">
     <div class="head">
       <span class="title">Твой текст · комплект ${ORDER_SETS[hero.activeSet]}</span>
       <span class="meta">он знает ${run.vocab.length} слов</span>
@@ -2545,7 +2545,7 @@ function vocabHtml(): string {
         </div>`
       : '';
   const locked = Object.values(CONCEPTS).length - open.length;
-  return `<div class="overlay inner"><div class="modal vocab-modal">
+  return `<div class="overlay inner" data-close="vocab"><div class="modal vocab-modal">
     <div class="head">
       <span class="title">Словарь</span>
       <span class="meta">${open.length} из ${Object.values(CONCEPTS).length} слов</span>
@@ -2627,7 +2627,7 @@ function editorHtml(): string {
       )}</textarea>
   </div>`;
 
-  return `<div class="overlay">
+  return `<div class="overlay" data-close="editor">
     <div class="modal editor">
       <div class="head">
         <span class="title">Приказы · ${esc(eh.name)}</span>
@@ -2700,7 +2700,7 @@ function debugPanelHtml(): string {
     </div>`;
   }).join('');
 
-  return `<div class="overlay">
+  return `<div class="overlay" data-close="debug">
     <div class="modal debug-panel">
       <div class="head">
         <span class="title">Отладка: собрать бой</span>
@@ -2928,7 +2928,7 @@ function aftermathHtml(): string {
       ? 'вернуться к приказам'
       : 'принять поражение';
   const contHint = ordersDirty ? 'title="приказы переписаны — сперва переиграй с теми же костями"' : '';
-  return `<div class="overlay">
+  return `<div class="overlay" data-close="aftermath">
     <div class="modal aftermath ${won ? '' : 'loss'}">
       <div class="head">
         <span class="title">Разбор</span>
@@ -3595,7 +3595,7 @@ function unitCardHtml(id: string): string {
           : `<div class="card-body">${movesTabHtml(arch, open)}</div>`;
     const tab = (t: CardTab, label: string): string =>
       `<button class="c-tab ${cardTab === t ? 'on' : ''}" data-action="card-tab" data-tab="${t}">${label}</button>`;
-    return `<div class="overlay"><div class="card-wrap">
+    return `<div class="overlay" data-close="card"><div class="card-wrap">
       <div class="modal unit-card">
         <div class="head">
           <span class="title">${esc(hero.name)}</span>
@@ -3620,7 +3620,7 @@ function unitCardHtml(id: string): string {
   const principles = bought
     ? foeOrdersLines(spec).map((l) => `<div class="read-note">«${esc(l)}»</div>`).join('')
     : `<div class="orders-text"><span class="empty">принципы не куплены — прочтёшь по ходу боя</span></div>`;
-  return `<div class="overlay"><div class="modal unit-card">
+  return `<div class="overlay" data-close="card"><div class="modal unit-card">
     <div class="head">
       <span class="title">${esc(spec.name)}</span>
       ${lensTagHtml(spec.lenses)}
@@ -3721,7 +3721,7 @@ function battleLogHtml(): string {
   const outcome =
     battle.winner === 'party' ? 'поле за тобой' : battle.winner === 'draw' ? 'ничья' : 'отряд разбит';
   const cur = frames[frameIdx]!;
-  return `<div class="overlay"><div class="modal battle-log">
+  return `<div class="overlay" data-close="log"><div class="modal battle-log">
     <div class="head">
       <span class="title">Свиток боя</span>
       <span class="meta">seed ${run.runSeed} · ${frames.length - 1} решений</span>
@@ -3891,8 +3891,13 @@ function bind(): void {
     });
   }
   for (const ta of app.querySelectorAll<HTMLTextAreaElement>('textarea.principle-text')) {
+    const heroId = ta.dataset.hero!;
+    // перерисовки на каждый ввод нет (сбила бы каретку), поэтому «применить»
+    // включаем прямо здесь — иначе кнопка остаётся серой до следующего render
+    const apply = app.querySelector<HTMLButtonElement>(`button[data-action="compile-text"][data-hero="${heroId}"]`);
     ta.addEventListener('input', () => {
-      heroText[ta.dataset.hero!] = ta.value;
+      heroText[heroId] = ta.value;
+      if (apply) apply.disabled = Boolean(compiling[heroId]) || !ta.value.trim();
     });
   }
   for (const ta of app.querySelectorAll<HTMLTextAreaElement>('textarea.intent-text')) {
@@ -3917,6 +3922,46 @@ function bind(): void {
       cardMove = null;
       playing = false;
       stopTimer();
+      render();
+    });
+  }
+  // клик по подложке оверлея — то же, что «закрыть»; какое окно закрывать,
+  // говорит data-close на самой подложке
+  const backdropClose: Record<string, () => void> = {
+    text: () => {
+      textOpen = false;
+    },
+    vocab: () => {
+      vocabOpen = false;
+    },
+    editor: () => {
+      editorOpen = false;
+      textOpen = false;
+      vocabOpen = false;
+    },
+    debug: () => {
+      debugOpen = false;
+    },
+    aftermath: () => {
+      aftermathOpen = false;
+    },
+    card: () => {
+      unitCardId = null;
+    },
+    log: () => {
+      logOpen = false;
+    },
+  };
+  for (const ov of app.querySelectorAll<HTMLElement>('.overlay[data-close]')) {
+    // выделение текста в модалке часто кончается отпусканием мыши на подложке —
+    // закрываем только когда клик и начался на ней
+    let downOnBackdrop = false;
+    ov.addEventListener('mousedown', (ev) => {
+      downOnBackdrop = ev.target === ov;
+    });
+    ov.addEventListener('click', (ev) => {
+      if (ev.target !== ov || !downOnBackdrop) return;
+      backdropClose[ov.dataset.close!]?.();
       render();
     });
   }
