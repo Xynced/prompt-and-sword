@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&family=Caveat:wght@400;600&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #332f29; font-family: 'EB Garamond', Georgia, serif; }
+  a { color: #9c3b28; }
+  a:hover { color: #c04d33; }
+</style>
+</helmet>
+
+<section style="display:flex;flex-direction:column;gap:18px;padding:36px 40px 8px">
+  <div style="display:flex;align-items:baseline;gap:12px;color:#e3d8bf">
+    <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.14em;text-transform:uppercase;color:rgba(227,216,191,0.5)">оборот 2 · развитие 1b</span>
+    <span style="font:400 18px/1 'Caveat',cursive;color:#c9a08e">четверо в отряде, павшие — отдельной вкладкой</span>
+  </div>
+
+  <div id="2a" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <span style="font:700 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:3px 6px">2a</span>
+      <span style="font:400 11px/1.2 'Courier Prime',monospace;color:rgba(227,216,191,0.75)">вкладки «отряд / павшие товарищи» — павшие уходят из списка живых</span>
+    </div>
+    <div style="width:392px;height:640px;flex:none;background:#f4ecd9;background-image:repeating-linear-gradient(0deg,rgba(31,27,22,0.025) 0 1px,transparent 1px 6px);box-shadow:inset 20px 0 26px -20px rgba(31,27,22,0.4),0 22px 50px rgba(0,0,0,0.45);padding:22px 26px 14px 22px;display:flex;flex-direction:column;gap:10px;position:relative;color:#1f1b16">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px;flex:none">
+        <span style="font:500 14px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Наш отряд</span>
+        <button style="border:none;border-bottom:1px solid #9c3b28;color:#9c3b28;padding:0 0 1px;font:400 10px/1 'Courier Prime',monospace;background:transparent;cursor:pointer" style-hover="color:#c04d33">экспорт билда</button>
+      </div>
+
+      <div style="display:flex;gap:0;flex:none">
+        <button onClick="{{ showParty }}" style="flex:1;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:7px 8px;border:1px solid rgba(31,27,22,0.35);border-right:none;background:{{ partyTabBg }};color:{{ partyTabFg }};cursor:pointer">в строю 4</button>
+        <button onClick="{{ showFallen }}" style="flex:1;font:400 10px/1 'Courier Prime',monospace;letter-spacing:0.06em;text-transform:uppercase;padding:7px 8px;border:1px solid rgba(31,27,22,0.35);background:{{ fallenTabBg }};color:{{ fallenTabFg }};cursor:pointer">павшие {{ fallenCount }}</button>
+      </div>
+
+      <sc-if value="{{ onParty }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:11px;overflow-y:auto;min-height:0;padding-right:8px;scrollbar-gutter:stable">
+          <sc-for list="{{ rowsC }}" as="h" hint-placeholder-count="4">
+            <div style="display:flex;flex-direction:column;flex:none;border:1px solid rgba(31,27,22,0.22);background:rgba(255,255,255,0.25)">
+              <button onClick="{{ h.openSheet }}" style="display:flex;align-items:stretch;gap:10px;width:100%;text-align:left;background:transparent;border:none;border-bottom:1px dotted rgba(31,27,22,0.3);padding:8px 10px 9px 12px;cursor:pointer;color:#1f1b16" style-hover="background:rgba(31,27,22,0.05)">
+                <span style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:0">
+                  <span style="display:flex;align-items:baseline;gap:7px">
+                    <span style="font:600 17px/1 'EB Garamond',serif">{{ h.name }}</span>
+                    <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">{{ h.klass }}</span>
+                  </span>
+                  <span style="display:flex;align-items:center;gap:8px">
+                    <span style="font:400 10px/1 'Courier Prime',monospace;color:{{ h.hpColor }};white-space:nowrap">{{ h.hpText }}</span>
+                    <span style="flex:1;height:3px;background:rgba(31,27,22,0.14);display:block">
+                      <span style="display:block;height:100%;width:{{ h.hpPct }};background:{{ h.hpColor }}"></span>
+                    </span>
+                    <span style="font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45);white-space:nowrap">приказов {{ h.slots }}</span>
+                  </span>
+                </span>
+                <span style="display:flex;align-items:center;font:400 13px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">›</span>
+              </button>
+
+              <div style="display:flex;align-items:stretch">
+                <sc-for list="{{ h.jumps }}" as="j" hint-placeholder-count="3">
+                  <button onClick="{{ j.go }}" title="{{ j.label }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:5px 4px 6px;background:transparent;border:none;border-right:1px dotted rgba(31,27,22,0.3);cursor:pointer;color:rgba(31,27,22,0.7)" style-hover="background:rgba(156,59,40,0.08);color:#9c3b28">
+                    <span style="font:400 12px/1 'EB Garamond',serif">{{ j.glyph }}</span>
+                    <span style="font:400 8.5px/1 'Courier Prime',monospace;letter-spacing:0.06em">{{ j.label }}</span>
+                  </button>
+                </sc-for>
+              </div>
+
+              <div onClick="{{ h.editSet }}" onDoubleClick="{{ h.editSet }}" title="клик по полоске — правка приказов" style="display:flex;align-items:stretch;border-top:1px solid rgba(31,27,22,0.22);background:rgba(31,27,22,0.04);cursor:pointer" style-hover="background:rgba(156,59,40,0.08)">
+                <span style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:0;padding:6px 10px 7px 12px">
+                  <span style="font:400 8.5px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">{{ h.setMeta }}</span>
+                  <span style="font:400 17px/1.05 'Caveat',cursive;color:#9c3b28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">«{{ h.setName }}»</span>
+                </span>
+                <span style="display:flex;flex:none">
+                  <sc-for list="{{ h.sets }}" as="s" hint-placeholder-count="3">
+                    <button onClick="{{ s.pick }}" onDoubleClick="{{ s.edit }}" title="{{ s.title }}" style="width:26px;font:400 10px/1 'Courier Prime',monospace;border:none;border-left:1px solid rgba(31,27,22,0.22);background:{{ s.bg }};color:{{ s.fg }};cursor:pointer">{{ s.key }}</button>
+                  </sc-for>
+                </span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ onFallen }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0">
+          <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4);flex:none">павшие товарищи · пермасмерть, места не освобождают</span>
+          <sc-for list="{{ fallen }}" as="f" hint-placeholder-count="2">
+            <div style="display:flex;gap:10px;flex:none;opacity:0.72">
+              <span style="width:20px;flex:none;text-align:right;font:400 15px/1.1 'EB Garamond',serif;color:rgba(31,27,22,0.5);padding-top:2px">✝</span>
+              <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;border-bottom:1px dotted rgba(31,27,22,0.3);padding-bottom:9px">
+                <span style="display:flex;align-items:baseline;gap:7px">
+                  <span style="font:600 16px/1 'EB Garamond',serif">{{ f.name }}</span>
+                  <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">{{ f.klass }}</span>
+                  <span style="margin-left:auto;font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45);white-space:nowrap">набор: {{ f.set }}</span>
+                </span>
+                <span style="font:400 10px/1.3 'Courier Prime',monospace;color:rgba(31,27,22,0.55)">где: {{ f.where }}</span>
+                <span style="font:400 15px/1.25 'Caveat',cursive;color:#9c3b28">«{{ f.note }}»</span>
+              </span>
+            </div>
+          </sc-for>
+          <span style="font:400 14px/1.25 'Caveat',cursive;color:rgba(31,27,22,0.55);flex:none">Их наборы остаются в книге: наёмник прочтёт тот же текст по-своему.</span>
+        </div>
+      </sc-if>
+
+      <div style="margin-top:auto;border-top:1px solid rgba(31,27,22,0.3);padding-top:8px;flex:none;display:flex;flex-direction:column;gap:3px">
+        <span style="font:400 10.5px/1.35 'Courier Prime',monospace;color:rgba(31,27,22,0.55)">клик по полоске набора — правка приказов; A/B/C — просто переключить.</span>
+        <span style="font:400 14px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.6)">Те же кости, тот же исход, каждый раз.</span>
+      </div>
+
+      <sc-if value="{{ overlay2a }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;left:0;top:0;right:0;bottom:0;background:rgba(31,27,22,0.35);display:flex;align-items:center;justify-content:center;padding:26px">
+          <div style="background:#f6efdd;border-top:4px solid #1f1b16;padding:16px 18px;display:flex;flex-direction:column;gap:8px;width:100%">
+            <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">{{ overlayKicker }}</span>
+            <span style="font:600 17px/1.1 'EB Garamond',serif">{{ overlayTitle }}</span>
+            <span style="font:400 13px/1.4 'EB Garamond',serif;color:rgba(31,27,22,0.7)">{{ overlayBody }}</span>
+            <span style="display:flex;gap:8px;margin-top:4px">
+              <button onClick="{{ closeOverlay }}" style="font:400 10.5px/1 'Courier Prime',monospace;color:#1f1b16;background:transparent;border:1.5px solid rgba(31,27,22,0.55);padding:9px 14px;cursor:pointer" style-hover="background:rgba(31,27,22,0.08)">закрыть</button>
+            </span>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px;padding:36px 40px 8px">
+  <div style="display:flex;align-items:baseline;gap:12px;color:#e3d8bf">
+    <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.14em;text-transform:uppercase;color:rgba(227,216,191,0.5)">оборот 1 · правая страница похода</span>
+    <span style="font:400 18px/1 'Caveat',cursive;color:#c9a08e">«Наш отряд»: герои, быстрый доступ, действующий набор</span>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
+
+    <div id="1a" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:3px 6px">1a</span>
+        <span style="font:400 11px/1.2 'Courier Prime',monospace;color:rgba(227,216,191,0.75)">набор — сегментный переключатель, быстрый доступ словами</span>
+      </div>
+      <div style="width:392px;height:640px;flex:none;background:#f4ecd9;background-image:repeating-linear-gradient(0deg,rgba(31,27,22,0.025) 0 1px,transparent 1px 6px);box-shadow:inset 20px 0 26px -20px rgba(31,27,22,0.4),0 22px 50px rgba(0,0,0,0.45);padding:22px 26px 14px 22px;display:flex;flex-direction:column;gap:10px;position:relative;color:#1f1b16">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px;flex:none">
+          <span style="font:500 14px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Наш отряд</span>
+          <span style="display:flex;gap:10px">
+            <button style="border:none;border-bottom:1px solid #9c3b28;color:#9c3b28;padding:0 0 1px;font:400 10px/1 'Courier Prime',monospace;background:transparent;cursor:pointer" style-hover="color:#c04d33">экспорт билда</button>
+            <button style="border:none;border-bottom:1px solid #9c3b28;color:#9c3b28;padding:0 0 1px;font:400 10px/1 'Courier Prime',monospace;background:transparent;cursor:pointer" style-hover="color:#c04d33">переписать ▾</button>
+          </span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px;overflow-y:auto;min-height:0">
+          <sc-for list="{{ rows }}" as="h" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column;gap:6px;flex:none">
+              <button onClick="{{ h.openSheet }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:1px solid rgba(31,27,22,0.3);border-left:3px solid #1f1b16;padding:9px 11px 10px;cursor:pointer;color:#1f1b16" style-hover="background:rgba(31,27,22,0.05);border-color:rgba(31,27,22,0.55)">
+                <span style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:0">
+                  <span style="display:flex;align-items:baseline;gap:7px">
+                    <span style="font:600 17px/1 'EB Garamond',serif">{{ h.name }}</span>
+                    <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">{{ h.klass }}</span>
+                    <span style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:{{ h.hpColor }};white-space:nowrap">{{ h.hpText }}</span>
+                  </span>
+                  <span style="display:flex;align-items:center;gap:8px">
+                    <span style="flex:1;height:3px;background:rgba(31,27,22,0.14);display:block;position:relative">
+                      <span style="display:block;height:100%;width:{{ h.hpPct }};background:{{ h.hpColor }}"></span>
+                    </span>
+                    <span style="font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45);white-space:nowrap">приказов {{ h.slots }}</span>
+                  </span>
+                </span>
+                <span style="font:400 13px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.4)">›</span>
+              </button>
+
+              <div style="display:flex;align-items:center;gap:6px;padding-left:3px">
+                <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">лист</span>
+                <sc-for list="{{ h.jumps }}" as="j" hint-placeholder-count="3">
+                  <button onClick="{{ j.go }}" style="font:400 9.5px/1 'Courier Prime',monospace;text-transform:lowercase;letter-spacing:0.04em;padding:4px 7px;border:1px solid rgba(31,27,22,0.3);background:transparent;color:rgba(31,27,22,0.7);cursor:pointer" style-hover="border-color:#9c3b28;color:#9c3b28">{{ j.label }}</button>
+                </sc-for>
+              </div>
+
+              <div onClick="{{ h.editSet }}" onDoubleClick="{{ h.editSet }}" title="клик по полоске — правка приказов" style="display:flex;align-items:center;gap:8px;border-top:1px dotted rgba(31,27,22,0.3);padding:7px 3px 0;cursor:pointer" style-hover="background:rgba(156,59,40,0.06)">
+                <span style="display:flex;gap:3px;flex:none">
+                  <sc-for list="{{ h.sets }}" as="s" hint-placeholder-count="3">
+                    <button onClick="{{ s.pick }}" onDoubleClick="{{ s.edit }}" title="{{ s.title }}" style="font:400 10px/1 'Courier Prime',monospace;padding:5px 8px;border:1px solid {{ s.bc }};background:{{ s.bg }};color:{{ s.fg }};border-style:{{ s.bs }};cursor:pointer">{{ s.key }}</button>
+                  </sc-for>
+                </span>
+                <span style="font:400 16px/1.1 'Caveat',cursive;color:#9c3b28;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">«{{ h.setName }}»</span>
+                <span style="font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45);white-space:nowrap">{{ h.setMeta }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="margin-top:auto;border-top:1px solid rgba(31,27,22,0.3);padding-top:8px;flex:none;display:flex;flex-direction:column;gap:3px">
+          <span style="font:400 10.5px/1.35 'Courier Prime',monospace;color:rgba(31,27,22,0.55)">клик по полоске набора — правка приказов; A/B/C — просто переключить.</span>
+          <span style="font:400 14px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.6)">Приказы компилируются один раз, до боя.</span>
+        </div>
+
+        <sc-if value="{{ overlay1a }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:0;top:0;right:0;bottom:0;background:rgba(31,27,22,0.35);display:flex;align-items:center;justify-content:center;padding:26px">
+            <div style="background:#f6efdd;border-top:4px solid #1f1b16;padding:16px 18px;display:flex;flex-direction:column;gap:8px;width:100%">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">{{ overlayKicker }}</span>
+              <span style="font:600 17px/1.1 'EB Garamond',serif">{{ overlayTitle }}</span>
+              <span style="font:400 13px/1.4 'EB Garamond',serif;color:rgba(31,27,22,0.7)">{{ overlayBody }}</span>
+              <span style="display:flex;gap:8px;margin-top:4px">
+                <button onClick="{{ closeOverlay }}" style="font:400 10.5px/1 'Courier Prime',monospace;color:#1f1b16;background:transparent;border:1.5px solid rgba(31,27,22,0.55);padding:9px 14px;cursor:pointer" style-hover="background:rgba(31,27,22,0.08)">закрыть</button>
+              </span>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div id="1b" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:700 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#9c3b28;color:#f7f0e1;padding:3px 6px">1b</span>
+        <span style="font:400 11px/1.2 'Courier Prime',monospace;color:rgba(227,216,191,0.75)">набор — закладка с названием, быстрый доступ глифами</span>
+      </div>
+      <div style="width:392px;height:640px;flex:none;background:#f4ecd9;background-image:repeating-linear-gradient(0deg,rgba(31,27,22,0.025) 0 1px,transparent 1px 6px);box-shadow:inset 20px 0 26px -20px rgba(31,27,22,0.4),0 22px 50px rgba(0,0,0,0.45);padding:22px 26px 14px 22px;display:flex;flex-direction:column;gap:10px;position:relative;color:#1f1b16">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px;flex:none">
+          <span style="font:500 14px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Наш отряд</span>
+          <button style="border:none;border-bottom:1px solid #9c3b28;color:#9c3b28;padding:0 0 1px;font:400 10px/1 'Courier Prime',monospace;background:transparent;cursor:pointer" style-hover="color:#c04d33">экспорт билда</button>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:16px;overflow-y:auto;min-height:0;padding-right:8px;scrollbar-gutter:stable">
+          <sc-for list="{{ rowsB }}" as="h" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column;flex:none;border:1px solid rgba(31,27,22,0.22);background:rgba(255,255,255,0.25)">
+              <button onClick="{{ h.openSheet }}" style="display:flex;align-items:stretch;gap:10px;width:100%;text-align:left;background:transparent;border:none;border-bottom:1px dotted rgba(31,27,22,0.3);padding:10px 10px 11px 12px;cursor:pointer;color:#1f1b16" style-hover="background:rgba(31,27,22,0.05)">
+                <span style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:0">
+                  <span style="display:flex;align-items:baseline;gap:7px">
+                    <span style="font:600 18px/1 'EB Garamond',serif">{{ h.name }}</span>
+                    <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;color:rgba(31,27,22,0.45)">{{ h.klass }}</span>
+                  </span>
+                  <span style="display:flex;align-items:center;gap:8px">
+                    <span style="font:400 10px/1 'Courier Prime',monospace;color:{{ h.hpColor }};white-space:nowrap">{{ h.hpText }}</span>
+                    <span style="flex:1;height:3px;background:rgba(31,27,22,0.14);display:block">
+                      <span style="display:block;height:100%;width:{{ h.hpPct }};background:{{ h.hpColor }}"></span>
+                    </span>
+                    <span style="font:400 9px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45);white-space:nowrap">приказов {{ h.slots }}</span>
+                  </span>
+                </span>
+                <span style="display:flex;align-items:center;font:400 13px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.35)">›</span>
+              </button>
+
+              <div style="display:flex;align-items:stretch">
+                <sc-for list="{{ h.jumps }}" as="j" hint-placeholder-count="3">
+                  <button onClick="{{ j.go }}" title="{{ j.label }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 4px 8px;background:transparent;border:none;border-right:1px dotted rgba(31,27,22,0.3);cursor:pointer;color:rgba(31,27,22,0.7)" style-hover="background:rgba(156,59,40,0.08);color:#9c3b28">
+                    <span style="font:400 13px/1 'EB Garamond',serif">{{ j.glyph }}</span>
+                    <span style="font:400 8.5px/1 'Courier Prime',monospace;letter-spacing:0.06em">{{ j.label }}</span>
+                  </button>
+                </sc-for>
+              </div>
+
+              <div onClick="{{ h.editSet }}" onDoubleClick="{{ h.editSet }}" title="клик по полоске — правка приказов" style="display:flex;align-items:stretch;border-top:1px solid rgba(31,27,22,0.22);background:rgba(31,27,22,0.04);cursor:pointer" style-hover="background:rgba(156,59,40,0.08)">
+                <span style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;padding:7px 10px 8px 12px">
+                  <span style="font:400 8.5px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">{{ h.setMeta }}</span>
+                  <span style="font:400 18px/1.05 'Caveat',cursive;color:#9c3b28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">«{{ h.setName }}»</span>
+                </span>
+                <span style="display:flex;flex:none">
+                  <sc-for list="{{ h.sets }}" as="s" hint-placeholder-count="3">
+                    <button onClick="{{ s.pick }}" onDoubleClick="{{ s.edit }}" title="{{ s.title }}" style="width:26px;font:400 10px/1 'Courier Prime',monospace;border:none;border-left:1px solid rgba(31,27,22,0.22);background:{{ s.bg }};color:{{ s.fg }};cursor:pointer">{{ s.key }}</button>
+                  </sc-for>
+                </span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="margin-top:auto;border-top:1px solid rgba(31,27,22,0.3);padding-top:8px;flex:none;display:flex;flex-direction:column;gap:3px">
+          <span style="font:400 10.5px/1.35 'Courier Prime',monospace;color:rgba(31,27,22,0.55)">клик по полоске набора — правка приказов; закладка A/B/C — просто переключить.</span>
+          <span style="font:400 14px/1.2 'Caveat',cursive;color:rgba(31,27,22,0.6)">Те же кости, тот же исход, каждый раз.</span>
+        </div>
+
+        <sc-if value="{{ overlay1b }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:0;top:0;right:0;bottom:0;background:rgba(31,27,22,0.35);display:flex;align-items:center;justify-content:center;padding:26px">
+            <div style="background:#f6efdd;border-top:4px solid #1f1b16;padding:16px 18px;display:flex;flex-direction:column;gap:8px;width:100%">
+              <span style="font:400 9px/1 'Courier Prime',monospace;letter-spacing:0.12em;text-transform:uppercase;color:rgba(31,27,22,0.4)">{{ overlayKicker }}</span>
+              <span style="font:600 17px/1.1 'EB Garamond',serif">{{ overlayTitle }}</span>
+              <span style="font:400 13px/1.4 'EB Garamond',serif;color:rgba(31,27,22,0.7)">{{ overlayBody }}</span>
+              <span style="display:flex;gap:8px;margin-top:4px">
+                <button onClick="{{ closeOverlay }}" style="font:400 10.5px/1 'Courier Prime',monospace;color:#1f1b16;background:transparent;border:1.5px solid rgba(31,27,22,0.55);padding:9px 14px;cursor:pointer" style-hover="background:rgba(31,27,22,0.08)">закрыть</button>
+              </span>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px;padding:8px 40px 44px">
+  <div style="display:flex;align-items:baseline;gap:12px">
+    <span style="font:700 10px/1 'Courier Prime',monospace;letter-spacing:0.1em;background:#e3d8bf;color:#332f29;padding:3px 6px">сейчас</span>
+    <span style="font:400 11px/1.2 'Courier Prime',monospace;color:rgba(227,216,191,0.75)">воспроизведение: <code>mapScreenHtml</code> → <code>rosterHtml(false)</code>, src/ui/main.ts</span>
+  </div>
+  <div style="width:392px;height:640px;flex:none;background:#f4ecd9;background-image:repeating-linear-gradient(0deg,rgba(31,27,22,0.025) 0 1px,transparent 1px 6px);box-shadow:inset 20px 0 26px -20px rgba(31,27,22,0.4),0 22px 50px rgba(0,0,0,0.45);padding:22px 26px 14px 22px;display:flex;flex-direction:column;gap:10px;color:#1f1b16">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid rgba(31,27,22,0.3);padding-bottom:6px;flex:none">
+      <span style="font:500 14px/1.15 'EB Garamond',serif;letter-spacing:0.1em;text-transform:uppercase">Действующие приказы</span>
+      <button style="border:none;border-bottom:1px solid #9c3b28;color:#9c3b28;padding:0 0 1px;font:400 10px/1 'Courier Prime',monospace;background:transparent;cursor:pointer">экспорт билда</button>
+      <button style="border:none;border-bottom:1px solid #9c3b28;color:#9c3b28;padding:0 0 1px;font:400 10px/1 'Courier Prime',monospace;background:transparent;cursor:pointer">переписать ▾</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0">
+      <div style="display:flex;gap:10px;flex:none">
+        <div style="width:20px;flex:none;font:400 12px/1.5 'Caveat',cursive;color:#9c3b28;text-align:right;padding-top:3px;white-space:pre-line">i.
+ii.</div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+          <div style="display:flex;align-items:baseline;gap:7px">
+            <span style="font:600 16px/1 'EB Garamond',serif;cursor:pointer">Гром</span>
+            <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;padding:2px 0;color:rgba(31,27,22,0.45)">воин</span>
+            <span style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45);white-space:nowrap">hp 63/80</span>
+          </div>
+          <div style="font:400 13.5px/1.4 'EB Garamond',serif">Атаковать ближайшего. Если наш ранен — прикрывать его (фокус).</div>
+          <div style="font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">«Ближайший — значит ближайший. Иду.»</div>
+          <div style="font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">«Кому хуже всех — за того встану.»</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex:none">
+        <div style="width:20px;flex:none;font:400 12px/1.5 'Caveat',cursive;color:#9c3b28;text-align:right;padding-top:3px;white-space:pre-line">i.
+ii.
+iii.</div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+          <div style="display:flex;align-items:baseline;gap:7px">
+            <span style="font:600 16px/1 'EB Garamond',serif;cursor:pointer">Лия</span>
+            <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;padding:2px 0;color:rgba(31,27,22,0.45)">волшебница</span>
+            <span style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45);white-space:nowrap">hp 19/40</span>
+          </div>
+          <div style="font:400 13.5px/1.4 'EB Garamond',serif">Атаковать ближайшего. Держать дистанцию. Если ранен — отступать.</div>
+          <div style="font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">«Бью того, кто ближе. Хотя лучше бы не подпускать.»</div>
+          <div style="font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">«Держусь на отлёте.» <span style="color:#1f1b16;background:rgba(156,59,40,0.12);padding:0 3px">⚠ понял по-своему</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex:none">
+        <div style="width:20px;flex:none;font:400 12px/1.5 'Caveat',cursive;color:#9c3b28;text-align:right;padding-top:3px;white-space:pre-line">i.</div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+          <div style="display:flex;align-items:baseline;gap:7px">
+            <span style="font:600 16px/1 'EB Garamond',serif;cursor:pointer">Ива</span>
+            <span style="font:400 9px/1 'Courier Prime',monospace;text-transform:uppercase;letter-spacing:0.08em;padding:2px 0;color:rgba(31,27,22,0.45)">жрица</span>
+            <span style="margin-left:auto;font:400 10px/1 'Courier Prime',monospace;color:rgba(31,27,22,0.45);white-space:nowrap">hp 44/44</span>
+          </div>
+          <div style="font:400 13.5px/1.4 'EB Garamond',serif">Атаковать ближайшего.</div>
+          <div style="font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">«Ближайший — значит ближайший. Иду.»</div>
+          <div style="font:400 15px/1.3 'Caveat',cursive;color:#9c3b28">«Не брошу раненого — лечу, кому хуже всех.»</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:auto;border-top:1px solid rgba(31,27,22,0.3);padding-top:8px;flex:none;font:400 10.5px/1.4 'Courier Prime',monospace;color:rgba(31,27,22,0.55)">Приказы компилируются один раз, до боя. Сам бой — арифметика: те же кости, тот же исход, каждый раз.</div>
+  </div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const HEROES = [
+  { id: 'grom', name: 'Гром', klass: 'воин', hp: 63, maxHp: 80, slots: '2/4',
+    sets: [
+      { key: 'A', name: 'в лоб', phrases: 1 },
+      { key: 'B', name: 'стена и стрелы', phrases: 2 },
+      { key: 'C', name: '', phrases: 0 },
+    ], active: 1 },
+  { id: 'lia', name: 'Лия', klass: 'волшебница', hp: 19, maxHp: 40, slots: '3/4',
+    sets: [
+      { key: 'A', name: 'держись сзади', phrases: 3 },
+      { key: 'B', name: 'кайт', phrases: 2 },
+      { key: 'C', name: '', phrases: 0 },
+    ], active: 0 },
+  { id: 'dart', name: 'Дарт', klass: 'следопыт', hp: 41, maxHp: 48, slots: '2/4',
+    sets: [
+      { key: 'A', name: 'бей помеченного', phrases: 2 },
+      { key: 'B', name: 'держи интервал', phrases: 2 },
+      { key: 'C', name: '', phrases: 0 },
+    ], active: 0 },
+  { id: 'iva', name: 'Ива', klass: 'жрица', hp: 44, maxHp: 44, slots: '1/4',
+    sets: [
+      { key: 'A', name: 'лечи, кому хуже', phrases: 1 },
+      { key: 'B', name: '', phrases: 0 },
+      { key: 'C', name: '', phrases: 0 },
+    ], active: 0 },
+];
+
+const JUMPS = [
+  { tab: 'описание', glyph: '§' },
+  { tab: 'действия', glyph: '⚔' },
+  { tab: 'инвентарь', glyph: '◎' },
+];
+
+const FALLEN = [
+  { name: 'Тесса', klass: 'плутовка', where: 'элитка, слой 5 — «Сорвать ритуал»', set: 'B «в спину»', note: 'Вышла из-за камней первой. Больше не вышла.' },
+  { name: 'Ульв', klass: 'варвар', where: 'бой, слой 3 — стая волков', set: 'A «в лоб»', note: 'Ярость пришла, помощь — нет.' },
+];
+
+class Component extends DCLogic {
+  state = { active: { grom: 1, lia: 0, dart: 0, iva: 0 }, overlay: null, tab: 'party' };
+
+  open(o) { this.setState({ overlay: o }); }
+
+  renderVals() {
+    const st = this.state;
+    const make = (v) => HEROES.map((h) => {
+      const ai = st.active[h.id];
+      const set = h.sets[ai];
+      const low = h.hp / h.maxHp <= 0.35;
+      const hpColor = low ? '#9c3b28' : '#1f1b16';
+      return {
+        name: h.name,
+        klass: h.klass,
+        hpText: `hp ${h.hp}/${h.maxHp}`,
+        hpPct: `${Math.round((h.hp / h.maxHp) * 100)}%`,
+        hpColor,
+        slots: h.slots,
+        setName: set.name || 'без подписи',
+        setMeta: `набор ${set.key} · ${set.phrases} прик.`,
+        openSheet: () => this.open({ v, kicker: 'лист героя', title: `${h.name} — ${h.klass}`, body: 'Откроется лист героя: характеристики, защиты, характер, приёмы по оружию и инвентарь. Дефолтная вкладка — «действия».' }),
+        editSet: () => this.open({ v, kicker: 'редактор приказов', title: `${h.name} · набор ${set.key} «${set.name || 'без подписи'}»`, body: 'Дабл-клик открыл редактор на этом наборе: подпись набора, слоты приказов, «как понял» и кнопка «↻ те же кости, новые приказы».' }),
+        jumps: JUMPS.map((j) => ({
+          label: j.tab,
+          glyph: j.glyph,
+          go: () => this.open({ v, kicker: `лист героя · ${j.tab}`, title: `${h.name} — ${j.tab}`, body: 'Быстрый переход прямо на нужную вкладку листа героя, без промежуточных кликов.' }),
+        })),
+        sets: h.sets.map((s, i) => {
+          const on = i === ai;
+          const empty = s.phrases === 0;
+          return {
+            key: s.key,
+            bg: on ? '#1f1b16' : 'transparent',
+            fg: on ? '#f0e8d5' : empty ? 'rgba(31,27,22,0.4)' : 'rgba(31,27,22,0.7)',
+            bc: on ? '#1f1b16' : 'rgba(31,27,22,0.35)',
+            bs: empty && !on ? 'dashed' : 'solid',
+            title: empty ? `набор ${s.key} — пустой` : `набор ${s.key} «${s.name}» · ${s.phrases} приказ(а)`,
+            pick: (e) => {
+              if (e && e.stopPropagation) e.stopPropagation();
+              if (empty) return;
+              this.setState({ active: { ...st.active, [h.id]: i } });
+            },
+            edit: (e) => (e && e.stopPropagation && e.stopPropagation(), undefined) || this.open({ v, kicker: 'редактор приказов', title: `${h.name} · набор ${s.key} «${s.name || 'без подписи'}»`, body: empty ? 'Пустой набор: редактор откроется на чистом листе — впиши приказы и дай набору подпись.' : 'Дабл-клик открыл редактор сразу на этом наборе.' }),
+          };
+        }),
+      };
+    });
+    const o = st.overlay;
+    return {
+      rows: make('a'),
+      rowsB: make('b'),
+      rowsC: make('c'),
+      overlay2a: Boolean(o) && o.v === 'c',
+      onParty: st.tab === 'party',
+      onFallen: st.tab === 'fallen',
+      partyTabBg: st.tab === 'party' ? '#1f1b16' : 'transparent',
+      partyTabFg: st.tab === 'party' ? '#f0e8d5' : 'rgba(31,27,22,0.55)',
+      fallenTabBg: st.tab === 'fallen' ? '#1f1b16' : 'transparent',
+      fallenTabFg: st.tab === 'fallen' ? '#f0e8d5' : 'rgba(31,27,22,0.55)',
+      showParty: () => this.setState({ tab: 'party' }),
+      showFallen: () => this.setState({ tab: 'fallen' }),
+      fallen: FALLEN,
+      fallenCount: FALLEN.length,
+      overlay1a: Boolean(o) && o.v === 'a',
+      overlay1b: Boolean(o) && o.v === 'b',
+      overlayKicker: o ? o.kicker : '',
+      overlayTitle: o ? o.title : '',
+      overlayBody: o ? o.body : '',
+      closeOverlay: () => this.setState({ overlay: null }),
+    };
+  }
+}
+
+</script>
+</body>
+</html>
