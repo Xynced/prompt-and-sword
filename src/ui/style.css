@@ -301,22 +301,134 @@ button.primary:disabled:hover { background: var(--ink); }
 .task-line .kicker { display: block; color: rgba(31, 27, 22, 0.45); }
 .error { color: var(--red); font: 400 10.5px/1.4 var(--mono); }
 
-/* ---- реестр приказов (правая страница) ---- */
-.roster { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 0; }
-.roster-row { display: flex; gap: 10px; flex: none; }
-.roster-row.dead { opacity: 0.4; }
-.numerals {
+/* ---- наш отряд (правая страница похода, спека «Наш отряд», вариант 2a) ---- */
+.sq-tabs { display: flex; flex: none; }
+.sq-tab {
+  flex: 1;
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 7px 8px;
+  border: 1px solid rgba(31, 27, 22, 0.35);
+}
+.sq-tab + .sq-tab { border-left: none; }
+.sq-tab.on { background: var(--ink); color: var(--paper-r); border-color: var(--ink); }
+.sq-tab.on:hover { background: var(--ink); }
+.squad {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  overflow-y: auto;
+  min-height: 0;
+  /* закладка C не должна уходить под полосу прокрутки */
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+}
+.sq-card {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  border: 1px solid rgba(31, 27, 22, 0.22);
+  background: rgba(255, 255, 255, 0.25);
+}
+.sq-col { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.sq-hero {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  text-align: left;
+  border: none;
+  border-bottom: 1px dotted var(--ink-30);
+  padding: 8px 10px 9px 12px;
+}
+.sq-hero:hover { background: rgba(31, 27, 22, 0.05); }
+.sq-name-row { display: flex; align-items: baseline; gap: 7px; }
+.sq-name { font: 600 17px/1 var(--serif); }
+.sq-hp-row { display: flex; align-items: center; gap: 8px; }
+.sq-hp { font: 400 10px/1 var(--mono); color: var(--ink-45); white-space: nowrap; }
+.sq-hp.low { color: var(--red); }
+.sq-bar { flex: 1; height: 3px; background: rgba(31, 27, 22, 0.14); }
+.sq-bar span { display: block; height: 100%; background: var(--ink); }
+.sq-bar span.low { background: var(--red); }
+.sq-slots { font: 400 9px/1 var(--mono); color: var(--ink-45); white-space: nowrap; }
+.sq-chev { display: flex; align-items: center; font: 400 13px/1 var(--mono); color: rgba(31, 27, 22, 0.35); }
+.sq-jumps { display: flex; align-items: stretch; }
+.sq-jump {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 4px 6px;
+  border: none;
+  border-right: 1px dotted var(--ink-30);
+  font: 400 8.5px/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: rgba(31, 27, 22, 0.7);
+}
+.sq-jump:last-child { border-right: none; }
+.sq-jump:hover { background: rgba(156, 59, 40, 0.08); color: var(--red); }
+.sq-jump .g { font: 400 12px/1 var(--serif); }
+.sq-strip {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid rgba(31, 27, 22, 0.22);
+  background: rgba(31, 27, 22, 0.04);
+  cursor: pointer;
+}
+.sq-strip:hover { background: rgba(156, 59, 40, 0.08); }
+.sq-strip .sq-col { gap: 1px; padding: 6px 10px 7px 12px; }
+.sq-strip .kicker { font-size: 8.5px; }
+.sq-note {
+  font: 400 17px/1.05 var(--hand);
+  color: var(--red);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sq-sets { display: flex; flex: none; }
+.sq-set {
+  width: 26px;
+  padding: 0;
+  font: 400 10px/1 var(--mono);
+  border: none;
+  border-left: 1px solid rgba(31, 27, 22, 0.22);
+}
+.sq-set.on { background: var(--ink); color: var(--paper-r); }
+.sq-set.on:hover { background: var(--ink); }
+.sq-set.empty { color: rgba(31, 27, 22, 0.4); }
+.sq-foot {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  border-top: 1px solid var(--ink-30);
+  color: var(--ink-55);
+}
+.fallen { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 0; }
+.fl-row { display: flex; gap: 10px; flex: none; opacity: 0.72; }
+.fl-cross {
   width: 20px;
   flex: none;
-  font: 400 12px/1.5 var(--hand);
-  color: var(--red);
   text-align: right;
-  padding-top: 3px;
-  white-space: pre-line;
+  font: 400 15px/1.1 var(--serif);
+  color: rgba(31, 27, 22, 0.5);
+  padding-top: 2px;
 }
-.r-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.r-head { display: flex; align-items: baseline; gap: 7px; }
-.r-name { font: 600 16px/1 var(--serif); }
+.fl-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-bottom: 1px dotted var(--ink-30);
+  padding-bottom: 9px;
+}
+.fl-head { display: flex; align-items: baseline; gap: 7px; }
+.fl-name { font: 600 16px/1 var(--serif); }
+.fl-set { margin-left: auto; font: 400 9px/1 var(--mono); color: var(--ink-45); white-space: nowrap; }
+.fl-where { font: 400 10px/1.3 var(--mono); color: var(--ink-55); }
+
+/* ---- общие подписи реестра: класс, линза, приказы, реплика «как понял» ---- */
 .r-tag {
   font: 400 9px/1 var(--mono);
   text-transform: uppercase;
@@ -329,8 +441,6 @@ button.primary:disabled:hover { background: var(--ink); }
 /* класс героя: тише линзы — рамки нет, только капитель */
 .r-tag.klass { border: none; padding: 2px 0; color: var(--ink-45); }
 .eh-card .sub.klass-line { font: 400 9px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-45); }
-.r-hp { margin-left: auto; font: 400 10px/1 var(--mono); color: var(--ink-45); white-space: nowrap; }
-.r-hp.low { color: var(--red); }
 .orders-text { font: 400 13.5px/1.4 var(--serif); }
 .orders-text .empty { color: rgba(31, 27, 22, 0.4); }
 .read-note { font: 400 15px/1.3 var(--hand); color: var(--red); }
@@ -852,7 +962,20 @@ button.buy:disabled { opacity: 0.4; border-style: dashed; }
 .set-tab.on { background: var(--ink); color: var(--paper-l); border-color: var(--ink); }
 .set-tab.on:hover { background: var(--ink); }
 .set-tab.empty { border-style: dashed; color: var(--ink-45); }
-.set-note { margin-left: 8px; font: 400 14px/1.2 var(--hand); color: var(--ink-55); }
+input.set-note {
+  margin-left: 8px;
+  flex: 1;
+  min-width: 0;
+  font: 400 16px/1.2 var(--hand);
+  color: var(--red);
+  background: transparent;
+  border: none;
+  border-bottom: 1px dotted var(--ink-30);
+  padding: 1px 2px;
+}
+input.set-note::placeholder { color: var(--ink-45); }
+input.set-note:focus { outline: none; border-bottom-color: var(--red); }
+.set-hint { font: 400 14px/1.2 var(--hand); color: var(--ink-55); white-space: nowrap; }
 
 /* цитата оригинала: то, что игрок написал, целиком */
 .quote-block {
@@ -1065,8 +1188,6 @@ textarea.intent-text:focus { outline: none; border-color: var(--red); }
 .foe-row b { color: var(--ink); }
 .mark-btn { margin-left: 8px; }
 .mark-btn.on { background: var(--red); color: #f7f0e1; border-color: var(--red); }
-.r-name.clickable { cursor: pointer; }
-.r-name.clickable:hover { color: var(--red); }
 .btoken { cursor: pointer; }
 .stat-line {
   font: 400 11px/1.4 var(--mono);

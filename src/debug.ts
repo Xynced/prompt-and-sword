@@ -136,6 +136,7 @@ export function debugRun(setup: DebugSetup): RunState {
       sets: emptyOrderSets([]),
       activeSet: 0,
     })),
+    fallen: [],
     marked: setup.marked ?? null,
     ...(setup.nerve ? { nerve: setup.nerve } : {}),
     deploy: {},
