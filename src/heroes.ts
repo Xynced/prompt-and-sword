@@ -57,7 +57,7 @@ export interface HeroArchetype {
   innate: Rule[];
 }
 
-const r = (rule: Omit<Rule, 'scope'>): Rule => ({ ...rule, scope: 'self' });
+const r = (rule: Omit<Rule, 'scope' | 'innate'>): Rule => ({ ...rule, scope: 'self', innate: true });
 
 export const HERO_POOL: readonly HeroArchetype[] = [
   {

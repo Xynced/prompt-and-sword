@@ -6,12 +6,13 @@ import {
   describePreference,
   enemiesOf,
   evalCondition,
+  isPlayerRule,
   resolveAlly,
   resolvePosRef,
   resolveSelector,
 } from './ir.js';
 import { type CompiledBehavior, biasFor } from './lens.js';
-import { type NerveSpec, nervePressure, nerveRoll } from './nerve.js';
+import { type NerveSpec, nervePressure, nerveRoll, obeyRoll } from './nerve.js';
 import {
   type EntryCost,
   GRID_H,
@@ -44,6 +45,10 @@ import type {
 import {
   ACTION_BIAS_WEIGHT,
   NERVE_FOCUS_CALM,
+  OBEY_BOOST,
+  OBEY_CHANCE,
+  OBEY_FOCUS_CHANCE,
+  OBEY_MUTE,
   APPEAL_FLOOR,
   WEAPON_AFFINITY_BONUS,
   AP_PER_TURN,
@@ -745,6 +750,13 @@ export interface Decision {
   firedCount: number;
   /** Стойки манер решения (план words + teamwork) — бой вешает их на юнита до следующего решения. */
   stance: { often: boolean; hard: boolean; bait: boolean; taunt: boolean; mark: boolean };
+  /**
+   * Послушание (план nerve): в решении столкнулись слово игрока и встроенное
+   * правило (способность героя или инстинкт линзы), и seeded-бросок решил —
+   * true: «прислушался» (приказ усилен, встроенная тяга заглушена), false:
+   * «сделал по-своему». Отсутствие поля — конфликта не было или нерв выключен.
+   */
+  obeyed?: boolean;
 }
 
 const MAX_DIST = Math.max(GRID_W, GRID_H) - 1;
@@ -2679,19 +2691,36 @@ export function decide(
     };
   }
 
-  const candidates = generateCandidates(self, units, ctx, ap, round, fired);
+  // послушание (план nerve): столкнулись слово игрока и встроенное правило —
+  // seeded-бросок решает, чей голос громче в ЭТОМ решении. «Прислушался» —
+  // слова игрока усилены, встроенная тяга заглушена; «по-своему» — счёт
+  // прежний. Броска не гасит давление: механика чинит «Скала стоит глыбой в
+  // спокойной фазе сближения», а там давление как раз ноль. У врагов приказов
+  // игрока нет — конфликт не собирается, их решения не трогаются.
+  const nerve = ctx.nerve;
+  let obeyed: boolean | undefined;
+  let heard = fired;
+  if (nerve && fired.some(isPlayerRule) && fired.some((r) => !isPlayerRule(r))) {
+    const chance = fired.some((r) => r.focus) ? OBEY_FOCUS_CHANCE : OBEY_CHANCE;
+    obeyed = obeyRoll(nerve.seed, self.id, round, ap) < chance;
+    if (obeyed)
+      heard = fired.map((r) =>
+        isPlayerRule(r)
+          ? { ...r, weight: r.weight * OBEY_BOOST }
+          : { ...r, weight: r.weight * OBEY_MUTE },
+      );
+  }
+
+  const candidates = generateCandidates(self, units, ctx, ap, round, heard);
   // доступность целей одна на всё решение: юнит стоит на месте, пока выбирает
   const appealMemo: AppealMemo = new Map();
-  // нерв (план nerve): давление считается раз на решение — пока боец выбирает,
-  // ни его раны, ни кольцо вокруг не меняются
-  const nerve = ctx.nerve;
   // фокус игрока собирает бойца: приказ, за который держатся, гасит разброс
   const calm = fired.some((r) => r.focus) ? NERVE_FOCUS_CALM : 1;
   const amp = nerve ? nerve.amp * calm * nervePressure(self, units, fired.length) : 0;
   let best: { cand: Candidate; score: number; factors: Factor[] } | undefined;
   for (const cand of candidates) {
     const factors = sway(
-      scoreCandidate(cand, self, units, fired, ctx, round, appealMemo),
+      scoreCandidate(cand, self, units, heard, ctx, round, appealMemo),
       amp,
       nerve,
       self.id,
@@ -2724,6 +2753,7 @@ export function decide(
     condRules,
     firedCount: fired.length,
     stance: stanceOf(fired),
+    ...(obeyed !== undefined ? { obeyed } : {}),
   };
 }
 

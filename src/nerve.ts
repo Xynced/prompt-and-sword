@@ -41,6 +41,15 @@ export function nerveRoll(
 }
 
 /**
+ * Бросок послушания в [0, 1) для одного решения: сравнивается с OBEY_CHANCE /
+ * OBEY_FOCUS_CHANCE в decide. Равномерный (не треугольный, как nerveRoll):
+ * здесь нужен порог вероятности, а не редкий перекос.
+ */
+export function obeyRoll(seed: number, unitId: string, round: number, ap: number): number {
+  return (situationHash(seed, unitId, round, ap, 'приказ') >>> 8) / 0x1000000;
+}
+
+/**
  * Давление ситуации в [0, 1]: насколько бойцу сейчас не до счёта. В затишье, на
  * полном здоровье и с сработавшим приказом — 0, и решение строго
  * детерминированное даже при включённом режиме.
