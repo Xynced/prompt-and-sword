@@ -177,7 +177,7 @@ const debugDraft: {
 } = {
   battle: DEBUG_BATTLES[0]!.id,
   seed: 1,
-  nerve: false,
+  nerve: true,
   party: [],
 };
 
