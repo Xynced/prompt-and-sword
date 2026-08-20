@@ -315,7 +315,7 @@ export interface BattleResult {
 const MAX_ROUNDS = 30;
 const FOE_SPAWN_SLOTS: Pos[] = [3, 6, 8, 11, 14].map((y) => ({ x: 15, y }));
 
-function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
+function makeFighter(spec: UnitSpec, pos: Pos, seed: number): Fighter {
   // atk/range юнита — производные максимумы по оружию: мера угрозы для
   // threatAt и селекторов; урон конкретной атаки считает её оружие
   const weapons = spec.weapons;
@@ -347,7 +347,7 @@ function makeFighter(spec: UnitSpec, pos: Pos): Fighter {
     ...(spec.shield ? { shield: spec.shield } : {}),
     ...(spec.reaction ? { reaction: spec.reaction } : {}),
     ...(spec.inert ? { inert: true as const } : {}),
-    compiled: applyLens(spec.lenses, spec.rules),
+    compiled: applyLens(spec.lenses, spec.rules, { seed, unitId: spec.id }),
   };
 }
 
@@ -358,7 +358,7 @@ function assignSpawns(specs: readonly UnitSpec[], rng: Rng): Pos[] {
   return specs.map((s) => s.spawn ?? slots[slotIdx++ % slots.length]!);
 }
 
-function placeUnits(specs: readonly UnitSpec[], rng: Rng): Fighter[] {
+function placeUnits(specs: readonly UnitSpec[], rng: Rng, seed: number): Fighter[] {
   const spawns = assignSpawns(specs, rng);
   // столкновение точек спавна (герой поставлен на клетку NPC сценария) —
   // ближайшая свободная по кольцам, детерминированно
@@ -366,7 +366,7 @@ function placeUnits(specs: readonly UnitSpec[], rng: Rng): Fighter[] {
   for (const [i, s] of specs.entries()) {
     const want = spawns[i]!;
     const pos = placed.some((u) => posEq(u.pos, want)) ? freeSpawnNear(want, placed, () => false) : want;
-    placed.push(makeFighter(s, pos));
+    placed.push(makeFighter(s, pos, seed));
   }
   return placed;
 }
@@ -439,7 +439,7 @@ export function runBattle(
   setup: BattleSetup = {},
 ): BattleResult {
   const rng = mulberry32(seed);
-  const units = placeUnits(specs, rng);
+  const units = placeUnits(specs, rng, seed);
   const objective: Objective = setup.objective ?? { kind: 'eliminate' };
   const waves = setup.waves ?? [];
   const zone = setup.zone;
@@ -872,7 +872,7 @@ export function runBattle(
       if (wave.round !== round) continue;
       for (const [i, spec] of wave.specs.entries()) {
         const want = spec.spawn ?? FOE_SPAWN_SLOTS[i % FOE_SPAWN_SLOTS.length]!;
-        const f = makeFighter(spec, freeSpawnNear(want, units, blocked));
+        const f = makeFighter(spec, freeSpawnNear(want, units, blocked), seed);
         tagQuarry(f);
         units.push(f);
         events.push({ t: 'spawn', unit: f.id, name: f.name, side: f.side, pos: { ...f.pos }, maxHp: f.maxHp });

@@ -239,6 +239,179 @@ describe('линза: позёр', () => {
   });
 });
 
+describe('линза: задира', () => {
+  it('«бей ближайшего» расщепляется: бьёт слабейшего, в меньшинстве — держится поодаль', () => {
+    const c = applyLens(['bully'], [attack(2)]);
+    const [weak, back] = c.rules;
+    expect(weak!.then).toEqual({ kind: 'attack', target: 'weakest' });
+    expect(weak!.marks).toEqual([
+      { lens: 'bully', kind: 'reword', from: { kind: 'attack', target: 'nearest' } },
+    ]);
+    expect(back!.when).toEqual({ kind: 'outnumbered' });
+    expect(back!.then).toEqual({ kind: 'standoff' });
+    expect(back!.weight).toBeCloseTo(2.4);
+  });
+
+  it('условная атака не расщепляется — только перенацеливается на слабейшего', () => {
+    const conditional: Rule = { ...attack(), when: { kind: 'battleDrags' } };
+    const c = applyLens(['bully'], [conditional]);
+    expect(c.rules).toHaveLength(1);
+    expect(c.rules[0]!.then).toEqual({ kind: 'attack', target: 'weakest' });
+    expect(c.rules[0]!.when).toEqual({ kind: 'battleDrags' });
+  });
+
+  it('толкается охотно, на выкрики ведётся', () => {
+    const c = applyLens(['bully'], []);
+    expect(c.instincts.actionBias.shove).toBe(2);
+    expect(c.instincts.provocable).toBeGreaterThan(1);
+  });
+});
+
+describe('линза: скупец', () => {
+  it('правила не трогает, лимитированное придерживает', () => {
+    const rules = [attack(), protect()];
+    const c = applyLens(['miser'], rules);
+    expect(c.rules).toEqual(rules);
+    expect(c.instincts.actionBias.heal).toBe(0.4);
+    expect(c.instincts.actionBias.wall).toBe(0.4);
+    expect(c.instincts.actionBias.aoeRitual).toBe(0.4);
+  });
+});
+
+describe('линза: азартный', () => {
+  it('«бей наверняка» расщепляется: в меньшинстве — отчаянный размен', () => {
+    const hard: Rule = {
+      when: { kind: 'always' },
+      then: { kind: 'strikeHard' },
+      weight: 2,
+      scope: 'self',
+      source: 'бей наверняка',
+    };
+    const c = applyLens(['gambler'], [hard]);
+    expect(c.rules[0]).toEqual(hard);
+    const allIn = c.rules[1]!;
+    expect(allIn.when).toEqual({ kind: 'outnumbered' });
+    expect(allIn.then).toEqual({ kind: 'strikeDesperate' });
+    expect(allIn.weight).toBeCloseTo(3);
+  });
+
+  it('инстинкты от счёта: в выигрыше красуется, в проигрыше идёт на размен', () => {
+    const c = applyLens(['gambler'], []);
+    const showoff = c.rules.find((r) => r.then.kind === 'bait')!;
+    expect(showoff.when).toEqual({ kind: 'weOutnumber' });
+    const allIn = c.rules.find((r) => r.then.kind === 'trade')!;
+    expect(allIn.when).toEqual({ kind: 'outnumbered' });
+    expect(c.instincts.caution).toBeLessThan(1);
+  });
+});
+
+describe('линза: мученик', () => {
+  it('«отступай» → «прикрывай отход», защита тяжелеет', () => {
+    const c = applyLens(['martyr'], [retreat(), protect()]);
+    expect(c.rules[0]!.then).toEqual({ kind: 'coverRetreat' });
+    expect(c.rules[0]!.marks).toEqual([
+      { lens: 'martyr', kind: 'reword', from: { kind: 'retreat' } },
+    ]);
+    expect(c.rules[1]!.weight).toBeCloseTo(2.8);
+  });
+
+  it('свой ранен — подставляется приманкой; тяга закрыть собой', () => {
+    const c = applyLens(['martyr'], []);
+    const bait = c.rules.find((r) => r.then.kind === 'bait')!;
+    expect(bait.when).toEqual({ kind: 'allyHurt' });
+    expect(bait.marks).toEqual([{ lens: 'martyr', kind: 'instinct' }]);
+    expect(c.instincts.actionBias.shieldAlly).toBe(2);
+    expect(c.instincts.survival).toBeLessThan(1);
+  });
+});
+
+describe('линза: одиночка', () => {
+  it('«отходи за спины» → «отходи», «сомкнуть строй» → «обходи сбоку»', () => {
+    const fallback: Rule = { when: { kind: 'always' }, then: { kind: 'fallback' }, weight: 2, scope: 'self', source: 'за спины' };
+    const regroup: Rule = { when: { kind: 'always' }, then: { kind: 'regroup' }, weight: 2, scope: 'self', source: 'сомкнуть строй' };
+    const c = applyLens(['loner'], [fallback, regroup]);
+    expect(c.rules[0]!.then).toEqual({ kind: 'retreat' });
+    expect(c.rules[1]!.then).toEqual({ kind: 'outflank' });
+  });
+
+  it('атака расщепляется: остался один — дерётся злее; собой не меняется', () => {
+    const c = applyLens(['loner'], [attack(2)]);
+    const alone = c.rules[1]!;
+    expect(alone.when).toEqual({ kind: 'alone' });
+    expect(alone.weight).toBeCloseTo(2.8);
+    expect(c.instincts.actionBias.swap).toBe(0);
+  });
+});
+
+describe('линза: рассеянный', () => {
+  it('условие приказа забывается: исполняет всегда, но вполсилы', () => {
+    const c = applyLens(['scatterbrain'], [retreat()]);
+    expect(c.rules[0]!.when).toEqual({ kind: 'always' });
+    expect(c.rules[0]!.weight).toBeCloseTo(1.2);
+    expect(c.rules[0]!.marks).toEqual([
+      { lens: 'scatterbrain', kind: 'recondition', from: { kind: 'hpBelow', who: 'self', frac: 0.5 } },
+    ]);
+  });
+
+  it('инстинкты других линз не забывает: бегство труса остаётся условным', () => {
+    const c = applyLens(['coward', 'scatterbrain'], [attack()]);
+    const flee = c.rules.find((r) => r.marks?.some((m) => m.kind === 'instinct'))!;
+    expect(flee.when).toEqual({ kind: 'hpBelow', who: 'self', frac: 0.3 });
+  });
+});
+
+describe('линза: упрямец', () => {
+  const pick = (seed: number) => ({ seed, unitId: 'h' });
+
+  it('с ключом боя одно правило игрока становится главным (×2.5)', () => {
+    const c = applyLens(['stubborn'], [attack(), protect(), retreat()], pick(7));
+    const favs = c.rules.filter((r) => r.marks?.some((m) => m.kind === 'reweight' && m.mult === 2.5));
+    expect(favs).toHaveLength(1);
+    expect(c.instincts.provocable).toBe(0);
+  });
+
+  it('выбор детерминирован ключом и меняется от боя к бою', () => {
+    const favAt = (seed: number, unitId = 'h'): number =>
+      applyLens(['stubborn'], [attack(), protect(), retreat()], { seed, unitId }).rules.findIndex(
+        (r) => r.marks?.length,
+      );
+    expect(favAt(7)).toBe(favAt(7));
+    const seen = new Set<number>();
+    for (let seed = 1; seed <= 20; seed++) seen.add(favAt(seed));
+    expect(seen.size).toBeGreaterThan(1);
+    // и от юнита: два упрямца в одном бою не обязаны упереться в одно и то же
+    const byUnit = new Set<number>();
+    for (const id of ['a', 'b', 'c', 'd', 'e']) byUnit.add(favAt(7, id));
+    expect(byUnit.size).toBeGreaterThan(1);
+  });
+
+  it('без ключа правил не трогает — контексты без сида не выдумывают выбор', () => {
+    const rules = [attack(), protect()];
+    const c = applyLens(['stubborn'], rules);
+    expect(c.rules).toEqual(rules);
+  });
+
+  it('инстинкты других линз в главные не попадают', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const c = applyLens(['paranoid', 'stubborn'], [attack()], pick(seed));
+      const fav = c.rules.find((r) => r.marks?.some((m) => m.kind === 'reweight' && m.mult === 2.5));
+      expect(fav?.marks?.some((m) => m.kind === 'instinct')).toBeFalsy();
+    }
+  });
+});
+
+describe('линза: суеверный', () => {
+  it('колдуна идёт убивать первым, проклятых мест не касается', () => {
+    const c = applyLens(['superstitious'], [attack()]);
+    const witch = c.rules.find((r) => r.then.kind === 'attack' && r.then.target === 'caster')!;
+    expect(witch.when).toEqual({ kind: 'enemyCasters' });
+    expect(witch.marks).toEqual([{ lens: 'superstitious', kind: 'instinct' }]);
+    const wary = c.rules.find((r) => r.then.kind === 'avoidHazard')!;
+    expect(wary.marks).toEqual([{ lens: 'superstitious', kind: 'instinct' }]);
+    expect(c.instincts.actionBias.aoeRitual).toBe(0.5);
+  });
+});
+
 describe('линзы и активы (план классов, шаг 4)', () => {
   const rageWhenDrags = (): Rule => ({
     when: { kind: 'battleDrags' },

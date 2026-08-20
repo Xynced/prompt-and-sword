@@ -464,6 +464,14 @@ const LENS_HINT: Record<LensId, string> = {
   paranoid: 'параноику везде мерещатся стрелки: на линию огня он не выйдет.',
   hothead: 'горячке невыносимо стоять на месте — «держать позицию» станет атакой.',
   showman: 'позёр красуется перед строем врага — приманка без приказа.',
+  bully: 'задира бьёт слабейшего, а когда врагов больше — держится поодаль.',
+  miser: 'скупец бережёт всё, что «раз в бой», пока бой не затянется.',
+  gambler: 'азартный играет от счёта: в выигрыше скучает, в проигрыше идёт ва-банк.',
+  martyr: 'мученик закрывает своих собой, а отступает — только прикрывая.',
+  loner: 'одиночка не смыкает строй и никого не кроет щитом; один — дерётся злее.',
+  scatterbrain: 'рассеянный забывает «если»: условные приказы исполняет всегда, но вполсилы.',
+  stubborn: 'упрямец каждый бой считает одно из правил главным — какое, решает бой.',
+  superstitious: 'суеверный первым делом идёт убивать колдуна, а проклятых мест не касается.',
 };
 
 /**
@@ -501,6 +509,9 @@ function readingLines(h: {
     names,
     heroUncertainty[h.id] ?? [],
     debugLenses,
+    // сид грядущего боя: упрямец выбирает «главное» правило по нему, и
+    // карточка обязана показать тот же выбор, что сыграет бой
+    { seed: battleSeed(run), unitId: h.id },
   ).lines;
 }
 
@@ -814,6 +825,7 @@ function buildFrames(
   leaderIds: Set<string>,
   specs: readonly UnitSpec[],
   names: Record<string, string>,
+  seed: number,
 ): { frames: Frame[]; reveals: Reveal[] } {
   const units = new Map<string, FrameUnit>();
   const nm = (id: string): string => units.get(id)?.name ?? id;
@@ -873,7 +885,7 @@ function buildFrames(
   for (const s of specs) {
     lensesByUnit.set(s.id, s.lenses);
     const bySource = new Map<string, Rule[]>();
-    for (const r of applyLens(s.lenses, s.rules).rules) {
+    for (const r of applyLens(s.lenses, s.rules, { seed, unitId: s.id }).rules) {
       if (!r.marks?.length) continue;
       bySource.set(r.source, [...(bySource.get(r.source) ?? []), r]);
     }
@@ -1357,7 +1369,7 @@ function startBattle(): void {
   fightsAtNode++;
   rewroteSinceBattle = false;
   deployPick = null;
-  ({ frames, reveals: battleReveals } = buildFrames(battle, leaderIds, specs, heroNames(run)));
+  ({ frames, reveals: battleReveals } = buildFrames(battle, leaderIds, specs, heroNames(run), battleSeed(run)));
   frameIdx = 0;
   playing = true;
   aftermathOpen = false;

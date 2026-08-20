@@ -1,5 +1,5 @@
 import { ALLY_ROLE_RU, type AllyRef, type Condition, type LensMark, type Preference, type Rule } from './ir.js';
-import { applyLens } from './lens.js';
+import { type LensPick, applyLens } from './lens.js';
 import { DAMAGE_TYPE_RU } from './types.js';
 import {
   ARCANE_SHIELD_AC,
@@ -646,6 +646,37 @@ export function lensQuip(m: LensMark, names: Record<string, string> = {}, rule?:
       break;
     case 'showman':
       return m.kind === 'instinct' ? 'Пусть весь их строй смотрит на меня.' : 'Эффектный заход — это по мне.';
+    case 'bully':
+      if (m.kind === 'reweight') return 'Подразнить — святое дело.';
+      if (from === 'attack')
+        return rule?.when.kind === 'outnumbered'
+          ? 'Их больше? Я не дурак — постою поодаль.'
+          : 'Зачем сильный, когда есть слабый? Бью хилого.';
+      break;
+    case 'gambler':
+      if (m.kind === 'instinct')
+        return rule?.when.kind === 'weOutnumber'
+          ? 'Мы верхом — скучно. Покрасуюсь.'
+          : 'Нас меньше? Ставки растут — всё на кон!';
+      if (from === 'strikeHard') return 'Нас меньше — самое время сыграть по-крупному.';
+      break;
+    case 'martyr':
+      if (m.kind === 'instinct') return 'Наших бьют. Пусть теперь бьют меня.';
+      if (from === 'retreat') return 'Уйти? Только прикрыв ваш отход собой.';
+      return 'Заслонить своего — вот моё место.';
+    case 'loner':
+      if (from === 'fallback') return 'За чужими спинами не прячусь. Отойду сам.';
+      if (from === 'regroup') return 'Плечом к плечу? Лучше один — и сбоку.';
+      if (from === 'attack') return 'Один. Наконец-то — теперь развернусь.';
+      return 'Сбоку, без свидетелей — это по мне.';
+    case 'scatterbrain':
+      return '«Если»… если что? Забыл. Буду делать просто так.';
+    case 'stubborn':
+      return 'Вот это — главное. Остальное — шум.';
+    case 'superstitious':
+      return rule?.then.kind === 'attack'
+        ? 'Колдун! Убить, пока не наколдовал.'
+        : 'Проклятое место. Обойду стороной.';
   }
   return 'Понял по-своему.';
 }
@@ -661,6 +692,12 @@ export function driftQuip(lens: LensId): string {
       return 'Кровь! Наконец-то. Понеслась!';
     case 'gloryhound':
       return 'Вожак пал… Ради чего теперь стараться.';
+    case 'miser':
+      return 'Затянулось… Ладно. Раскошеливаюсь.';
+    case 'martyr':
+      return 'Вот и мой час. Бейте меня — не их.';
+    case 'superstitious':
+      return 'Колдовство забрало нашего. Дурной знак — держусь подальше.';
     default:
       return 'Что-то во мне переменилось.';
   }
@@ -692,9 +729,10 @@ export function understandingCard(
   names: Record<string, string> = {},
   uncertainty: readonly string[] = [],
   debug = false,
+  pick?: LensPick,
 ): UnderstandingCard {
   const nm = (id: string): string => names[id] ?? id;
-  const compiled = applyLens(hero.lenses, rawRules);
+  const compiled = applyLens(hero.lenses, rawRules, pick);
   const lines: string[] = [];
   if (debug) {
     for (const r of compiled.rules) lines.push(`${ruleRu(r, names)}${lensMark(r)}`);
