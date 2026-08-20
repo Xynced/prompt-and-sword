@@ -9,6 +9,7 @@ import { scenarioForNode } from './objectives.js';
 import { LENS_POOL, rollLenses } from './lens.js';
 import { ARENA_H, type ArenaTag, PARTY_ZONE_MAX_X, pickTerrain, tileAt } from './terrain.js';
 import { posEq } from './grid.js';
+import { NERVE_AMP } from './tuning.js';
 import type { LensId, Pos } from './types.js';
 
 /**
@@ -370,6 +371,9 @@ export function startRun(runSeed: number): RunState {
     deploy: {},
     pendingReward: null,
     intel: freshIntel(),
+    // нерв по умолчанию включён (план nerve): выключается тумблером UI;
+    // прогоны с фиксированной базой замеров задают nerve: 0 явно
+    nerve: NERVE_AMP,
     status: 'ongoing',
     log: [],
   };

@@ -126,6 +126,7 @@ describe('прогон', () => {
       phrases: h.phrases,
     }));
     const fromRun = JSON.stringify(playFight(state).events);
-    expect(log({ battle: 'lesson', party, seed: 7 })).toBe(fromRun);
+    // забег теперь идёт с нервом по умолчанию — сборка обязана его повторить
+    expect(log({ battle: 'lesson', party, seed: 7, nerve: state.nerve })).toBe(fromRun);
   });
 });

@@ -158,6 +158,93 @@ describe('нерв: давление ситуации', () => {
   });
 });
 
+describe('нерв: послушание — приказ против встроенного', () => {
+  // «Глыба» Скалы: врождённое правило способности, помечено innate
+  const glyba = (): Rule => ({
+    when: { kind: 'always' },
+    then: { kind: 'holdPosition' },
+    weight: 0.8,
+    scope: 'self',
+    source: 'способность: Глыба',
+    innate: true,
+  });
+  const order = (focus = false): Rule =>
+    r({
+      when: { kind: 'always' },
+      then: { kind: 'attack', target: 'nearest' },
+      weight: 1,
+      source: 'бей ближайшего',
+      ...(focus ? { focus: true } : {}),
+    });
+  // боец уже отошёл от якоря на 4 клетки: поводок тянет назад, приказ — вперёд
+  const scene = (focus = false): { self: Fighter; units: Fighter[] } => {
+    const self = fighter('скала', 'party', { x: 6, y: 2 }, { startPos: { x: 2, y: 2 } }, [
+      order(focus),
+      glyba(),
+    ]);
+    const foe = fighter('враг', 'foe', { x: 14, y: 2 });
+    return { self, units: [self, foe] };
+  };
+  const sample = (focus = false, n = 300): { obeyed: number; total: number } => {
+    let obeyed = 0;
+    for (let seed = 0; seed < n; seed++) {
+      const { self, units } = scene(focus);
+      const d = decide(self, units, 1, undefined, 3, makeCtx(undefined, undefined, {}, { amp: NERVE_AMP, seed }));
+      expect(d.obeyed).toBeDefined();
+      if (d.obeyed) obeyed++;
+    }
+    return { obeyed, total: n };
+  };
+
+  it('без нерва конфликт не разыгрывается, решение без пометки', () => {
+    const { self, units } = scene();
+    expect(decide(self, units, 1, undefined, 3, makeCtx()).obeyed).toBeUndefined();
+  });
+
+  it('без встроенных правил (враги) послушание не трогает решение', () => {
+    const self = fighter('враг-умный', 'foe', { x: 6, y: 2 }, {}, [order()]);
+    const hero = fighter('герой', 'party', { x: 14, y: 2 });
+    const d = decide(self, [self, hero], 1, undefined, 3, makeCtx(undefined, undefined, {}, { amp: NERVE_AMP, seed: 5 }));
+    expect(d.obeyed).toBeUndefined();
+  });
+
+  it('обычный приказ слушается примерно в 2 из 3 решений', () => {
+    const { obeyed, total } = sample();
+    expect(obeyed / total).toBeGreaterThan(2 / 3 - 0.08);
+    expect(obeyed / total).toBeLessThan(2 / 3 + 0.08);
+  });
+
+  it('фокус слушается примерно в 9 из 10 решений', () => {
+    const { obeyed, total } = sample(true);
+    expect(obeyed / total).toBeGreaterThan(0.9 - 0.06);
+  });
+
+  it('«прислушался» — идёт к врагу, «по-своему» — держится якоря', () => {
+    let toward = 0;
+    let back = 0;
+    for (let seed = 0; seed < 60; seed++) {
+      const { self, units } = scene();
+      const foePos = units[1]!.pos;
+      const d = decide(self, units, 1, undefined, 3, makeCtx(undefined, undefined, {}, { amp: NERVE_AMP, seed }));
+      const before = Math.max(Math.abs(self.pos.x - foePos.x), Math.abs(self.pos.y - foePos.y));
+      const after = Math.max(Math.abs(d.chosen.to.x - foePos.x), Math.abs(d.chosen.to.y - foePos.y));
+      if (d.obeyed && after < before) toward++;
+      if (!d.obeyed && after >= before) back++;
+    }
+    // послушные решения двигают к цели приказа, своевольные — нет
+    expect(toward).toBeGreaterThan(20);
+    expect(back).toBeGreaterThan(5);
+  });
+
+  it('бросок послушания детерминирован сидом', () => {
+    const one = (seed: number): boolean | undefined => {
+      const { self, units } = scene();
+      return decide(self, units, 1, undefined, 3, makeCtx(undefined, undefined, {}, { amp: NERVE_AMP, seed })).obeyed;
+    };
+    expect(one(7)).toBe(one(7));
+  });
+});
+
 describe('нерв: фокус на приказе', () => {
   it('важность «фокус» поднимает вес и метит правило', () => {
     const draft = {

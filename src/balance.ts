@@ -124,6 +124,9 @@ const FIGHT_KINDS: NodeKind[] = ['lesson', 'fight', 'elite', 'boss'];
 export function playBotRun(runSeed: number): RunOutcome {
   const pathRng = mulberry32(runSeed * 7919 + 3);
   const state = startRun(runSeed);
+  // база балансовых замеров живёт без нерва: включённый по умолчанию режим
+  // (startRun) здесь гасится явно, чтобы не сдвигать замеры всех планов
+  state.nerve = 0;
   const out: RunOutcome = {
     runSeed,
     won: false,

@@ -1,4 +1,4 @@
-import type { Condition, LensMark, Rule } from './ir.js';
+import { type Condition, type LensMark, type Rule, isPlayerRule } from './ir.js';
 import type { ActionKind, LensId } from './types.js';
 import { type Rng, mix, mixStr, shuffle } from './rng.js';
 
@@ -887,9 +887,7 @@ function applyOne(lens: LensId, rules: Rule[], pick?: LensPick): { rules: Rule[]
       // выбор не сдвигает расстановку, а карточка воспроизводит его по сиду
       const out = rules.slice();
       if (pick) {
-        const own = out
-          .map((r, i) => [r, i] as const)
-          .filter(([r]) => !r.marks?.some((m) => m.kind === 'instinct'));
+        const own = out.map((r, i) => [r, i] as const).filter(([r]) => isPlayerRule(r));
         if (own.length) {
           const h = mixStr(mix(pick.seed >>> 0, 0x0bd571ff), pick.unitId);
           const [fav, at] = own[h % own.length]!;
