@@ -147,6 +147,8 @@ let logOpen = false;
 
 /** Раскрытая строка свитка («почему так») — одновременно раскрыта одна. */
 let logRow: number | null = null;
+/** Выключенные участники в свитке — их строки спрятаны; пустое множество = все видны. */
+let logHidden = new Set<string>();
 /** Карточка юнита (герой или враг) — по клику на фишку или имя в реестре. */
 let unitCardId: string | null = null;
 /** Вкладка правой страницы похода: строй или реестр павших (спека «Наш отряд»). */
@@ -1375,6 +1377,7 @@ function startBattle(): void {
   aftermathOpen = false;
   editorOpen = false;
   logOpen = false;
+  logHidden = new Set();
   unitCardId = null;
   ordersDirty = false;
   prepOpen = false;
@@ -3786,10 +3789,24 @@ function battleLogHtml(): string {
   if (!battle) return '';
   const node = currentNode(run);
   const deadline = nodeDeadline(node);
+  // участники — все, кто принимал решения, в порядке первого появления: сперва свои, потом враги
+  const actors = new Map<string, { name: string; side: Side | undefined }>();
+  frames.forEach((f, i) => {
+    if (i > 0 && !actors.has(f.actorId)) {
+      actors.set(f.actorId, { name: f.actorName, side: f.units.find((u) => u.id === f.actorId)?.side });
+    }
+  });
+  const chips = [...actors]
+    .sort((a, b) => Number(b[1].side === 'party') - Number(a[1].side === 'party'))
+    .map(
+      ([id, a]) =>
+        `<span class="chip lf-chip ${logHidden.has(id) ? 'off' : a.side === 'party' ? 'ink' : 'line'}" data-action="log-filter" data-unit="${esc(id)}">${esc(a.name)}</span>`,
+    )
+    .join('');
   const rows: string[] = [];
   let round = 0;
   frames.forEach((f, i) => {
-    if (i === 0) return;
+    if (i === 0 || logHidden.has(f.actorId)) return;
     if (f.round !== round) {
       round = f.round;
       rows.push(`<div class="log-round">
@@ -3818,6 +3835,10 @@ function battleLogHtml(): string {
       <span class="title">Свиток боя</span>
       <span class="meta">seed ${run.runSeed} · ${frames.length - 1} решений</span>
       ${deadline ? `<span class="chip red" style="margin-left:auto">раунд ${cur.round} из ${deadline}</span>` : ''}
+    </div>
+    <div class="log-filter">
+      <span class="lf-t">участники</span>${chips}
+      ${logHidden.size ? '<span class="lf-all" data-action="log-filter-all">показать всех</span>' : ''}
     </div>
     <div class="log-scroll">${rows.join('')}
       <div class="log-end">исход: ${outcome} · раундов: ${battle.rounds}</div>
@@ -4200,6 +4221,17 @@ function bind(): void {
           break;
         case 'close-log':
           logOpen = false;
+          render();
+          break;
+        case 'log-filter': {
+          const id = el.dataset.unit!;
+          if (logHidden.has(id)) logHidden.delete(id);
+          else logHidden.add(id);
+          render();
+          break;
+        }
+        case 'log-filter-all':
+          logHidden = new Set();
           render();
           break;
         case 'edit-set': {

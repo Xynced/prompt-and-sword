@@ -1372,6 +1372,11 @@ textarea.intent-text:focus { outline: none; border-color: var(--red); }
 .bag-row .hand { font: 400 14px/1.2 var(--hand); }
 .card-body.bag .hand.note { font: 400 14px/1.35 var(--hand); color: var(--ink-55); }
 .battle-log { width: 620px; height: 94%; }
+.log-filter { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; flex: none; padding-bottom: 6px; }
+.lf-t { font: 400 9px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: rgba(31, 27, 22, 0.4); margin-right: 2px; }
+.lf-chip { cursor: pointer; user-select: none; }
+.lf-chip.off { border: 1px dashed var(--ink-30); color: rgba(31, 27, 22, 0.4); text-decoration: line-through; }
+.lf-all { font: 400 14px/1 var(--hand); color: var(--red); cursor: pointer; margin-left: 4px; }
 .log-scroll {
   flex: 1;
   min-height: 0;
